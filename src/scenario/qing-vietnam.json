@@ -1,0 +1,28 @@
+{
+  "id": "qing-vietnam-1820",
+  "name": "清越边境",
+  "startDate": "1820-01-01",
+  "balanceNotes": "选州和初始归属沿用地图数据。按 GeoJSON 外环以 0.1 个原图坐标单位的容差核对，云南—广西、云南—东京、广西—东京、东京—安南各有连续贴合的州界。人口、产业、州容量、国库、政治科技、争端、征兵与军粮数值均为 Demo 平衡假设。国库以百分之一两计。",
+  "borderDispute": {
+    "targetStateId": "Tonkin", "compromiseBorders": 2, "recruitPercent": 25,
+    "supplyPercent": 35, "grainPerRecruit": 12, "strengthPerPoint": 20, "cessionProgress": 60
+  },
+  "countries": [
+    { "id": "country_01", "treasury": 1200000 },
+    { "id": "country_26", "treasury": 900000 }
+  ],
+  "states": [
+    { "id": "Yunnan", "name": "云南", "label": [937.7, 222.9], "population": 24000,
+      "neighbors": ["Guangxi", "Tonkin"], "grainTransport": 4000,
+      "capacity": { "grain": 4, "cloth": 3 }, "buildings": { "grain": 2, "cloth": 1 } },
+    { "id": "Guangxi", "name": "广西", "label": [966.0, 224.7], "population": 20000,
+      "neighbors": ["Yunnan", "Tonkin"], "grainTransport": 3800,
+      "capacity": { "grain": 4, "cloth": 3 }, "buildings": { "grain": 2, "cloth": 0 } },
+    { "id": "Tonkin", "name": "东京", "label": [952.0, 235.0], "population": 16000,
+      "neighbors": ["Yunnan", "Guangxi", "Annam"], "grainTransport": 1300,
+      "capacity": { "grain": 3, "cloth": 3 }, "buildings": { "grain": 1, "cloth": 1 } },
+    { "id": "Annam", "name": "安南", "label": [956.5, 250.0], "population": 14000,
+      "neighbors": ["Tonkin"], "grainTransport": 1800,
+      "capacity": { "grain": 4, "cloth": 2 }, "buildings": { "grain": 2, "cloth": 0 } }
+  ]
+}
