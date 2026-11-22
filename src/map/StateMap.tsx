@@ -10,6 +10,8 @@ import {
   countryColor,
   UNCLAIMED_COLOR,
 } from "./cartography.ts";
+import { capitals } from "./capitals.ts";
+import { stateLabelBox } from "./stateLabels.ts";
 import { hitState } from "./hitTest.ts";
 import {
   fitView,
@@ -19,6 +21,9 @@ import {
   resizeView,
   scaleOf,
   worldPoint,
+  MAP_WIDTH,
+  MAP_HEIGHT,
+  wrapX,
   zoomAt,
 } from "./viewport.ts";
 import type { Point } from "./viewport.ts";
@@ -28,6 +33,7 @@ interface Props {
   geometry: StateGeometry;
   game: GameState;
   selectedId: string | null;
+  preview: string | null;
   onSelect: (id: string) => void;
 }
 
@@ -67,30 +73,43 @@ async function mountMap(
     highlight = new Graphics();
   const edges = mapEdges(geometry);
   map.addChild(borders, names, highlight);
-  const label = new Text({
-    text: "",
-    style: {
-      fontFamily: "serif",
-      fontSize: 15,
-      fontWeight: "bold",
-      fill: "#352817",
-      stroke: { color: "#fff3d3", width: 4 },
-    },
+  const provinceLabels = Object.entries(geometry).map(([id, polygons]) => {
+    const text = new Text({
+      text: atlas[id].name,
+      resolution: Math.min(2, window.devicePixelRatio),
+      style: { fontFamily: "Microsoft YaHei, sans-serif", fontSize: 14,
+        fill: "#302d24", stroke: { color: "#f8f0da", width: 2 } },
+    });
+    text.anchor.set(0.5);
+    const height = text.height + 2;
+    const box = stateLabelBox(polygons, (text.width + 2) / height);
+    text.position.set(box.x, box.y);
+    text.visible = false;
+    map.addChild(text);
+    return { text, box, height };
   });
-  label.anchor.set(0.5, 1.3);
-  map.addChild(label);
   const gesture = new MapGesture(fitView(host.clientWidth, host.clientHeight));
   const nationTexts: { text: Text; size: number }[] = [];
   let focus: string | null = null;
+  let previewCountry: string | null = null;
+  function centerCapital(country: string) {
+    const point = capitals[country];
+    const view = gesture.view;
+    const baseScale = scaleOf({ ...view, zoom: 1 });
+    // Keep the capital centered even near a pole or on a tall phone screen.
+    const verticalRoom = Math.min(point.y, MAP_HEIGHT - point.y);
+    const zoom = Math.max(4, view.height / (2 * verticalRoom * baseScale));
+    gesture.setView(focusAt(view, point, zoom));
+  }
   const place = () => {
     const v = gesture.view,
       scale = scaleOf(v);
     map.scale.set(scale);
     map.position.set(v.x, v.y);
-    label.scale.set(1 / scale);
+
     for (const { text, size } of nationTexts) {
       const screenSize = size * scale;
-      text.visible = screenSize >= 9 || size >= 14;
+      text.visible = v.zoom < 3 && (screenSize >= 9 || size >= 14);
       text.scale.set(
         Math.max(size >= 14 ? 12 : 0, Math.min(66, screenSize)) / (64 * scale),
       );
@@ -98,35 +117,20 @@ async function mountMap(
     host.dataset.zoom = v.zoom.toFixed(3);
     host.dataset.offset = `${v.x.toFixed(2)},${v.y.toFixed(2)}`;
     canvas.style.cursor = gesture.pointers.size ? "grabbing" : "grab";
-    app.render();
+    const period = MAP_WIDTH * scale;
+    const first = Math.floor(-v.x / period);
+    const last = Math.ceil((v.width - v.x) / period) - 1;
+    for (let tile = first; tile <= last; tile++) {
+      map.x = v.x + tile * period;
+      for (const { text, box, height } of provinceLabels) {
+        const x = map.x + box.x * scale, y = v.y + box.y * scale;
+        text.visible = v.zoom >= 3 && box.height * scale >= height &&
+          x >= -80 && x <= v.width + 80 && y >= -12 && y <= v.height + 12;
+        if (text.visible) text.scale.set(1 / scale);
+      }
+      app.renderer.render({ container: app.stage, clear: tile === first });
+    }
   };
-  const controls = document.createElement("div");
-  controls.className = "map-navigation";
-  for (const [name, action] of [
-    [
-      "定位选中州",
-      () => {
-        if (focus) {
-          const [x, y] = atlas[focus].label;
-          gesture.setView(focusAt(gesture.view, { x, y }));
-          place();
-        }
-      },
-    ],
-    [
-      "全图",
-      () => {
-        gesture.setView(fitView(host.clientWidth, host.clientHeight));
-        place();
-      },
-    ],
-  ] as const) {
-    const button = document.createElement("button");
-    button.textContent = name;
-    button.onclick = action;
-    controls.appendChild(button);
-  }
-  host.appendChild(controls);
   const point = (e: PointerEvent | WheelEvent): Point => {
     const box = canvas.getBoundingClientRect();
     return { x: e.clientX - box.left, y: e.clientY - box.top };
@@ -149,8 +153,11 @@ async function mountMap(
       canvas.releasePointerCapture(e.pointerId);
     place();
     if (tap) {
-      const start = hitState(geometry, worldPoint(gesture.view, tap.start));
-      const end = hitState(geometry, worldPoint(gesture.view, tap.end));
+      const locate = (p: Point) => {
+        const { x, y } = worldPoint(gesture.view, p);
+        return hitState(geometry, { x: wrapX(x), y });
+      };
+      const start = locate(tap.start), end = locate(tap.end);
       if (start !== null && start === end) onSelect(start);
     }
   };
@@ -203,6 +210,7 @@ async function mountMap(
       height = host.clientHeight;
     app.renderer.resize(width, height);
     gesture.setView(resizeView(gesture.view, width, height));
+    if (previewCountry) centerCapital(previewCountry);
     place();
   });
   app.renderer.resize(host.clientWidth, host.clientHeight);
@@ -210,16 +218,25 @@ async function mountMap(
   let previousOwners: GameState["ownerByStateId"] | null = null,
     previousOccupation: string | null = null;
   return {
-    draw(game: GameState, selectedId: string | null) {
+    draw(game: GameState, selectedId: string | null, preview: string | null) {
       const d = game.borderDispute,
         occupation =
           d?.phase === "war" && d.progress >= 50 ? d.targetStateId : null;
       if (
         previousOwners === game.ownerByStateId &&
-        focus === selectedId &&
+        focus === selectedId && preview === previewCountry &&
         previousOccupation === occupation
       )
         return;
+      if (preview !== previewCountry && preview) {
+        centerCapital(preview);
+      }
+      if (previousOwners !== game.ownerByStateId || preview !== previewCountry) {
+        for (const [id, shape] of shapes) {
+          shape.tint = preview && game.ownerByStateId[id] !== preview ? 0x676b70 : 0xffffff;
+        }
+      }
+      previewCountry = preview;
       if (previousOwners !== game.ownerByStateId) {
         for (const [id, shape] of shapes) {
           const owner = game.ownerByStateId[id];
@@ -299,11 +316,6 @@ async function mountMap(
       focus = selectedId;
       previousOwners = game.ownerByStateId;
       previousOccupation = occupation;
-      label.visible = selectedId !== null;
-      if (selectedId) {
-        label.text = atlas[selectedId].name;
-        label.position.set(...atlas[selectedId].label);
-      }
       place();
     },
     destroy() {
@@ -318,7 +330,7 @@ async function mountMap(
       for (const id of gesture.pointers.keys())
         if (canvas.hasPointerCapture(id)) canvas.releasePointerCapture(id);
       gesture.pointers.clear();
-      controls.remove();
+
       app.destroy({ removeView: true }, { children: true });
     },
   };
@@ -328,16 +340,17 @@ export function StateMap({
   geometry,
   game,
   selectedId,
+  preview,
   onSelect,
 }: Props) {
   const host = useRef<HTMLDivElement>(null);
   const map = useRef<Awaited<ReturnType<typeof mountMap>>>(null);
-  const frame = useRef({ game, selectedId });
+  const frame = useRef({ game, selectedId, preview });
   const [error, setError] = useState<string>();
   useEffect(() => {
-    frame.current = { game, selectedId };
-    map.current?.draw(game, selectedId);
-  }, [game, selectedId]);
+    frame.current = { game, selectedId, preview };
+    map.current?.draw(game, selectedId, preview);
+  }, [game, selectedId, preview]);
   useEffect(() => {
     let disposed = false;
     void mountMap(host.current!, scenario, geometry, onSelect).then(
@@ -347,7 +360,7 @@ export function StateMap({
           return;
         }
         map.current = instance;
-        instance.draw(frame.current.game, frame.current.selectedId);
+        instance.draw(frame.current.game, frame.current.selectedId, frame.current.preview);
       },
       (error: unknown) => {
         if (!disposed)
@@ -375,19 +388,7 @@ export function StateMap({
         aria-label="世界政区地图"
         aria-describedby="map-help"
       />
-      <div className="map-cartouche" aria-hidden="true">
-        <span>王国史诗</span>
-        <strong>世界政区全图</strong>
-        <small>一八二〇年 · 政区舆图</small>
-      </div>
-      <div className="map-compass" aria-hidden="true">
-        北<br />
-        <b>✧</b>
-      </div>
-      <p className="map-help" id="map-help">
-        单指拖动 · 双指缩放 · 轻触选州
-        <span>鼠标滚轮 / 方向键 / ＋－ / Home</span>
-      </p>
+      <span className="sr-only" id="map-help">拖动平移，滚轮或双指缩放。键盘使用方向键、加减号和 Home。</span>
     </div>
   );
 }
