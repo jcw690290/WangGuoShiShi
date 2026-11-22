@@ -16,6 +16,7 @@ import {
 } from "../src/map/viewport.ts";
 import { hitState } from "../src/map/hitTest.ts";
 import { countryLabels, mapEdges, paperColor } from "../src/map/cartography.ts";
+import { parseGeometry } from "../src/map/geometry.ts";
 import type { StateGeometry } from "../src/map/geometry.ts";
 import { stateLabelBox } from "../src/map/stateLabels.ts";
 import { atlas, scenario } from "../src/scenario/scenario.ts";
@@ -134,24 +135,32 @@ test("夹紧边界后反向拖动立即跟手，不需走回越界距离", () =>
   assert.equal(g.up(1, { x: 9990, y: 9980 }), null);
 });
 
+test("地图载入时清理几乎重合的顶点，环绕边界的岛屿仍可点选", () => {
+  const data: unknown = JSON.parse(
+    readFileSync(new URL("../resources/victoria3_1820_states.geojson", import.meta.url), "utf8"),
+  );
+  const geo = parseGeometry(data, Object.keys(atlas));
+  for (const [id, polygons] of Object.entries(geo)) {
+    for (const polygon of polygons) for (const ring of polygon) {
+      assert.ok(ring.length >= 4, id);
+      assert.deepEqual(ring[0], ring.at(-1), id);
+      for (let i = 1; i < ring.length; i++) {
+        const [x, y] = ring[i], [previousX, previousY] = ring[i - 1];
+        assert.ok(Math.hypot(x - previousX, y - previousY) > 1e-8, id);
+      }
+    }
+  }
+  for (const id of ["Fiji", "Tonga", "Tahiti", "North_Island"]) {
+    const [x, y] = atlas[id].label;
+    assert.equal(hitState(geo, { x: wrapX(x + 1200), y }), id);
+  }
+});
+
 test("全图 660 个中文州名的文字框与 29 个国家标签锚点均在各自边界内", () => {
-  const features = JSON.parse(
-    readFileSync(
-      new URL("../resources/victoria3_1820_states.geojson", import.meta.url),
-      "utf8",
-    ),
-  ).features as {
-    properties: { id: string };
-    geometry: { type: string; coordinates: unknown };
-  }[];
-  const geo = Object.fromEntries(
-    features.map((f) => [
-      f.properties.id,
-      f.geometry.type === "Polygon"
-        ? [f.geometry.coordinates]
-        : f.geometry.coordinates,
-    ]),
-  ) as StateGeometry;
+  const data: unknown = JSON.parse(
+    readFileSync(new URL("../resources/victoria3_1820_states.geojson", import.meta.url), "utf8"),
+  );
+  const geo = parseGeometry(data, Object.keys(atlas));
   for (const [id, polygons] of Object.entries(geo)) {
     assert.match(atlas[id].name, /^\p{Script=Han}+$/u, id);
     const aspect = atlas[id].name.length;
