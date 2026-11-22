@@ -3,6 +3,7 @@ import type { ByGood } from "../game/industry.ts";
 import gameData from "../../resources/1820_game_data.json" with { type: "json" };
 import demoData from "./qing-vietnam.json" with { type: "json" };
 
+import stateNames from "./state-names.zh.json" with { type: "json" };
 import worldData from "./world-states.json" with { type: "json" };
 
 export interface Country {
@@ -124,7 +125,11 @@ const siteSchema = z.object({
   terrain: z.enum(["平原", "森林", "山地"]),
   coastal: z.boolean(),
 });
-export const atlas = z.record(z.string(), siteSchema).parse(worldData);
+export const atlas = z.record(z.string(), siteSchema).parse(
+  Object.fromEntries(Object.entries(worldData).map(([id, state]) => [
+    id, { ...state, name: (stateNames as Record<string, string>)[id] },
+  ])),
+);
 const countries = z
   .array(countrySchema.extend({ id: z.string(), stateCount: z.int().positive() }))
   .parse(gameData.countries);

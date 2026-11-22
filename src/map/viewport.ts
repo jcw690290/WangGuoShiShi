@@ -12,7 +12,7 @@ export interface Viewport {
 export const MAP_WIDTH = 1200,
   MAP_HEIGHT = 575;
 export const MIN_ZOOM = 1,
-  MAX_ZOOM = 16;
+  MAX_ZOOM = 128;
 export const scaleOf = (v: Viewport) =>
   Math.min(v.width / MAP_WIDTH, v.height / MAP_HEIGHT) * v.zoom;
 
@@ -24,7 +24,7 @@ export function constrain(v: Viewport): Viewport {
       : Math.max(size - mapSize, Math.min(0, offset));
   return {
     ...v,
-    x: axis(v.x, v.width, MAP_WIDTH * scale),
+    x: v.x,
     y: axis(v.y, v.height, MAP_HEIGHT * scale),
   };
 }
@@ -34,6 +34,10 @@ export function fitView(width: number, height: number): Viewport {
 export function worldPoint(v: Viewport, p: Point): Point {
   const scale = scaleOf(v);
   return { x: (p.x - v.x) / scale, y: (p.y - v.y) / scale };
+}
+// Convert any repeated copy to the original geometry for hit testing.
+export function wrapX(x: number) {
+  return ((x % MAP_WIDTH) + MAP_WIDTH) % MAP_WIDTH;
 }
 export function zoomAt(
   v: Viewport,

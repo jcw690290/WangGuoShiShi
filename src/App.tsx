@@ -1,4 +1,4 @@
-import { useEffect, useMemo, useState } from "react";
+import { useEffect, useMemo, useRef, useState } from "react";
 import { DiplomacyPanel } from "./DiplomacyPanel.tsx";
 import { EconomyPanel } from "./EconomyPanel.tsx";
 import { PoliticsPanel } from "./PoliticsPanel.tsx";
@@ -10,6 +10,7 @@ import { planWar } from "./game/diplomacy.ts";
 import { loadGame, saveGame } from "./game/storage.ts";
 import { CLAIM_COST, claimError } from "./game/territory.ts";
 import { StateMap } from "./map/StateMap.tsx";
+import { capitals } from "./map/capitals.ts";
 import { countryColor } from "./map/cartography.ts";
 import type { StateGeometry } from "./map/geometry.ts";
 import { atlas } from "./scenario/scenario.ts";
@@ -20,11 +21,14 @@ export function App({ scenario, geometry }: { scenario: Scenario; geometry: Stat
   const [game, setGame] = useState(() => createGame(scenario)),
     [selected, setSelected] = useState<string | null>(null);
   const [busy, setBusy] = useState(false),
-    [notice, setNotice] = useState("保存在当前浏览器");
+    [notice, setNotice] = useState("");
   const countries = Object.values(scenario.countries),
     [choice, setChoice] = useState(countries[0].id);
   const [span, setSpan] = useState<Span>("week"),
     [until, setUntil] = useState<number | null>(null);
+  const menu = useRef<HTMLDialogElement>(null);
+  const tabs = ["经济与人口", "政治与科技", "外交与战争"] as const;
+  const [tab, setTab] = useState<number>(0);
   const [search, setSearch] = useState("");
   const finished = isScenarioFinished(scenario, game),
     running = !finished && until !== null && game.elapsedDays < until,
@@ -69,6 +73,9 @@ export function App({ scenario, geometry }: { scenario: Scenario; geometry: Stat
     );
     return () => clearTimeout(timer);
   }, [running, until, span, game.elapsedDays, scenario]);
+  useEffect(() => {
+    if (finished && !menu.current!.open) menu.current!.showModal();
+  }, [finished]);
   async function slot(action: "save" | "load") {
     setBusy(true);
     try {
@@ -96,12 +103,7 @@ export function App({ scenario, geometry }: { scenario: Scenario; geometry: Stat
     <>
       <header className="masthead">
         <div className="masthead-inner">
-          <div className="brand">
-            <span className="seal" aria-hidden="true">
-              王
-            </span>
-            王国史诗
-          </div>
+          <div className="brand"><span className="seal" aria-hidden="true">万</span>万国史诗</div>
           <div className="time-controls">
             <span className="paused">{running ? "推进中" : "已暂停"}</span>
             <time dateTime={dateISO}>{dateFormat.format(date)}</time>
@@ -123,17 +125,42 @@ export function App({ scenario, geometry }: { scenario: Scenario; geometry: Stat
               {running ? "暂停" : "推进"}
             </button>
           </div>
+          <button className="menu-entry" aria-haspopup="dialog" onClick={() => menu.current!.showModal()}>政务菜单</button>
         </div>
       </header>
-      <main>
-        <header className="scenario-heading">
-          <h1>{scenario.name}</h1>
-          <p>
-            {countries.length} 个国家 · {Object.keys(atlas).length} 个州 ·{" "}
-            {Object.keys(atlas).length - Object.keys(game.ownerByStateId).length} 个无主州可占领
-            {scenario.endDate && ` · 剧本期限 ${dateFormat.format(new Date(scenario.endDate))}`}
-          </p>
+      <main className="map-workspace">
+        <StateMap scenario={scenario} geometry={geometry} game={game}
+          selectedId={player ? selected : null} preview={player ? null : choice} onSelect={setSelected} />
+        {!player && <aside className="country-picker">
+          <h1>选择国家</h1>
+          <div className="country-choices">
+            {countries.map(c => <button key={c.id} aria-pressed={c.id === choice}
+              onClick={() => setChoice(c.id)}>
+              <i className="swatch" style={{ background: countryColor(c) }} />{c.name}
+            </button>)}
+          </div>
+          <footer><small>首府 · {capitals[choice].name}</small>
+            <button className="advance" disabled={busy} onClick={() => {
+              setSelected(null); send({ type: "selectCountry", countryId: choice });
+            }}>开始执政</button>
+          </footer>
+        </aside>}
+        {player && selected && <button className="site-chip" onClick={() => {
+          setTab(0); menu.current!.showModal();
+        }}>{atlas[selected].name} · {owner ? scenario.countries[owner].name : "无主领土"} ›</button>}
+      </main>
+      <dialog className="government" ref={menu} aria-label="政务菜单">
+        <header className="menu-tabs">
+          {tabs.map((title, i) => <button key={title} aria-pressed={tab === i}
+            onClick={() => setTab(i)}>{title}</button>)}
+          <div className="slot-actions" role="group" aria-label="本地存档">
+            <button disabled={!player || locked} onClick={() => void slot("save")}>存档</button>
+            <button disabled={locked} onClick={() => void slot("load")}>读档</button>
+          </div>
+          <button className="close-menu" aria-label="关闭菜单" onClick={() => menu.current!.close()}>×</button>
         </header>
+        <p role="status" className="save-notice">{notice}</p>
+        <div className="menu-body">
         {finished && player && (
           <section className="panel scenario-result" aria-labelledby="result-title">
             <header className="panel-header">
@@ -156,76 +183,28 @@ export function App({ scenario, geometry }: { scenario: Scenario; geometry: Stat
             </div>
           </section>
         )}
-        <div className="workspace">
-          <section className="panel map-panel">
-            <header className="panel-header">
-              <h2>世界政区图</h2>
-              <span>单指拖动 · 双指缩放 · 轻触选州</span>
-            </header>
-            <StateMap
+          {player ? <>
+            {tab === 0 && <EconomyPanel
               scenario={scenario}
-              geometry={geometry}
               game={game}
-              selectedId={site}
-              onSelect={setSelected}
-            />
-            <div className="legend">
-              <span>
-                <i className="swatch" style={{ background: "#d6c599" }} />
-                无主领土
-              </span>
-              {site && (
-                <span>
-                  <i
-                    className="swatch"
-                    style={{ background: owner ? countryColor(scenario.countries[owner]) : "#d6c599" }}
-                  />
-                  {atlas[site].name} · {owner ? scenario.countries[owner].name : "无主领土"}
-                </span>
-              )}
-              <span>
-                地图改编自 <a href="https://www.mapchart.net/victoria-3.html">MapChart</a>
-                {" · "}<a href="https://creativecommons.org/licenses/by-sa/4.0/">CC BY-SA 4.0</a>
-              </span>
-            </div>
-          </section>
-          <aside className="sidebar">
-            <section className="panel">
-              <header className="panel-header">
-                <h2>{player ? "玩家国家" : "选择国家"}</h2>
-              </header>
-              <div className="control-block">
-                {player ? (
-                  <>
-                    <strong>{scenario.countries[player].name}</strong>
-                    <nav>
-                      <a href="#economy-title">经济与人口</a> · <a href="#politics-title">政治与科技</a> ·{" "}
-                      <a href="#diplomacy-title">外交与战争</a>
-                    </nav>
-                  </>
-                ) : (
-                  <>
-                    <select aria-label="开局国家" value={choice} onChange={(e) => setChoice(e.target.value)}>
-                      {countries.map((c) => (
-                        <option key={c.id} value={c.id}>
-                          {c.name}
-                        </option>
-                      ))}
-                    </select>
-                    <button
-                      className="build"
-                      disabled={busy}
-                      onClick={() => {
-                        setSelected(null);
-                        send({ type: "selectCountry", countryId: choice });
-                      }}
-                    >
-                      开始执政
-                    </button>
-                  </>
-                )}
-              </div>
-            </section>
+              playerId={player}
+              selectedId={owner ? site : null}
+              report={report}
+              busy={locked || finished}
+              send={send}
+            />}
+            {tab === 1 && <PoliticsPanel game={game} playerId={player} busy={locked || finished} send={send} />}
+            {tab === 2 && <DiplomacyPanel
+              scenario={scenario}
+              game={game}
+              playerId={player}
+              report={report}
+              busy={locked || finished}
+              send={send}
+              selectedId={owner ? site : null}
+            />}
+          </> : <p>选择国家并开始执政后可查看各项政务。</p>}
+          <div className="menu-tools">
             <section className="panel">
               <header className="panel-header">
                 <h2>查找州</h2>
@@ -273,48 +252,9 @@ export function App({ scenario, geometry }: { scenario: Scenario; geometry: Stat
                 )}
               </div>
             </section>
-            <section className="panel">
-              <header className="panel-header">
-                <h2>本地存档</h2>
-              </header>
-              <div className="save-controls">
-                <button disabled={!player || locked} onClick={() => void slot("save")}>
-                  存档
-                </button>
-                <button disabled={locked} onClick={() => void slot("load")}>
-                  读档
-                </button>
-              </div>
-              <p role="status" className="save-notice">
-                {notice}
-              </p>
-            </section>
-          </aside>
+          </div>
         </div>
-        {player && (
-          <>
-            <EconomyPanel
-              scenario={scenario}
-              game={game}
-              playerId={player}
-              selectedId={owner ? site : null}
-              report={report}
-              busy={locked || finished}
-              send={send}
-            />
-            <PoliticsPanel game={game} playerId={player} busy={locked || finished} send={send} />
-            <DiplomacyPanel
-              scenario={scenario}
-              game={game}
-              playerId={player}
-              report={report}
-              busy={locked || finished}
-              send={send}
-              selectedId={owner ? site : null}
-            />
-          </>
-        )}
-      </main>
+      </dialog>
     </>
   );
 }
