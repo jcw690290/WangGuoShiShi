@@ -99,6 +99,8 @@ export function parseSave(scenario: Scenario, save: unknown): GameState {
   }
   const sites = z.enum(Object.keys(scenario.states)),
     countries = z.enum(Object.keys(scenario.countries));
+  // A valid map ID is optional until claimed; enum-keyed records require every ID.
+  const activeSite = z.string().refine((id) => Object.hasOwn(scenario.states, id));
   const project = z.object({ stateId: sites, good: z.enum(projectTypes), weeksLeft: z.number().positive() });
   const schema = z
     .object({
@@ -108,17 +110,17 @@ export function parseSave(scenario: Scenario, save: unknown): GameState {
         elapsedDays: uint.max(Math.floor((8.64e15 - Date.parse(scenario.startDate)) / DAY_MS)),
         playerCountryId: countries,
         rng: uint.max(0xffffffff),
-        ownerByStateId: z.record(sites, countries),
+        ownerByStateId: z.record(activeSite, countries),
         stateEconomies: z.record(
-          sites,
+          activeSite,
           z.object({ population: z.int().positive(), buildings: goodsNumbers }),
         ),
         countryEconomies: z.record(countries, z.object({ treasury: cash, queue: z.array(project) })),
-        societies: z.record(sites, siteSocialSchema),
+        societies: z.record(activeSite, siteSocialSchema),
         nations: z.record(countries, nationSchema),
         borderDispute: disputeSchema.nullable(),
         lastEconomy: z
-          .object({ states: z.record(sites, siteReport), countries: z.record(countries, countryReport) })
+          .object({ states: z.record(activeSite, siteReport), countries: z.record(countries, countryReport) })
           .nullable(),
       }),
     })
@@ -128,6 +130,15 @@ export function parseSave(scenario: Scenario, save: unknown): GameState {
   function invalid(): never {
     throw new Error("存档中的人口、工程、外交或归属数据无效");
   }
+  const owned = Object.keys(state.ownerByStateId);
+  const sameSites = (record: object) =>
+    Object.keys(record).length === owned.length && owned.every((id) => Object.hasOwn(record, id));
+  if (
+    !sameSites(state.stateEconomies) ||
+    !sameSites(state.societies) ||
+    (state.lastEconomy !== null && !sameSites(state.lastEconomy.states)) ||
+    Object.values(scenario.states).some((s) => s.ownerId !== null && !Object.hasOwn(state.ownerByStateId, s.id))
+  ) invalid();
   for (const [id, n] of Object.entries(state.nations)) {
     if (
       (n.marketLeader &&

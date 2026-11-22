@@ -33,7 +33,8 @@ test("660 个地图 ID、544 个属州与全体 29 个可选国逐项对齐，�
   assert.equal(features.length, 660);
   assert.equal(Object.keys(atlas).length, 660);
   assert.deepEqual(Object.keys(atlas).sort(), features.map((f) => f.properties.id).sort());
-  assert.equal(Object.keys(scenario.states).length, 544);
+  assert.equal(Object.keys(scenario.states).length, 660);
+  assert.equal(Object.keys(createGame(scenario).ownerByStateId).length, 544);
   assert.equal(Object.keys(scenario.countries).length, 29);
   const g = createGame(scenario);
   for (const {

@@ -7,11 +7,13 @@ import { advancePolitics, applyPolitics, availableTech, politicsError } from "./
 import type { PoliticsCommand } from "./politics.ts";
 import { initSociety, techs, hash } from "./society.ts";
 import type { Nation, SiteSocial } from "./society.ts";
+import { applyClaim } from "./territory.ts";
 
 export interface GameState {
   elapsedDays: number;
   playerCountryId: string | null;
   rng: number;
+  // Only sovereign/claimed states have keys; unclaimed map states are absent.
   ownerByStateId: Record<string, string>;
   stateEconomies: Record<string, StateEconomy>;
   countryEconomies: Record<string, CountryEconomy>;
@@ -23,6 +25,7 @@ export interface GameState {
 export type Span = "day" | "week" | "halfYear";
 export type GameCommand =
   | { type: "selectCountry"; countryId: string }
+  | { type: "claimState"; stateId: string }
   | { type: "queueConstruction"; countryId: string; stateId: string; good: Building; privateBuild?: boolean }
   | { type: "advanceWeek" | "advanceDay" | "advanceHalfYear" }
   | PoliticsCommand
@@ -30,7 +33,8 @@ export type GameCommand =
 
 export function createGame(scenario: Scenario, seed = 1820): GameState {
   const social = initSociety(scenario),
-    countries = Object.values(scenario.countries);
+    countries = Object.values(scenario.countries),
+    owned = Object.values(scenario.states).filter((s) => s.ownerId !== null);
   // One pioneer per category. Seeded starting knowledge is a scenario balance assumption.
   if (countries.length >= 3)
     techs.slice(0, 3).forEach((tech, i) => {
@@ -43,9 +47,9 @@ export function createGame(scenario: Scenario, seed = 1820): GameState {
     ...social,
     lastEconomy: null,
     borderDispute: null,
-    ownerByStateId: Object.fromEntries(Object.values(scenario.states).map((s) => [s.id, s.ownerId])),
+    ownerByStateId: Object.fromEntries(owned.map((s) => [s.id, s.ownerId!])),
     stateEconomies: Object.fromEntries(
-      Object.values(scenario.states).map((s) => [
+      owned.map((s) => [
         s.id,
         { population: s.population, buildings: { ...s.buildings } },
       ]),
@@ -142,6 +146,8 @@ function applyCommand(
   }
   if (!state.playerCountryId) throw new Error("请先选择国家");
   switch (cmd.type) {
+    case "claimState":
+      return applyClaim(scenario, state, cmd.stateId);
     case "queueConstruction": {
       const { countryId: id, stateId, good, privateBuild } = cmd;
       const error = constructionError(scenario, state, id, stateId, good, privateBuild);

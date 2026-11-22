@@ -16,7 +16,7 @@ interface ScenarioState {
   id: string;
   name: string;
   label: [number, number];
-  ownerId: string;
+  ownerId: string | null;
   population: number;
   neighbors: string[];
   terrain?: "平原" | "森林" | "山地";
@@ -131,6 +131,7 @@ const countries = z
 const countryIds = new Set(countries.map((c) => c.id));
 if (
   countryIds.size !== countries.length ||
+  Object.keys(gameData.states).some((id) => !Object.hasOwn(atlas, id)) ||
   !Object.entries(atlas).every(
     ([id, site]) =>
       site.neighbors.every((other) => other !== id && atlas[other]?.neighbors.includes(id)) &&
@@ -158,17 +159,10 @@ export const scenario: Scenario = {
     ]),
   ),
   states: Object.fromEntries(
-    Object.entries(gameData.states).map(([id, { countryId }]) => {
-      if (!atlas[id] || !countryIds.has(countryId)) throw new Error("州归属无效：" + id);
-      return [
-        id,
-        {
-          ...atlas[id],
-          id,
-          ownerId: countryId,
-          neighbors: atlas[id].neighbors.filter((other) => Object.hasOwn(gameData.states, other)),
-        },
-      ];
+    Object.entries(atlas).map(([id, site]) => {
+      const source = sourceStates.get(id);
+      if (source && !countryIds.has(source.countryId)) throw new Error("州归属无效：" + id);
+      return [id, { ...site, id, ownerId: source ? source.countryId : null }];
     }),
   ),
 };
