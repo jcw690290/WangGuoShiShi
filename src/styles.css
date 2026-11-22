@@ -116,6 +116,9 @@ main {
 .scenario-heading {
   margin-bottom: 22px;
 }
+.scenario-result {
+  margin-bottom: 16px;
+}
 .scenario-heading h1 {
   font: bold clamp(31px, 5vw, 46px) var(--serif);
   letter-spacing: 0.1em;
