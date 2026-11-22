@@ -21,7 +21,7 @@ export function App({ scenario, geometry }: { scenario: Scenario; geometry: Stat
   const [game, setGame] = useState(() => createGame(scenario)),
     [selected, setSelected] = useState<string | null>(null);
   const [busy, setBusy] = useState(false),
-    [notice, setNotice] = useState("保存在当前浏览器");
+    [notice, setNotice] = useState("");
   const countries = Object.values(scenario.countries),
     [choice, setChoice] = useState(countries[0].id);
   const [span, setSpan] = useState<Span>("week"),
@@ -103,7 +103,7 @@ export function App({ scenario, geometry }: { scenario: Scenario; geometry: Stat
     <>
       <header className="masthead">
         <div className="masthead-inner">
-          <button className="menu-entry" aria-haspopup="dialog" onClick={() => menu.current!.showModal()}>政务菜单</button>
+          <div className="brand"><span className="seal" aria-hidden="true">万</span>万国史诗</div>
           <div className="time-controls">
             <span className="paused">{running ? "推进中" : "已暂停"}</span>
             <time dateTime={dateISO}>{dateFormat.format(date)}</time>
@@ -125,6 +125,7 @@ export function App({ scenario, geometry }: { scenario: Scenario; geometry: Stat
               {running ? "暂停" : "推进"}
             </button>
           </div>
+          <button className="menu-entry" aria-haspopup="dialog" onClick={() => menu.current!.showModal()}>政务菜单</button>
         </div>
       </header>
       <main className="map-workspace">
@@ -152,8 +153,13 @@ export function App({ scenario, geometry }: { scenario: Scenario; geometry: Stat
         <header className="menu-tabs">
           {tabs.map((title, i) => <button key={title} aria-pressed={tab === i}
             onClick={() => setTab(i)}>{title}</button>)}
+          <div className="slot-actions" role="group" aria-label="本地存档">
+            <button disabled={!player || locked} onClick={() => void slot("save")}>存档</button>
+            <button disabled={locked} onClick={() => void slot("load")}>读档</button>
+          </div>
           <button className="close-menu" aria-label="关闭菜单" onClick={() => menu.current!.close()}>×</button>
         </header>
+        <p role="status" className="save-notice">{notice}</p>
         <div className="menu-body">
         {finished && player && (
           <section className="panel scenario-result" aria-labelledby="result-title">
@@ -246,24 +252,7 @@ export function App({ scenario, geometry }: { scenario: Scenario; geometry: Stat
                 )}
               </div>
             </section>
-            <section className="panel">
-              <header className="panel-header">
-                <h2>本地存档</h2>
-              </header>
-              <div className="save-controls">
-                <button disabled={!player || locked} onClick={() => void slot("save")}>
-                  存档
-                </button>
-                <button disabled={locked} onClick={() => void slot("load")}>
-                  读档
-                </button>
-              </div>
-              <p role="status" className="save-notice">
-                {notice}
-              </p>
-            </section>
           </div>
-          <small>地图改编自 <a href="https://www.mapchart.net/victoria-3.html">MapChart</a> · <a href="https://creativecommons.org/licenses/by-sa/4.0/">CC BY-SA 4.0</a></small>
         </div>
       </dialog>
     </>

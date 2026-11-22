@@ -88,6 +88,15 @@ async function mountMap(
     map.addChild(text);
     return { text, box, height };
   });
+  const capitalMarkers = Object.keys(scenario.countries).map((id) => {
+    const { x, y } = capitals[id];
+    const marker = new Graphics()
+      .circle(0, 0, 7).fill("#56351f").stroke({ color: "#fff4cd", width: 1.5 })
+      .star(0, 0, 5, 5, 2.2).fill("#ffda81");
+    marker.position.set(x, y);
+    map.addChild(marker);
+    return { id, marker };
+  });
   const gesture = new MapGesture(fitView(host.clientWidth, host.clientHeight));
   const nationTexts: { text: Text; size: number }[] = [];
   let focus: string | null = null;
@@ -107,6 +116,11 @@ async function mountMap(
     map.scale.set(scale);
     map.position.set(v.x, v.y);
 
+    for (const { id, marker } of capitalMarkers) {
+      const emphasized = id === previewCountry;
+      marker.scale.set((emphasized ? 1.2 : v.zoom < 3 ? 0.68 : 0.85) / scale);
+      marker.alpha = previewCountry && !emphasized ? 0.65 : 1;
+    }
     for (const { text, size } of nationTexts) {
       const screenSize = size * scale;
       text.visible = v.zoom < 3 && (screenSize >= 9 || size >= 14);
@@ -388,7 +402,7 @@ export function StateMap({
         aria-label="世界政区地图"
         aria-describedby="map-help"
       />
-      <span className="sr-only" id="map-help">拖动平移，滚轮或双指缩放。键盘使用方向键、加减号和 Home。</span>
+      <span className="sr-only" id="map-help">星标表示首都。拖动平移，滚轮或双指缩放。键盘使用方向键、加减号和 Home。</span>
     </div>
   );
 }
