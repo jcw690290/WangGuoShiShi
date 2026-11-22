@@ -1,0 +1,2905 @@
+{
+  "scenario": "1820",
+  "mapSource": "MapChart Victoria 3 states",
+  "mapPage": "victoria-3",
+  "geometryIncluded": false,
+  "defaultColor": "#d1dbdd",
+  "countries": [
+    {
+      "id": "country_01",
+      "name": "清帝国",
+      "color": "#cc3333",
+      "stateCount": 46
+    },
+    {
+      "id": "country_02",
+      "name": "大不列颠联邦",
+      "color": "#0570b0",
+      "stateCount": 51
+    },
+    {
+      "id": "country_03",
+      "name": "奥斯曼帝国",
+      "color": "#5f4690",
+      "stateCount": 40
+    },
+    {
+      "id": "country_04",
+      "name": "法兰西帝国",
+      "color": "#810f7c",
+      "stateCount": 26
+    },
+    {
+      "id": "country_05",
+      "name": "西班牙帝国",
+      "color": "#ef6548",
+      "stateCount": 79
+    },
+    {
+      "id": "country_06",
+      "name": "葡萄牙帝国",
+      "color": "#238b45",
+      "stateCount": 28
+    },
+    {
+      "id": "country_07",
+      "name": "联合省共和国",
+      "color": "#edbb8a",
+      "stateCount": 19
+    },
+    {
+      "id": "country_08",
+      "name": "美利坚合众国",
+      "color": "#f781bf",
+      "stateCount": 43
+    },
+    {
+      "id": "country_09",
+      "name": "沙皇俄国",
+      "color": "#fdb462",
+      "stateCount": 82
+    },
+    {
+      "id": "country_10",
+      "name": "普鲁士帝国",
+      "color": "#ffff33",
+      "stateCount": 10
+    },
+    {
+      "id": "country_11",
+      "name": "奥地利帝国",
+      "color": "#99d8c9",
+      "stateCount": 25
+    },
+    {
+      "id": "country_12",
+      "name": "瑞士共和国",
+      "color": "#66c2a4",
+      "stateCount": 2
+    },
+    {
+      "id": "country_13",
+      "name": "巴伐利亚王国",
+      "color": "#41ae76",
+      "stateCount": 2
+    },
+    {
+      "id": "country_14",
+      "name": "汉诺威王国",
+      "color": "#006d2c",
+      "stateCount": 2
+    },
+    {
+      "id": "country_15",
+      "name": "丹麦挪威联合王国",
+      "color": "#045a8d",
+      "stateCount": 6
+    },
+    {
+      "id": "country_16",
+      "name": "瑞典王国",
+      "color": "#3690c0",
+      "stateCount": 4
+    },
+    {
+      "id": "country_17",
+      "name": "德意志诸邦联",
+      "color": "#023858",
+      "stateCount": 7
+    },
+    {
+      "id": "country_18",
+      "name": "撒丁王国",
+      "color": "#00441b",
+      "stateCount": 2
+    },
+    {
+      "id": "country_19",
+      "name": "西西里王国",
+      "color": "#a6bddb",
+      "stateCount": 5
+    },
+    {
+      "id": "country_20",
+      "name": "教皇国",
+      "color": "#74a9cf",
+      "stateCount": 4
+    },
+    {
+      "id": "country_21",
+      "name": "希腊王国",
+      "color": "#8c96c6",
+      "stateCount": 7
+    },
+    {
+      "id": "country_22",
+      "name": "伊朗王国",
+      "color": "#38a6a5",
+      "stateCount": 12
+    },
+    {
+      "id": "country_23",
+      "name": "阿拉伯诸酋长国",
+      "color": "#0f8554",
+      "stateCount": 5
+    },
+    {
+      "id": "country_24",
+      "name": "缅甸贡榜王朝",
+      "color": "#73af48",
+      "stateCount": 4
+    },
+    {
+      "id": "country_25",
+      "name": "暹罗",
+      "color": "#edad08",
+      "stateCount": 3
+    },
+    {
+      "id": "country_26",
+      "name": "越南阮朝",
+      "color": "#e17c05",
+      "stateCount": 5
+    },
+    {
+      "id": "country_27",
+      "name": "莫卧儿帝国诸土邦",
+      "color": "#b3de69",
+      "stateCount": 12
+    },
+    {
+      "id": "country_28",
+      "name": "朝鲜",
+      "color": "#4393c3",
+      "stateCount": 5
+    },
+    {
+      "id": "country_29",
+      "name": "日本德川幕府",
+      "color": "#2166ac",
+      "stateCount": 8
+    }
+  ],
+  "states": {
+    "Guangdong": {
+      "countryId": "country_01",
+      "countryName": "清帝国",
+      "color": "#cc3333"
+    },
+    "Jetisy": {
+      "countryId": "country_01",
+      "countryName": "清帝国",
+      "color": "#cc3333"
+    },
+    "Dzungaria": {
+      "countryId": "country_01",
+      "countryName": "清帝国",
+      "color": "#cc3333"
+    },
+    "Kirghizia": {
+      "countryId": "country_01",
+      "countryName": "清帝国",
+      "color": "#cc3333"
+    },
+    "Uliastai": {
+      "countryId": "country_01",
+      "countryName": "清帝国",
+      "color": "#cc3333"
+    },
+    "Tuva": {
+      "countryId": "country_01",
+      "countryName": "清帝国",
+      "color": "#cc3333"
+    },
+    "Urga": {
+      "countryId": "country_01",
+      "countryName": "清帝国",
+      "color": "#cc3333"
+    },
+    "Northern_Manchuria": {
+      "countryId": "country_01",
+      "countryName": "清帝国",
+      "color": "#cc3333"
+    },
+    "Amur": {
+      "countryId": "country_01",
+      "countryName": "清帝国",
+      "color": "#cc3333"
+    },
+    "Outer_Manchuria": {
+      "countryId": "country_01",
+      "countryName": "清帝国",
+      "color": "#cc3333"
+    },
+    "Sakhalin": {
+      "countryId": "country_01",
+      "countryName": "清帝国",
+      "color": "#cc3333"
+    },
+    "Tianshan": {
+      "countryId": "country_01",
+      "countryName": "清帝国",
+      "color": "#cc3333"
+    },
+    "Ngari": {
+      "countryId": "country_01",
+      "countryName": "清帝国",
+      "color": "#cc3333"
+    },
+    "Lhasa": {
+      "countryId": "country_01",
+      "countryName": "清帝国",
+      "color": "#cc3333"
+    },
+    "Qinghai": {
+      "countryId": "country_01",
+      "countryName": "清帝国",
+      "color": "#cc3333"
+    },
+    "Gansu": {
+      "countryId": "country_01",
+      "countryName": "清帝国",
+      "color": "#cc3333"
+    },
+    "Alxa": {
+      "countryId": "country_01",
+      "countryName": "清帝国",
+      "color": "#cc3333"
+    },
+    "Sichuan": {
+      "countryId": "country_01",
+      "countryName": "清帝国",
+      "color": "#cc3333"
+    },
+    "Yunnan": {
+      "countryId": "country_01",
+      "countryName": "清帝国",
+      "color": "#cc3333"
+    },
+    "Guangxi": {
+      "countryId": "country_01",
+      "countryName": "清帝国",
+      "color": "#cc3333"
+    },
+    "Jiangxi": {
+      "countryId": "country_01",
+      "countryName": "清帝国",
+      "color": "#cc3333"
+    },
+    "Fujian": {
+      "countryId": "country_01",
+      "countryName": "清帝国",
+      "color": "#cc3333"
+    },
+    "Zhejiang": {
+      "countryId": "country_01",
+      "countryName": "清帝国",
+      "color": "#cc3333"
+    },
+    "Suzhou": {
+      "countryId": "country_01",
+      "countryName": "清帝国",
+      "color": "#cc3333"
+    },
+    "Shaozhou": {
+      "countryId": "country_01",
+      "countryName": "清帝国",
+      "color": "#cc3333"
+    },
+    "Formosa": {
+      "countryId": "country_01",
+      "countryName": "清帝国",
+      "color": "#cc3333"
+    },
+    "Jiangsu": {
+      "countryId": "country_01",
+      "countryName": "清帝国",
+      "color": "#cc3333"
+    },
+    "Southern_Manchuria": {
+      "countryId": "country_01",
+      "countryName": "清帝国",
+      "color": "#cc3333"
+    },
+    "Hinggan": {
+      "countryId": "country_01",
+      "countryName": "清帝国",
+      "color": "#cc3333"
+    },
+    "Beijing": {
+      "countryId": "country_01",
+      "countryName": "清帝国",
+      "color": "#cc3333"
+    },
+    "Shanxi": {
+      "countryId": "country_01",
+      "countryName": "清帝国",
+      "color": "#cc3333"
+    },
+    "Xian": {
+      "countryId": "country_01",
+      "countryName": "清帝国",
+      "color": "#cc3333"
+    },
+    "Ningxia": {
+      "countryId": "country_01",
+      "countryName": "清帝国",
+      "color": "#cc3333"
+    },
+    "Chongqing": {
+      "countryId": "country_01",
+      "countryName": "清帝国",
+      "color": "#cc3333"
+    },
+    "Guizhou": {
+      "countryId": "country_01",
+      "countryName": "清帝国",
+      "color": "#cc3333"
+    },
+    "Western_Hubei": {
+      "countryId": "country_01",
+      "countryName": "清帝国",
+      "color": "#cc3333"
+    },
+    "Henan": {
+      "countryId": "country_01",
+      "countryName": "清帝国",
+      "color": "#cc3333"
+    },
+    "Zhili": {
+      "countryId": "country_01",
+      "countryName": "清帝国",
+      "color": "#cc3333"
+    },
+    "Shandong": {
+      "countryId": "country_01",
+      "countryName": "清帝国",
+      "color": "#cc3333"
+    },
+    "Shengjing": {
+      "countryId": "country_01",
+      "countryName": "清帝国",
+      "color": "#cc3333"
+    },
+    "Northern_Anhui": {
+      "countryId": "country_01",
+      "countryName": "清帝国",
+      "color": "#cc3333"
+    },
+    "Eastern_Hubei": {
+      "countryId": "country_01",
+      "countryName": "清帝国",
+      "color": "#cc3333"
+    },
+    "Hunan": {
+      "countryId": "country_01",
+      "countryName": "清帝国",
+      "color": "#cc3333"
+    },
+    "Southern_Anhui": {
+      "countryId": "country_01",
+      "countryName": "清帝国",
+      "color": "#cc3333"
+    },
+    "Nanjing": {
+      "countryId": "country_01",
+      "countryName": "清帝国",
+      "color": "#cc3333"
+    },
+    "Altai": {
+      "countryId": "country_01",
+      "countryName": "清帝国",
+      "color": "#cc3333"
+    },
+    "Ceylon": {
+      "countryId": "country_02",
+      "countryName": "大不列颠联邦",
+      "color": "#0570b0"
+    },
+    "Madras": {
+      "countryId": "country_02",
+      "countryName": "大不列颠联邦",
+      "color": "#0570b0"
+    },
+    "Mysore": {
+      "countryId": "country_02",
+      "countryName": "大不列颠联邦",
+      "color": "#0570b0"
+    },
+    "Andhra": {
+      "countryId": "country_02",
+      "countryName": "大不列颠联邦",
+      "color": "#0570b0"
+    },
+    "Travancore": {
+      "countryId": "country_02",
+      "countryName": "大不列颠联邦",
+      "color": "#0570b0"
+    },
+    "Bombay": {
+      "countryId": "country_02",
+      "countryName": "大不列颠联邦",
+      "color": "#0570b0"
+    },
+    "Orissa": {
+      "countryId": "country_02",
+      "countryName": "大不列颠联邦",
+      "color": "#0570b0"
+    },
+    "Bihar": {
+      "countryId": "country_02",
+      "countryName": "大不列颠联邦",
+      "color": "#0570b0"
+    },
+    "Delhi": {
+      "countryId": "country_02",
+      "countryName": "大不列颠联邦",
+      "color": "#0570b0"
+    },
+    "North_Bengal": {
+      "countryId": "country_02",
+      "countryName": "大不列颠联邦",
+      "color": "#0570b0"
+    },
+    "South_Bengal": {
+      "countryId": "country_02",
+      "countryName": "大不列颠联邦",
+      "color": "#0570b0"
+    },
+    "Assam": {
+      "countryId": "country_02",
+      "countryName": "大不列颠联邦",
+      "color": "#0570b0"
+    },
+    "Tenasserim": {
+      "countryId": "country_02",
+      "countryName": "大不列颠联邦",
+      "color": "#0570b0"
+    },
+    "Awadh": {
+      "countryId": "country_02",
+      "countryName": "大不列颠联邦",
+      "color": "#0570b0"
+    },
+    "Victoria": {
+      "countryId": "country_02",
+      "countryName": "大不列颠联邦",
+      "color": "#0570b0"
+    },
+    "New_South_Wales": {
+      "countryId": "country_02",
+      "countryName": "大不列颠联邦",
+      "color": "#0570b0"
+    },
+    "Tasmania": {
+      "countryId": "country_02",
+      "countryName": "大不列颠联邦",
+      "color": "#0570b0"
+    },
+    "North_Island": {
+      "countryId": "country_02",
+      "countryName": "大不列颠联邦",
+      "color": "#0570b0"
+    },
+    "South_Island": {
+      "countryId": "country_02",
+      "countryName": "大不列颠联邦",
+      "color": "#0570b0"
+    },
+    "Miranda": {
+      "countryId": "country_02",
+      "countryName": "大不列颠联邦",
+      "color": "#0570b0"
+    },
+    "Highlands": {
+      "countryId": "country_02",
+      "countryName": "大不列颠联邦",
+      "color": "#0570b0"
+    },
+    "Lowlands": {
+      "countryId": "country_02",
+      "countryName": "大不列颠联邦",
+      "color": "#0570b0"
+    },
+    "Yorkshire": {
+      "countryId": "country_02",
+      "countryName": "大不列颠联邦",
+      "color": "#0570b0"
+    },
+    "Midlands": {
+      "countryId": "country_02",
+      "countryName": "大不列颠联邦",
+      "color": "#0570b0"
+    },
+    "Home_Counties": {
+      "countryId": "country_02",
+      "countryName": "大不列颠联邦",
+      "color": "#0570b0"
+    },
+    "West_Country": {
+      "countryId": "country_02",
+      "countryName": "大不列颠联邦",
+      "color": "#0570b0"
+    },
+    "Wales": {
+      "countryId": "country_02",
+      "countryName": "大不列颠联邦",
+      "color": "#0570b0"
+    },
+    "East_Anglia": {
+      "countryId": "country_02",
+      "countryName": "大不列颠联邦",
+      "color": "#0570b0"
+    },
+    "Lancashire": {
+      "countryId": "country_02",
+      "countryName": "大不列颠联邦",
+      "color": "#0570b0"
+    },
+    "Leinster": {
+      "countryId": "country_02",
+      "countryName": "大不列颠联邦",
+      "color": "#0570b0"
+    },
+    "Ulster": {
+      "countryId": "country_02",
+      "countryName": "大不列颠联邦",
+      "color": "#0570b0"
+    },
+    "Connaught": {
+      "countryId": "country_02",
+      "countryName": "大不列颠联邦",
+      "color": "#0570b0"
+    },
+    "Munster": {
+      "countryId": "country_02",
+      "countryName": "大不列颠联邦",
+      "color": "#0570b0"
+    },
+    "Sierra_Leone": {
+      "countryId": "country_02",
+      "countryName": "大不列颠联邦",
+      "color": "#0570b0"
+    },
+    "Ghana": {
+      "countryId": "country_02",
+      "countryName": "大不列颠联邦",
+      "color": "#0570b0"
+    },
+    "Northern_Cape": {
+      "countryId": "country_02",
+      "countryName": "大不列颠联邦",
+      "color": "#0570b0"
+    },
+    "Cape_Colony": {
+      "countryId": "country_02",
+      "countryName": "大不列颠联邦",
+      "color": "#0570b0"
+    },
+    "Eastern_Cape": {
+      "countryId": "country_02",
+      "countryName": "大不列颠联邦",
+      "color": "#0570b0"
+    },
+    "Lourenco_Marques": {
+      "countryId": "country_02",
+      "countryName": "大不列颠联邦",
+      "color": "#0570b0"
+    },
+    "Vrystaat": {
+      "countryId": "country_02",
+      "countryName": "大不列颠联邦",
+      "color": "#0570b0"
+    },
+    "Yukon_Territory": {
+      "countryId": "country_02",
+      "countryName": "大不列颠联邦",
+      "color": "#0570b0"
+    },
+    "British_Columbia": {
+      "countryId": "country_02",
+      "countryName": "大不列颠联邦",
+      "color": "#0570b0"
+    },
+    "Alberta": {
+      "countryId": "country_02",
+      "countryName": "大不列颠联邦",
+      "color": "#0570b0"
+    },
+    "Saskatchewan": {
+      "countryId": "country_02",
+      "countryName": "大不列颠联邦",
+      "color": "#0570b0"
+    },
+    "Northwest_Territories": {
+      "countryId": "country_02",
+      "countryName": "大不列颠联邦",
+      "color": "#0570b0"
+    },
+    "Nunavut": {
+      "countryId": "country_02",
+      "countryName": "大不列颠联邦",
+      "color": "#0570b0"
+    },
+    "Quebec": {
+      "countryId": "country_02",
+      "countryName": "大不列颠联邦",
+      "color": "#0570b0"
+    },
+    "Ontario": {
+      "countryId": "country_02",
+      "countryName": "大不列颠联邦",
+      "color": "#0570b0"
+    },
+    "Manitoba": {
+      "countryId": "country_02",
+      "countryName": "大不列颠联邦",
+      "color": "#0570b0"
+    },
+    "Newfoundland": {
+      "countryId": "country_02",
+      "countryName": "大不列颠联邦",
+      "color": "#0570b0"
+    },
+    "Yucatan": {
+      "countryId": "country_02",
+      "countryName": "大不列颠联邦",
+      "color": "#0570b0"
+    },
+    "Bosnia": {
+      "countryId": "country_03",
+      "countryName": "奥斯曼帝国",
+      "color": "#5f4690"
+    },
+    "Wallachia": {
+      "countryId": "country_03",
+      "countryName": "奥斯曼帝国",
+      "color": "#5f4690"
+    },
+    "Moldavia": {
+      "countryId": "country_03",
+      "countryName": "奥斯曼帝国",
+      "color": "#5f4690"
+    },
+    "Dobrudja": {
+      "countryId": "country_03",
+      "countryName": "奥斯曼帝国",
+      "color": "#5f4690"
+    },
+    "Bulgaria": {
+      "countryId": "country_03",
+      "countryName": "奥斯曼帝国",
+      "color": "#5f4690"
+    },
+    "Northern_Thrace": {
+      "countryId": "country_03",
+      "countryName": "奥斯曼帝国",
+      "color": "#5f4690"
+    },
+    "Western_Thrace": {
+      "countryId": "country_03",
+      "countryName": "奥斯曼帝国",
+      "color": "#5f4690"
+    },
+    "Skopia": {
+      "countryId": "country_03",
+      "countryName": "奥斯曼帝国",
+      "color": "#5f4690"
+    },
+    "Albania": {
+      "countryId": "country_03",
+      "countryName": "奥斯曼帝国",
+      "color": "#5f4690"
+    },
+    "Southern_Serbia": {
+      "countryId": "country_03",
+      "countryName": "奥斯曼帝国",
+      "color": "#5f4690"
+    },
+    "Montenegro": {
+      "countryId": "country_03",
+      "countryName": "奥斯曼帝国",
+      "color": "#5f4690"
+    },
+    "Eastern_Thrace": {
+      "countryId": "country_03",
+      "countryName": "奥斯曼帝国",
+      "color": "#5f4690"
+    },
+    "Macedonia": {
+      "countryId": "country_03",
+      "countryName": "奥斯曼帝国",
+      "color": "#5f4690"
+    },
+    "Konya": {
+      "countryId": "country_03",
+      "countryName": "奥斯曼帝国",
+      "color": "#5f4690"
+    },
+    "Aydin": {
+      "countryId": "country_03",
+      "countryName": "奥斯曼帝国",
+      "color": "#5f4690"
+    },
+    "Hudavendigar": {
+      "countryId": "country_03",
+      "countryName": "奥斯曼帝国",
+      "color": "#5f4690"
+    },
+    "Kastamonu": {
+      "countryId": "country_03",
+      "countryName": "奥斯曼帝国",
+      "color": "#5f4690"
+    },
+    "Ankara": {
+      "countryId": "country_03",
+      "countryName": "奥斯曼帝国",
+      "color": "#5f4690"
+    },
+    "Adana": {
+      "countryId": "country_03",
+      "countryName": "奥斯曼帝国",
+      "color": "#5f4690"
+    },
+    "Cyprus": {
+      "countryId": "country_03",
+      "countryName": "奥斯曼帝国",
+      "color": "#5f4690"
+    },
+    "Trabzon": {
+      "countryId": "country_03",
+      "countryName": "奥斯曼帝国",
+      "color": "#5f4690"
+    },
+    "Erzurum": {
+      "countryId": "country_03",
+      "countryName": "奥斯曼帝国",
+      "color": "#5f4690"
+    },
+    "Kars": {
+      "countryId": "country_03",
+      "countryName": "奥斯曼帝国",
+      "color": "#5f4690"
+    },
+    "Diyarbakir": {
+      "countryId": "country_03",
+      "countryName": "奥斯曼帝国",
+      "color": "#5f4690"
+    },
+    "Mosul": {
+      "countryId": "country_03",
+      "countryName": "奥斯曼帝国",
+      "color": "#5f4690"
+    },
+    "Baghdad": {
+      "countryId": "country_03",
+      "countryName": "奥斯曼帝国",
+      "color": "#5f4690"
+    },
+    "Urmia": {
+      "countryId": "country_03",
+      "countryName": "奥斯曼帝国",
+      "color": "#5f4690"
+    },
+    "Basra": {
+      "countryId": "country_03",
+      "countryName": "奥斯曼帝国",
+      "color": "#5f4690"
+    },
+    "Khuzestan": {
+      "countryId": "country_03",
+      "countryName": "奥斯曼帝国",
+      "color": "#5f4690"
+    },
+    "Deir_Ez_Zor": {
+      "countryId": "country_03",
+      "countryName": "奥斯曼帝国",
+      "color": "#5f4690"
+    },
+    "Aleppo": {
+      "countryId": "country_03",
+      "countryName": "奥斯曼帝国",
+      "color": "#5f4690"
+    },
+    "Syria": {
+      "countryId": "country_03",
+      "countryName": "奥斯曼帝国",
+      "color": "#5f4690"
+    },
+    "Transjordan": {
+      "countryId": "country_03",
+      "countryName": "奥斯曼帝国",
+      "color": "#5f4690"
+    },
+    "Hedjaz": {
+      "countryId": "country_03",
+      "countryName": "奥斯曼帝国",
+      "color": "#5f4690"
+    },
+    "Lebanon": {
+      "countryId": "country_03",
+      "countryName": "奥斯曼帝国",
+      "color": "#5f4690"
+    },
+    "Palestine": {
+      "countryId": "country_03",
+      "countryName": "奥斯曼帝国",
+      "color": "#5f4690"
+    },
+    "Tripoli": {
+      "countryId": "country_03",
+      "countryName": "奥斯曼帝国",
+      "color": "#5f4690"
+    },
+    "Libyan_Desert": {
+      "countryId": "country_03",
+      "countryName": "奥斯曼帝国",
+      "color": "#5f4690"
+    },
+    "Libya": {
+      "countryId": "country_03",
+      "countryName": "奥斯曼帝国",
+      "color": "#5f4690"
+    },
+    "Northern_Serbia": {
+      "countryId": "country_03",
+      "countryName": "奥斯曼帝国",
+      "color": "#5f4690"
+    },
+    "Brittany": {
+      "countryId": "country_04",
+      "countryName": "法兰西帝国",
+      "color": "#810f7c"
+    },
+    "Maine_Anjou": {
+      "countryId": "country_04",
+      "countryName": "法兰西帝国",
+      "color": "#810f7c"
+    },
+    "Normandy": {
+      "countryId": "country_04",
+      "countryName": "法兰西帝国",
+      "color": "#810f7c"
+    },
+    "Orleans": {
+      "countryId": "country_04",
+      "countryName": "法兰西帝国",
+      "color": "#810f7c"
+    },
+    "Ile_De_France": {
+      "countryId": "country_04",
+      "countryName": "法兰西帝国",
+      "color": "#810f7c"
+    },
+    "Picardy": {
+      "countryId": "country_04",
+      "countryName": "法兰西帝国",
+      "color": "#810f7c"
+    },
+    "Champagne": {
+      "countryId": "country_04",
+      "countryName": "法兰西帝国",
+      "color": "#810f7c"
+    },
+    "Burgundy": {
+      "countryId": "country_04",
+      "countryName": "法兰西帝国",
+      "color": "#810f7c"
+    },
+    "French_Low_Countries": {
+      "countryId": "country_04",
+      "countryName": "法兰西帝国",
+      "color": "#810f7c"
+    },
+    "Lorraine": {
+      "countryId": "country_04",
+      "countryName": "法兰西帝国",
+      "color": "#810f7c"
+    },
+    "Alsace_Lorraine": {
+      "countryId": "country_04",
+      "countryName": "法兰西帝国",
+      "color": "#810f7c"
+    },
+    "Savoy": {
+      "countryId": "country_04",
+      "countryName": "法兰西帝国",
+      "color": "#810f7c"
+    },
+    "Rhone": {
+      "countryId": "country_04",
+      "countryName": "法兰西帝国",
+      "color": "#810f7c"
+    },
+    "Franche_Comte": {
+      "countryId": "country_04",
+      "countryName": "法兰西帝国",
+      "color": "#810f7c"
+    },
+    "Provence": {
+      "countryId": "country_04",
+      "countryName": "法兰西帝国",
+      "color": "#810f7c"
+    },
+    "Languedoc": {
+      "countryId": "country_04",
+      "countryName": "法兰西帝国",
+      "color": "#810f7c"
+    },
+    "Aquitaine": {
+      "countryId": "country_04",
+      "countryName": "法兰西帝国",
+      "color": "#810f7c"
+    },
+    "Poitou": {
+      "countryId": "country_04",
+      "countryName": "法兰西帝国",
+      "color": "#810f7c"
+    },
+    "Auvergne_Limousin": {
+      "countryId": "country_04",
+      "countryName": "法兰西帝国",
+      "color": "#810f7c"
+    },
+    "Guyenne": {
+      "countryId": "country_04",
+      "countryName": "法兰西帝国",
+      "color": "#810f7c"
+    },
+    "Corsica": {
+      "countryId": "country_04",
+      "countryName": "法兰西帝国",
+      "color": "#810f7c"
+    },
+    "Oran": {
+      "countryId": "country_04",
+      "countryName": "法兰西帝国",
+      "color": "#810f7c"
+    },
+    "Algiers": {
+      "countryId": "country_04",
+      "countryName": "法兰西帝国",
+      "color": "#810f7c"
+    },
+    "Constantine": {
+      "countryId": "country_04",
+      "countryName": "法兰西帝国",
+      "color": "#810f7c"
+    },
+    "Senegal": {
+      "countryId": "country_04",
+      "countryName": "法兰西帝国",
+      "color": "#810f7c"
+    },
+    "Guayana": {
+      "countryId": "country_04",
+      "countryName": "法兰西帝国",
+      "color": "#810f7c"
+    },
+    "Castile": {
+      "countryId": "country_05",
+      "countryName": "西班牙帝国",
+      "color": "#ef6548"
+    },
+    "Navarra": {
+      "countryId": "country_05",
+      "countryName": "西班牙帝国",
+      "color": "#ef6548"
+    },
+    "Aragon": {
+      "countryId": "country_05",
+      "countryName": "西班牙帝国",
+      "color": "#ef6548"
+    },
+    "Catalonia": {
+      "countryId": "country_05",
+      "countryName": "西班牙帝国",
+      "color": "#ef6548"
+    },
+    "Toledo": {
+      "countryId": "country_05",
+      "countryName": "西班牙帝国",
+      "color": "#ef6548"
+    },
+    "Valencia": {
+      "countryId": "country_05",
+      "countryName": "西班牙帝国",
+      "color": "#ef6548"
+    },
+    "Granada": {
+      "countryId": "country_05",
+      "countryName": "西班牙帝国",
+      "color": "#ef6548"
+    },
+    "Andalusia": {
+      "countryId": "country_05",
+      "countryName": "西班牙帝国",
+      "color": "#ef6548"
+    },
+    "Badajoz": {
+      "countryId": "country_05",
+      "countryName": "西班牙帝国",
+      "color": "#ef6548"
+    },
+    "Asturias": {
+      "countryId": "country_05",
+      "countryName": "西班牙帝国",
+      "color": "#ef6548"
+    },
+    "Galicia": {
+      "countryId": "country_05",
+      "countryName": "西班牙帝国",
+      "color": "#ef6548"
+    },
+    "Fez": {
+      "countryId": "country_05",
+      "countryName": "西班牙帝国",
+      "color": "#ef6548"
+    },
+    "Marrakech": {
+      "countryId": "country_05",
+      "countryName": "西班牙帝国",
+      "color": "#ef6548"
+    },
+    "Al_Rif": {
+      "countryId": "country_05",
+      "countryName": "西班牙帝国",
+      "color": "#ef6548"
+    },
+    "California": {
+      "countryId": "country_05",
+      "countryName": "西班牙帝国",
+      "color": "#ef6548"
+    },
+    "Nevada": {
+      "countryId": "country_05",
+      "countryName": "西班牙帝国",
+      "color": "#ef6548"
+    },
+    "Utah": {
+      "countryId": "country_05",
+      "countryName": "西班牙帝国",
+      "color": "#ef6548"
+    },
+    "Colorado": {
+      "countryId": "country_05",
+      "countryName": "西班牙帝国",
+      "color": "#ef6548"
+    },
+    "New_Mexico": {
+      "countryId": "country_05",
+      "countryName": "西班牙帝国",
+      "color": "#ef6548"
+    },
+    "Texas": {
+      "countryId": "country_05",
+      "countryName": "西班牙帝国",
+      "color": "#ef6548"
+    },
+    "Rio_Grande": {
+      "countryId": "country_05",
+      "countryName": "西班牙帝国",
+      "color": "#ef6548"
+    },
+    "Arizona": {
+      "countryId": "country_05",
+      "countryName": "西班牙帝国",
+      "color": "#ef6548"
+    },
+    "Sonora": {
+      "countryId": "country_05",
+      "countryName": "西班牙帝国",
+      "color": "#ef6548"
+    },
+    "Baja_California": {
+      "countryId": "country_05",
+      "countryName": "西班牙帝国",
+      "color": "#ef6548"
+    },
+    "Sinaloa": {
+      "countryId": "country_05",
+      "countryName": "西班牙帝国",
+      "color": "#ef6548"
+    },
+    "Jalisco": {
+      "countryId": "country_05",
+      "countryName": "西班牙帝国",
+      "color": "#ef6548"
+    },
+    "Zacatecas": {
+      "countryId": "country_05",
+      "countryName": "西班牙帝国",
+      "color": "#ef6548"
+    },
+    "Bajio": {
+      "countryId": "country_05",
+      "countryName": "西班牙帝国",
+      "color": "#ef6548"
+    },
+    "Durango": {
+      "countryId": "country_05",
+      "countryName": "西班牙帝国",
+      "color": "#ef6548"
+    },
+    "Chihuahua": {
+      "countryId": "country_05",
+      "countryName": "西班牙帝国",
+      "color": "#ef6548"
+    },
+    "Mexico": {
+      "countryId": "country_05",
+      "countryName": "西班牙帝国",
+      "color": "#ef6548"
+    },
+    "Oaxaca": {
+      "countryId": "country_05",
+      "countryName": "西班牙帝国",
+      "color": "#ef6548"
+    },
+    "Chiapas": {
+      "countryId": "country_05",
+      "countryName": "西班牙帝国",
+      "color": "#ef6548"
+    },
+    "Guatemala": {
+      "countryId": "country_05",
+      "countryName": "西班牙帝国",
+      "color": "#ef6548"
+    },
+    "San_Salvador": {
+      "countryId": "country_05",
+      "countryName": "西班牙帝国",
+      "color": "#ef6548"
+    },
+    "Honduras": {
+      "countryId": "country_05",
+      "countryName": "西班牙帝国",
+      "color": "#ef6548"
+    },
+    "Guerrero": {
+      "countryId": "country_05",
+      "countryName": "西班牙帝国",
+      "color": "#ef6548"
+    },
+    "Veracruz": {
+      "countryId": "country_05",
+      "countryName": "西班牙帝国",
+      "color": "#ef6548"
+    },
+    "Nicaragua": {
+      "countryId": "country_05",
+      "countryName": "西班牙帝国",
+      "color": "#ef6548"
+    },
+    "Panama": {
+      "countryId": "country_05",
+      "countryName": "西班牙帝国",
+      "color": "#ef6548"
+    },
+    "Antioquia": {
+      "countryId": "country_05",
+      "countryName": "西班牙帝国",
+      "color": "#ef6548"
+    },
+    "Zulia": {
+      "countryId": "country_05",
+      "countryName": "西班牙帝国",
+      "color": "#ef6548"
+    },
+    "Costa_Rica": {
+      "countryId": "country_05",
+      "countryName": "西班牙帝国",
+      "color": "#ef6548"
+    },
+    "Guaviare": {
+      "countryId": "country_05",
+      "countryName": "西班牙帝国",
+      "color": "#ef6548"
+    },
+    "Cundinamarca": {
+      "countryId": "country_05",
+      "countryName": "西班牙帝国",
+      "color": "#ef6548"
+    },
+    "Cauca": {
+      "countryId": "country_05",
+      "countryName": "西班牙帝国",
+      "color": "#ef6548"
+    },
+    "Pastaza": {
+      "countryId": "country_05",
+      "countryName": "西班牙帝国",
+      "color": "#ef6548"
+    },
+    "Ecuador": {
+      "countryId": "country_05",
+      "countryName": "西班牙帝国",
+      "color": "#ef6548"
+    },
+    "Cajamarca": {
+      "countryId": "country_05",
+      "countryName": "西班牙帝国",
+      "color": "#ef6548"
+    },
+    "Lima": {
+      "countryId": "country_05",
+      "countryName": "西班牙帝国",
+      "color": "#ef6548"
+    },
+    "Ica": {
+      "countryId": "country_05",
+      "countryName": "西班牙帝国",
+      "color": "#ef6548"
+    },
+    "Arequipa": {
+      "countryId": "country_05",
+      "countryName": "西班牙帝国",
+      "color": "#ef6548"
+    },
+    "La_Paz": {
+      "countryId": "country_05",
+      "countryName": "西班牙帝国",
+      "color": "#ef6548"
+    },
+    "Acre": {
+      "countryId": "country_05",
+      "countryName": "西班牙帝国",
+      "color": "#ef6548"
+    },
+    "Potosi": {
+      "countryId": "country_05",
+      "countryName": "西班牙帝国",
+      "color": "#ef6548"
+    },
+    "Jujuy": {
+      "countryId": "country_05",
+      "countryName": "西班牙帝国",
+      "color": "#ef6548"
+    },
+    "Tucuman": {
+      "countryId": "country_05",
+      "countryName": "西班牙帝国",
+      "color": "#ef6548"
+    },
+    "Antofagasta": {
+      "countryId": "country_05",
+      "countryName": "西班牙帝国",
+      "color": "#ef6548"
+    },
+    "Santiago": {
+      "countryId": "country_05",
+      "countryName": "西班牙帝国",
+      "color": "#ef6548"
+    },
+    "Rio_Negro": {
+      "countryId": "country_05",
+      "countryName": "西班牙帝国",
+      "color": "#ef6548"
+    },
+    "Los_Rios": {
+      "countryId": "country_05",
+      "countryName": "西班牙帝国",
+      "color": "#ef6548"
+    },
+    "La_Pampa": {
+      "countryId": "country_05",
+      "countryName": "西班牙帝国",
+      "color": "#ef6548"
+    },
+    "Buenos_Aires": {
+      "countryId": "country_05",
+      "countryName": "西班牙帝国",
+      "color": "#ef6548"
+    },
+    "Santa_Fe": {
+      "countryId": "country_05",
+      "countryName": "西班牙帝国",
+      "color": "#ef6548"
+    },
+    "Tarapaca": {
+      "countryId": "country_05",
+      "countryName": "西班牙帝国",
+      "color": "#ef6548"
+    },
+    "Santa_Cruz": {
+      "countryId": "country_05",
+      "countryName": "西班牙帝国",
+      "color": "#ef6548"
+    },
+    "Chaco": {
+      "countryId": "country_05",
+      "countryName": "西班牙帝国",
+      "color": "#ef6548"
+    },
+    "Alto_Paraguay": {
+      "countryId": "country_05",
+      "countryName": "西班牙帝国",
+      "color": "#ef6548"
+    },
+    "Cuba": {
+      "countryId": "country_05",
+      "countryName": "西班牙帝国",
+      "color": "#ef6548"
+    },
+    "Bahamas": {
+      "countryId": "country_05",
+      "countryName": "西班牙帝国",
+      "color": "#ef6548"
+    },
+    "Jamaica": {
+      "countryId": "country_05",
+      "countryName": "西班牙帝国",
+      "color": "#ef6548"
+    },
+    "Haiti": {
+      "countryId": "country_05",
+      "countryName": "西班牙帝国",
+      "color": "#ef6548"
+    },
+    "Luzon": {
+      "countryId": "country_05",
+      "countryName": "西班牙帝国",
+      "color": "#ef6548"
+    },
+    "Visayas": {
+      "countryId": "country_05",
+      "countryName": "西班牙帝国",
+      "color": "#ef6548"
+    },
+    "Mindanao": {
+      "countryId": "country_05",
+      "countryName": "西班牙帝国",
+      "color": "#ef6548"
+    },
+    "Cabo_Verde": {
+      "countryId": "country_05",
+      "countryName": "西班牙帝国",
+      "color": "#ef6548"
+    },
+    "Azores": {
+      "countryId": "country_05",
+      "countryName": "西班牙帝国",
+      "color": "#ef6548"
+    },
+    "Madeira": {
+      "countryId": "country_05",
+      "countryName": "西班牙帝国",
+      "color": "#ef6548"
+    },
+    "Canary_Islands": {
+      "countryId": "country_05",
+      "countryName": "西班牙帝国",
+      "color": "#ef6548"
+    },
+    "Estremadura": {
+      "countryId": "country_06",
+      "countryName": "葡萄牙帝国",
+      "color": "#238b45"
+    },
+    "Beira": {
+      "countryId": "country_06",
+      "countryName": "葡萄牙帝国",
+      "color": "#238b45"
+    },
+    "Alentejo": {
+      "countryId": "country_06",
+      "countryName": "葡萄牙帝国",
+      "color": "#238b45"
+    },
+    "Gambia": {
+      "countryId": "country_06",
+      "countryName": "葡萄牙帝国",
+      "color": "#238b45"
+    },
+    "North_Angola": {
+      "countryId": "country_06",
+      "countryName": "葡萄牙帝国",
+      "color": "#238b45"
+    },
+    "South_Angola": {
+      "countryId": "country_06",
+      "countryName": "葡萄牙帝国",
+      "color": "#238b45"
+    },
+    "Mocambique": {
+      "countryId": "country_06",
+      "countryName": "葡萄牙帝国",
+      "color": "#238b45"
+    },
+    "Zambezia": {
+      "countryId": "country_06",
+      "countryName": "葡萄牙帝国",
+      "color": "#238b45"
+    },
+    "Para": {
+      "countryId": "country_06",
+      "countryName": "葡萄牙帝国",
+      "color": "#238b45"
+    },
+    "Amazonas": {
+      "countryId": "country_06",
+      "countryName": "葡萄牙帝国",
+      "color": "#238b45"
+    },
+    "Mato_Grosso": {
+      "countryId": "country_06",
+      "countryName": "葡萄牙帝国",
+      "color": "#238b45"
+    },
+    "Goias": {
+      "countryId": "country_06",
+      "countryName": "葡萄牙帝国",
+      "color": "#238b45"
+    },
+    "Sao_Paulo": {
+      "countryId": "country_06",
+      "countryName": "葡萄牙帝国",
+      "color": "#238b45"
+    },
+    "Parana": {
+      "countryId": "country_06",
+      "countryName": "葡萄牙帝国",
+      "color": "#238b45"
+    },
+    "Santa_Catarina": {
+      "countryId": "country_06",
+      "countryName": "葡萄牙帝国",
+      "color": "#238b45"
+    },
+    "Rio_Grande_Do_Sul": {
+      "countryId": "country_06",
+      "countryName": "葡萄牙帝国",
+      "color": "#238b45"
+    },
+    "Uruguay": {
+      "countryId": "country_06",
+      "countryName": "葡萄牙帝国",
+      "color": "#238b45"
+    },
+    "Corrientes": {
+      "countryId": "country_06",
+      "countryName": "葡萄牙帝国",
+      "color": "#238b45"
+    },
+    "Bajo_Paraguay": {
+      "countryId": "country_06",
+      "countryName": "葡萄牙帝国",
+      "color": "#238b45"
+    },
+    "Minas_Gerais": {
+      "countryId": "country_06",
+      "countryName": "葡萄牙帝国",
+      "color": "#238b45"
+    },
+    "Bahia": {
+      "countryId": "country_06",
+      "countryName": "葡萄牙帝国",
+      "color": "#238b45"
+    },
+    "Piaui": {
+      "countryId": "country_06",
+      "countryName": "葡萄牙帝国",
+      "color": "#238b45"
+    },
+    "Maranhao": {
+      "countryId": "country_06",
+      "countryName": "葡萄牙帝国",
+      "color": "#238b45"
+    },
+    "Rio_De_Janeiro": {
+      "countryId": "country_06",
+      "countryName": "葡萄牙帝国",
+      "color": "#238b45"
+    },
+    "Pernambuco": {
+      "countryId": "country_06",
+      "countryName": "葡萄牙帝国",
+      "color": "#238b45"
+    },
+    "Ceara": {
+      "countryId": "country_06",
+      "countryName": "葡萄牙帝国",
+      "color": "#238b45"
+    },
+    "Rio_Grande_Do_Norte": {
+      "countryId": "country_06",
+      "countryName": "葡萄牙帝国",
+      "color": "#238b45"
+    },
+    "Paraiba": {
+      "countryId": "country_06",
+      "countryName": "葡萄牙帝国",
+      "color": "#238b45"
+    },
+    "Holland": {
+      "countryId": "country_07",
+      "countryName": "联合省共和国",
+      "color": "#edbb8a"
+    },
+    "Gelre": {
+      "countryId": "country_07",
+      "countryName": "联合省共和国",
+      "color": "#edbb8a"
+    },
+    "Friesland": {
+      "countryId": "country_07",
+      "countryName": "联合省共和国",
+      "color": "#edbb8a"
+    },
+    "Bolivar": {
+      "countryId": "country_07",
+      "countryName": "联合省共和国",
+      "color": "#edbb8a"
+    },
+    "Aceh": {
+      "countryId": "country_07",
+      "countryName": "联合省共和国",
+      "color": "#edbb8a"
+    },
+    "North_Sumatra": {
+      "countryId": "country_07",
+      "countryName": "联合省共和国",
+      "color": "#edbb8a"
+    },
+    "South_Sumatra": {
+      "countryId": "country_07",
+      "countryName": "联合省共和国",
+      "color": "#edbb8a"
+    },
+    "West_Java": {
+      "countryId": "country_07",
+      "countryName": "联合省共和国",
+      "color": "#edbb8a"
+    },
+    "Central_Java": {
+      "countryId": "country_07",
+      "countryName": "联合省共和国",
+      "color": "#edbb8a"
+    },
+    "East_Java": {
+      "countryId": "country_07",
+      "countryName": "联合省共和国",
+      "color": "#edbb8a"
+    },
+    "Sunda_Islands": {
+      "countryId": "country_07",
+      "countryName": "联合省共和国",
+      "color": "#edbb8a"
+    },
+    "Celebes": {
+      "countryId": "country_07",
+      "countryName": "联合省共和国",
+      "color": "#edbb8a"
+    },
+    "East_Borneo": {
+      "countryId": "country_07",
+      "countryName": "联合省共和国",
+      "color": "#edbb8a"
+    },
+    "West_Borneo": {
+      "countryId": "country_07",
+      "countryName": "联合省共和国",
+      "color": "#edbb8a"
+    },
+    "North_Borneo": {
+      "countryId": "country_07",
+      "countryName": "联合省共和国",
+      "color": "#edbb8a"
+    },
+    "Moluccas": {
+      "countryId": "country_07",
+      "countryName": "联合省共和国",
+      "color": "#edbb8a"
+    },
+    "Western_New_Guinea": {
+      "countryId": "country_07",
+      "countryName": "联合省共和国",
+      "color": "#edbb8a"
+    },
+    "Flanders": {
+      "countryId": "country_07",
+      "countryName": "联合省共和国",
+      "color": "#edbb8a"
+    },
+    "Wallonia": {
+      "countryId": "country_07",
+      "countryName": "联合省共和国",
+      "color": "#edbb8a"
+    },
+    "Virginia": {
+      "countryId": "country_08",
+      "countryName": "美利坚合众国",
+      "color": "#f781bf"
+    },
+    "Maryland": {
+      "countryId": "country_08",
+      "countryName": "美利坚合众国",
+      "color": "#f781bf"
+    },
+    "Pennsylvania": {
+      "countryId": "country_08",
+      "countryName": "美利坚合众国",
+      "color": "#f781bf"
+    },
+    "New_York": {
+      "countryId": "country_08",
+      "countryName": "美利坚合众国",
+      "color": "#f781bf"
+    },
+    "Massachusetts": {
+      "countryId": "country_08",
+      "countryName": "美利坚合众国",
+      "color": "#f781bf"
+    },
+    "Vermont": {
+      "countryId": "country_08",
+      "countryName": "美利坚合众国",
+      "color": "#f781bf"
+    },
+    "New_Hampshire": {
+      "countryId": "country_08",
+      "countryName": "美利坚合众国",
+      "color": "#f781bf"
+    },
+    "Maine": {
+      "countryId": "country_08",
+      "countryName": "美利坚合众国",
+      "color": "#f781bf"
+    },
+    "New_Brunswick": {
+      "countryId": "country_08",
+      "countryName": "美利坚合众国",
+      "color": "#f781bf"
+    },
+    "Rhode_Island": {
+      "countryId": "country_08",
+      "countryName": "美利坚合众国",
+      "color": "#f781bf"
+    },
+    "Connecticut": {
+      "countryId": "country_08",
+      "countryName": "美利坚合众国",
+      "color": "#f781bf"
+    },
+    "New_Jersey": {
+      "countryId": "country_08",
+      "countryName": "美利坚合众国",
+      "color": "#f781bf"
+    },
+    "Delaware": {
+      "countryId": "country_08",
+      "countryName": "美利坚合众国",
+      "color": "#f781bf"
+    },
+    "North_Carolina": {
+      "countryId": "country_08",
+      "countryName": "美利坚合众国",
+      "color": "#f781bf"
+    },
+    "South_Carolina": {
+      "countryId": "country_08",
+      "countryName": "美利坚合众国",
+      "color": "#f781bf"
+    },
+    "Florida": {
+      "countryId": "country_08",
+      "countryName": "美利坚合众国",
+      "color": "#f781bf"
+    },
+    "Alabama": {
+      "countryId": "country_08",
+      "countryName": "美利坚合众国",
+      "color": "#f781bf"
+    },
+    "Mississippi": {
+      "countryId": "country_08",
+      "countryName": "美利坚合众国",
+      "color": "#f781bf"
+    },
+    "Louisiana": {
+      "countryId": "country_08",
+      "countryName": "美利坚合众国",
+      "color": "#f781bf"
+    },
+    "Georgia": {
+      "countryId": "country_08",
+      "countryName": "美利坚合众国",
+      "color": "#f781bf"
+    },
+    "West_Virginia": {
+      "countryId": "country_08",
+      "countryName": "美利坚合众国",
+      "color": "#f781bf"
+    },
+    "Ohio": {
+      "countryId": "country_08",
+      "countryName": "美利坚合众国",
+      "color": "#f781bf"
+    },
+    "Indiana": {
+      "countryId": "country_08",
+      "countryName": "美利坚合众国",
+      "color": "#f781bf"
+    },
+    "Michigan": {
+      "countryId": "country_08",
+      "countryName": "美利坚合众国",
+      "color": "#f781bf"
+    },
+    "Wisconsin": {
+      "countryId": "country_08",
+      "countryName": "美利坚合众国",
+      "color": "#f781bf"
+    },
+    "Minnesota": {
+      "countryId": "country_08",
+      "countryName": "美利坚合众国",
+      "color": "#f781bf"
+    },
+    "South_Dakota": {
+      "countryId": "country_08",
+      "countryName": "美利坚合众国",
+      "color": "#f781bf"
+    },
+    "North_Dakota": {
+      "countryId": "country_08",
+      "countryName": "美利坚合众国",
+      "color": "#f781bf"
+    },
+    "Montana": {
+      "countryId": "country_08",
+      "countryName": "美利坚合众国",
+      "color": "#f781bf"
+    },
+    "Idaho": {
+      "countryId": "country_08",
+      "countryName": "美利坚合众国",
+      "color": "#f781bf"
+    },
+    "Oregon": {
+      "countryId": "country_08",
+      "countryName": "美利坚合众国",
+      "color": "#f781bf"
+    },
+    "Washington": {
+      "countryId": "country_08",
+      "countryName": "美利坚合众国",
+      "color": "#f781bf"
+    },
+    "Wyoming": {
+      "countryId": "country_08",
+      "countryName": "美利坚合众国",
+      "color": "#f781bf"
+    },
+    "Nebraska": {
+      "countryId": "country_08",
+      "countryName": "美利坚合众国",
+      "color": "#f781bf"
+    },
+    "Kansas": {
+      "countryId": "country_08",
+      "countryName": "美利坚合众国",
+      "color": "#f781bf"
+    },
+    "Oklahoma": {
+      "countryId": "country_08",
+      "countryName": "美利坚合众国",
+      "color": "#f781bf"
+    },
+    "Arkansas": {
+      "countryId": "country_08",
+      "countryName": "美利坚合众国",
+      "color": "#f781bf"
+    },
+    "Missouri": {
+      "countryId": "country_08",
+      "countryName": "美利坚合众国",
+      "color": "#f781bf"
+    },
+    "Kentucky": {
+      "countryId": "country_08",
+      "countryName": "美利坚合众国",
+      "color": "#f781bf"
+    },
+    "Tennessee": {
+      "countryId": "country_08",
+      "countryName": "美利坚合众国",
+      "color": "#f781bf"
+    },
+    "Illinois": {
+      "countryId": "country_08",
+      "countryName": "美利坚合众国",
+      "color": "#f781bf"
+    },
+    "Iowa": {
+      "countryId": "country_08",
+      "countryName": "美利坚合众国",
+      "color": "#f781bf"
+    },
+    "Liberia": {
+      "countryId": "country_08",
+      "countryName": "美利坚合众国",
+      "color": "#f781bf"
+    },
+    "Kola": {
+      "countryId": "country_09",
+      "countryName": "沙皇俄国",
+      "color": "#fdb462"
+    },
+    "Kuopio": {
+      "countryId": "country_09",
+      "countryName": "沙皇俄国",
+      "color": "#fdb462"
+    },
+    "West_Karelia": {
+      "countryId": "country_09",
+      "countryName": "沙皇俄国",
+      "color": "#fdb462"
+    },
+    "Uusimaa": {
+      "countryId": "country_09",
+      "countryName": "沙皇俄国",
+      "color": "#fdb462"
+    },
+    "East_Karelia": {
+      "countryId": "country_09",
+      "countryName": "沙皇俄国",
+      "color": "#fdb462"
+    },
+    "Ostrobothnia": {
+      "countryId": "country_09",
+      "countryName": "沙皇俄国",
+      "color": "#fdb462"
+    },
+    "Ingria": {
+      "countryId": "country_09",
+      "countryName": "沙皇俄国",
+      "color": "#fdb462"
+    },
+    "Talinn": {
+      "countryId": "country_09",
+      "countryName": "沙皇俄国",
+      "color": "#fdb462"
+    },
+    "Tartu": {
+      "countryId": "country_09",
+      "countryName": "沙皇俄国",
+      "color": "#fdb462"
+    },
+    "Riga": {
+      "countryId": "country_09",
+      "countryName": "沙皇俄国",
+      "color": "#fdb462"
+    },
+    "Courland": {
+      "countryId": "country_09",
+      "countryName": "沙皇俄国",
+      "color": "#fdb462"
+    },
+    "Kaunas": {
+      "countryId": "country_09",
+      "countryName": "沙皇俄国",
+      "color": "#fdb462"
+    },
+    "Vilnius": {
+      "countryId": "country_09",
+      "countryName": "沙皇俄国",
+      "color": "#fdb462"
+    },
+    "Brest": {
+      "countryId": "country_09",
+      "countryName": "沙皇俄国",
+      "color": "#fdb462"
+    },
+    "Mazovia": {
+      "countryId": "country_09",
+      "countryName": "沙皇俄国",
+      "color": "#fdb462"
+    },
+    "Lesser_Poland": {
+      "countryId": "country_09",
+      "countryName": "沙皇俄国",
+      "color": "#fdb462"
+    },
+    "Greater_Poland": {
+      "countryId": "country_09",
+      "countryName": "沙皇俄国",
+      "color": "#fdb462"
+    },
+    "Galich": {
+      "countryId": "country_09",
+      "countryName": "沙皇俄国",
+      "color": "#fdb462"
+    },
+    "Kiev": {
+      "countryId": "country_09",
+      "countryName": "沙皇俄国",
+      "color": "#fdb462"
+    },
+    "Cherson": {
+      "countryId": "country_09",
+      "countryName": "沙皇俄国",
+      "color": "#fdb462"
+    },
+    "Bessarabia": {
+      "countryId": "country_09",
+      "countryName": "沙皇俄国",
+      "color": "#fdb462"
+    },
+    "Volhynia": {
+      "countryId": "country_09",
+      "countryName": "沙皇俄国",
+      "color": "#fdb462"
+    },
+    "Pskov": {
+      "countryId": "country_09",
+      "countryName": "沙皇俄国",
+      "color": "#fdb462"
+    },
+    "Mogilev": {
+      "countryId": "country_09",
+      "countryName": "沙皇俄国",
+      "color": "#fdb462"
+    },
+    "Minsk": {
+      "countryId": "country_09",
+      "countryName": "沙皇俄国",
+      "color": "#fdb462"
+    },
+    "Vitebsk": {
+      "countryId": "country_09",
+      "countryName": "沙皇俄国",
+      "color": "#fdb462"
+    },
+    "Smolensk": {
+      "countryId": "country_09",
+      "countryName": "沙皇俄国",
+      "color": "#fdb462"
+    },
+    "Oryol": {
+      "countryId": "country_09",
+      "countryName": "沙皇俄国",
+      "color": "#fdb462"
+    },
+    "Chernihiv": {
+      "countryId": "country_09",
+      "countryName": "沙皇俄国",
+      "color": "#fdb462"
+    },
+    "Kharkov": {
+      "countryId": "country_09",
+      "countryName": "沙皇俄国",
+      "color": "#fdb462"
+    },
+    "Taurida": {
+      "countryId": "country_09",
+      "countryName": "沙皇俄国",
+      "color": "#fdb462"
+    },
+    "Rostov": {
+      "countryId": "country_09",
+      "countryName": "沙皇俄国",
+      "color": "#fdb462"
+    },
+    "Crimea": {
+      "countryId": "country_09",
+      "countryName": "沙皇俄国",
+      "color": "#fdb462"
+    },
+    "Kuban": {
+      "countryId": "country_09",
+      "countryName": "沙皇俄国",
+      "color": "#fdb462"
+    },
+    "Kalmykia": {
+      "countryId": "country_09",
+      "countryName": "沙皇俄国",
+      "color": "#fdb462"
+    },
+    "Stavropol": {
+      "countryId": "country_09",
+      "countryName": "沙皇俄国",
+      "color": "#fdb462"
+    },
+    "North_Caucasus": {
+      "countryId": "country_09",
+      "countryName": "沙皇俄国",
+      "color": "#fdb462"
+    },
+    "Greater_Caucasus": {
+      "countryId": "country_09",
+      "countryName": "沙皇俄国",
+      "color": "#fdb462"
+    },
+    "Dagestan": {
+      "countryId": "country_09",
+      "countryName": "沙皇俄国",
+      "color": "#fdb462"
+    },
+    "Elizavetpol": {
+      "countryId": "country_09",
+      "countryName": "沙皇俄国",
+      "color": "#fdb462"
+    },
+    "Armenia": {
+      "countryId": "country_09",
+      "countryName": "沙皇俄国",
+      "color": "#fdb462"
+    },
+    "Kursk": {
+      "countryId": "country_09",
+      "countryName": "沙皇俄国",
+      "color": "#fdb462"
+    },
+    "Ryazan": {
+      "countryId": "country_09",
+      "countryName": "沙皇俄国",
+      "color": "#fdb462"
+    },
+    "Yaroslavl": {
+      "countryId": "country_09",
+      "countryName": "沙皇俄国",
+      "color": "#fdb462"
+    },
+    "Moscow": {
+      "countryId": "country_09",
+      "countryName": "沙皇俄国",
+      "color": "#fdb462"
+    },
+    "Tver": {
+      "countryId": "country_09",
+      "countryName": "沙皇俄国",
+      "color": "#fdb462"
+    },
+    "Novgorod": {
+      "countryId": "country_09",
+      "countryName": "沙皇俄国",
+      "color": "#fdb462"
+    },
+    "Arkhangelsk": {
+      "countryId": "country_09",
+      "countryName": "沙皇俄国",
+      "color": "#fdb462"
+    },
+    "Nenetsia": {
+      "countryId": "country_09",
+      "countryName": "沙皇俄国",
+      "color": "#fdb462"
+    },
+    "Tartaria": {
+      "countryId": "country_09",
+      "countryName": "沙皇俄国",
+      "color": "#fdb462"
+    },
+    "Tambov": {
+      "countryId": "country_09",
+      "countryName": "沙皇俄国",
+      "color": "#fdb462"
+    },
+    "Chuvashia": {
+      "countryId": "country_09",
+      "countryName": "沙皇俄国",
+      "color": "#fdb462"
+    },
+    "Kazan": {
+      "countryId": "country_09",
+      "countryName": "沙皇俄国",
+      "color": "#fdb462"
+    },
+    "Astrakhan": {
+      "countryId": "country_09",
+      "countryName": "沙皇俄国",
+      "color": "#fdb462"
+    },
+    "Nizhny_Novgorod": {
+      "countryId": "country_09",
+      "countryName": "沙皇俄国",
+      "color": "#fdb462"
+    },
+    "Samara": {
+      "countryId": "country_09",
+      "countryName": "沙皇俄国",
+      "color": "#fdb462"
+    },
+    "Uralsk": {
+      "countryId": "country_09",
+      "countryName": "沙皇俄国",
+      "color": "#fdb462"
+    },
+    "Vyatka": {
+      "countryId": "country_09",
+      "countryName": "沙皇俄国",
+      "color": "#fdb462"
+    },
+    "Aktobe": {
+      "countryId": "country_09",
+      "countryName": "沙皇俄国",
+      "color": "#fdb462"
+    },
+    "Akmolinsk": {
+      "countryId": "country_09",
+      "countryName": "沙皇俄国",
+      "color": "#fdb462"
+    },
+    "Semireche": {
+      "countryId": "country_09",
+      "countryName": "沙皇俄国",
+      "color": "#fdb462"
+    },
+    "Ural": {
+      "countryId": "country_09",
+      "countryName": "沙皇俄国",
+      "color": "#fdb462"
+    },
+    "Surgut": {
+      "countryId": "country_09",
+      "countryName": "沙皇俄国",
+      "color": "#fdb462"
+    },
+    "Ob": {
+      "countryId": "country_09",
+      "countryName": "沙皇俄国",
+      "color": "#fdb462"
+    },
+    "Perm": {
+      "countryId": "country_09",
+      "countryName": "沙皇俄国",
+      "color": "#fdb462"
+    },
+    "Ufa": {
+      "countryId": "country_09",
+      "countryName": "沙皇俄国",
+      "color": "#fdb462"
+    },
+    "Tobolsk": {
+      "countryId": "country_09",
+      "countryName": "沙皇俄国",
+      "color": "#fdb462"
+    },
+    "Tomsk": {
+      "countryId": "country_09",
+      "countryName": "沙皇俄国",
+      "color": "#fdb462"
+    },
+    "Chelyabinsk": {
+      "countryId": "country_09",
+      "countryName": "沙皇俄国",
+      "color": "#fdb462"
+    },
+    "Upper_Yeniseysk": {
+      "countryId": "country_09",
+      "countryName": "沙皇俄国",
+      "color": "#fdb462"
+    },
+    "Krasnoyarsk": {
+      "countryId": "country_09",
+      "countryName": "沙皇俄国",
+      "color": "#fdb462"
+    },
+    "Irkutsk": {
+      "countryId": "country_09",
+      "countryName": "沙皇俄国",
+      "color": "#fdb462"
+    },
+    "Buryatia": {
+      "countryId": "country_09",
+      "countryName": "沙皇俄国",
+      "color": "#fdb462"
+    },
+    "Trans_Baikal": {
+      "countryId": "country_09",
+      "countryName": "沙皇俄国",
+      "color": "#fdb462"
+    },
+    "Yakutsk": {
+      "countryId": "country_09",
+      "countryName": "沙皇俄国",
+      "color": "#fdb462"
+    },
+    "Kolyma": {
+      "countryId": "country_09",
+      "countryName": "沙皇俄国",
+      "color": "#fdb462"
+    },
+    "Okhotsk": {
+      "countryId": "country_09",
+      "countryName": "沙皇俄国",
+      "color": "#fdb462"
+    },
+    "Chukotka": {
+      "countryId": "country_09",
+      "countryName": "沙皇俄国",
+      "color": "#fdb462"
+    },
+    "Kamchatka": {
+      "countryId": "country_09",
+      "countryName": "沙皇俄国",
+      "color": "#fdb462"
+    },
+    "Alaska": {
+      "countryId": "country_09",
+      "countryName": "沙皇俄国",
+      "color": "#fdb462"
+    },
+    "Oulu": {
+      "countryId": "country_09",
+      "countryName": "沙皇俄国",
+      "color": "#fdb462"
+    },
+    "Azerbaijan": {
+      "countryId": "country_09",
+      "countryName": "沙皇俄国",
+      "color": "#fdb462"
+    },
+    "Ruhr": {
+      "countryId": "country_10",
+      "countryName": "普鲁士帝国",
+      "color": "#ffff33"
+    },
+    "Rhineland": {
+      "countryId": "country_10",
+      "countryName": "普鲁士帝国",
+      "color": "#ffff33"
+    },
+    "North_Rhine": {
+      "countryId": "country_10",
+      "countryName": "普鲁士帝国",
+      "color": "#ffff33"
+    },
+    "Westphalia": {
+      "countryId": "country_10",
+      "countryName": "普鲁士帝国",
+      "color": "#ffff33"
+    },
+    "Silesia": {
+      "countryId": "country_10",
+      "countryName": "普鲁士帝国",
+      "color": "#ffff33"
+    },
+    "Brandenburg": {
+      "countryId": "country_10",
+      "countryName": "普鲁士帝国",
+      "color": "#ffff33"
+    },
+    "West_Prussia": {
+      "countryId": "country_10",
+      "countryName": "普鲁士帝国",
+      "color": "#ffff33"
+    },
+    "Posen": {
+      "countryId": "country_10",
+      "countryName": "普鲁士帝国",
+      "color": "#ffff33"
+    },
+    "East_Prussia": {
+      "countryId": "country_10",
+      "countryName": "普鲁士帝国",
+      "color": "#ffff33"
+    },
+    "Pomerania": {
+      "countryId": "country_10",
+      "countryName": "普鲁士帝国",
+      "color": "#ffff33"
+    },
+    "South_Tyrol": {
+      "countryId": "country_11",
+      "countryName": "奥地利帝国",
+      "color": "#99d8c9"
+    },
+    "Tyrol": {
+      "countryId": "country_11",
+      "countryName": "奥地利帝国",
+      "color": "#99d8c9"
+    },
+    "Styria": {
+      "countryId": "country_11",
+      "countryName": "奥地利帝国",
+      "color": "#99d8c9"
+    },
+    "Austria": {
+      "countryId": "country_11",
+      "countryName": "奥地利帝国",
+      "color": "#99d8c9"
+    },
+    "Bohemia": {
+      "countryId": "country_11",
+      "countryName": "奥地利帝国",
+      "color": "#99d8c9"
+    },
+    "Moravia": {
+      "countryId": "country_11",
+      "countryName": "奥地利帝国",
+      "color": "#99d8c9"
+    },
+    "West_Slovakia": {
+      "countryId": "country_11",
+      "countryName": "奥地利帝国",
+      "color": "#99d8c9"
+    },
+    "West_Galicia": {
+      "countryId": "country_11",
+      "countryName": "奥地利帝国",
+      "color": "#99d8c9"
+    },
+    "East_Slovakia": {
+      "countryId": "country_11",
+      "countryName": "奥地利帝国",
+      "color": "#99d8c9"
+    },
+    "Central_Hungary": {
+      "countryId": "country_11",
+      "countryName": "奥地利帝国",
+      "color": "#99d8c9"
+    },
+    "Transdanubia": {
+      "countryId": "country_11",
+      "countryName": "奥地利帝国",
+      "color": "#99d8c9"
+    },
+    "Slovenia": {
+      "countryId": "country_11",
+      "countryName": "奥地利帝国",
+      "color": "#99d8c9"
+    },
+    "Croatia": {
+      "countryId": "country_11",
+      "countryName": "奥地利帝国",
+      "color": "#99d8c9"
+    },
+    "Dalmatia": {
+      "countryId": "country_11",
+      "countryName": "奥地利帝国",
+      "color": "#99d8c9"
+    },
+    "Northern_Transylvania": {
+      "countryId": "country_11",
+      "countryName": "奥地利帝国",
+      "color": "#99d8c9"
+    },
+    "Southern_Transylvania": {
+      "countryId": "country_11",
+      "countryName": "奥地利帝国",
+      "color": "#99d8c9"
+    },
+    "Bekes": {
+      "countryId": "country_11",
+      "countryName": "奥地利帝国",
+      "color": "#99d8c9"
+    },
+    "Banat": {
+      "countryId": "country_11",
+      "countryName": "奥地利帝国",
+      "color": "#99d8c9"
+    },
+    "Delvidek": {
+      "countryId": "country_11",
+      "countryName": "奥地利帝国",
+      "color": "#99d8c9"
+    },
+    "Slavonia": {
+      "countryId": "country_11",
+      "countryName": "奥地利帝国",
+      "color": "#99d8c9"
+    },
+    "East_Galicia": {
+      "countryId": "country_11",
+      "countryName": "奥地利帝国",
+      "color": "#99d8c9"
+    },
+    "Venetia": {
+      "countryId": "country_11",
+      "countryName": "奥地利帝国",
+      "color": "#99d8c9"
+    },
+    "Istria": {
+      "countryId": "country_11",
+      "countryName": "奥地利帝国",
+      "color": "#99d8c9"
+    },
+    "Lombardy": {
+      "countryId": "country_11",
+      "countryName": "奥地利帝国",
+      "color": "#99d8c9"
+    },
+    "Emilia": {
+      "countryId": "country_11",
+      "countryName": "奥地利帝国",
+      "color": "#99d8c9"
+    },
+    "West_Switzerland": {
+      "countryId": "country_12",
+      "countryName": "瑞士共和国",
+      "color": "#66c2a4"
+    },
+    "East_Switzerland": {
+      "countryId": "country_12",
+      "countryName": "瑞士共和国",
+      "color": "#66c2a4"
+    },
+    "Franconia": {
+      "countryId": "country_13",
+      "countryName": "巴伐利亚王国",
+      "color": "#41ae76"
+    },
+    "Bavaria": {
+      "countryId": "country_13",
+      "countryName": "巴伐利亚王国",
+      "color": "#41ae76"
+    },
+    "Anhalt": {
+      "countryId": "country_14",
+      "countryName": "汉诺威王国",
+      "color": "#006d2c"
+    },
+    "Brunswick": {
+      "countryId": "country_14",
+      "countryName": "汉诺威王国",
+      "color": "#006d2c"
+    },
+    "Schleswig_Holstein": {
+      "countryId": "country_15",
+      "countryName": "丹麦挪威联合王国",
+      "color": "#045a8d"
+    },
+    "Jutland": {
+      "countryId": "country_15",
+      "countryName": "丹麦挪威联合王国",
+      "color": "#045a8d"
+    },
+    "Zealand": {
+      "countryId": "country_15",
+      "countryName": "丹麦挪威联合王国",
+      "color": "#045a8d"
+    },
+    "Western_Norway": {
+      "countryId": "country_15",
+      "countryName": "丹麦挪威联合王国",
+      "color": "#045a8d"
+    },
+    "Eastern_Norway": {
+      "countryId": "country_15",
+      "countryName": "丹麦挪威联合王国",
+      "color": "#045a8d"
+    },
+    "Northern_Norway": {
+      "countryId": "country_15",
+      "countryName": "丹麦挪威联合王国",
+      "color": "#045a8d"
+    },
+    "Svealand": {
+      "countryId": "country_16",
+      "countryName": "瑞典王国",
+      "color": "#3690c0"
+    },
+    "Gotaland": {
+      "countryId": "country_16",
+      "countryName": "瑞典王国",
+      "color": "#3690c0"
+    },
+    "Scania": {
+      "countryId": "country_16",
+      "countryName": "瑞典王国",
+      "color": "#3690c0"
+    },
+    "Norrland": {
+      "countryId": "country_16",
+      "countryName": "瑞典王国",
+      "color": "#3690c0"
+    },
+    "Wurttemberg": {
+      "countryId": "country_17",
+      "countryName": "德意志诸邦联",
+      "color": "#023858"
+    },
+    "Baden": {
+      "countryId": "country_17",
+      "countryName": "德意志诸邦联",
+      "color": "#023858"
+    },
+    "Hesse": {
+      "countryId": "country_17",
+      "countryName": "德意志诸邦联",
+      "color": "#023858"
+    },
+    "Hannover": {
+      "countryId": "country_17",
+      "countryName": "德意志诸邦联",
+      "color": "#023858"
+    },
+    "Elbe": {
+      "countryId": "country_17",
+      "countryName": "德意志诸邦联",
+      "color": "#023858"
+    },
+    "Mecklenburg": {
+      "countryId": "country_17",
+      "countryName": "德意志诸邦联",
+      "color": "#023858"
+    },
+    "Saxony": {
+      "countryId": "country_17",
+      "countryName": "德意志诸邦联",
+      "color": "#023858"
+    },
+    "Piedmont": {
+      "countryId": "country_18",
+      "countryName": "撒丁王国",
+      "color": "#00441b"
+    },
+    "Sardinia": {
+      "countryId": "country_18",
+      "countryName": "撒丁王国",
+      "color": "#00441b"
+    },
+    "Sicily": {
+      "countryId": "country_19",
+      "countryName": "西西里王国",
+      "color": "#a6bddb"
+    },
+    "Calabria": {
+      "countryId": "country_19",
+      "countryName": "西西里王国",
+      "color": "#a6bddb"
+    },
+    "Apulia": {
+      "countryId": "country_19",
+      "countryName": "西西里王国",
+      "color": "#a6bddb"
+    },
+    "Campania": {
+      "countryId": "country_19",
+      "countryName": "西西里王国",
+      "color": "#a6bddb"
+    },
+    "Abruzzo": {
+      "countryId": "country_19",
+      "countryName": "西西里王国",
+      "color": "#a6bddb"
+    },
+    "Lazio": {
+      "countryId": "country_20",
+      "countryName": "教皇国",
+      "color": "#74a9cf"
+    },
+    "Tuscany": {
+      "countryId": "country_20",
+      "countryName": "教皇国",
+      "color": "#74a9cf"
+    },
+    "Umbria": {
+      "countryId": "country_20",
+      "countryName": "教皇国",
+      "color": "#74a9cf"
+    },
+    "Romagna": {
+      "countryId": "country_20",
+      "countryName": "教皇国",
+      "color": "#74a9cf"
+    },
+    "Thessalia": {
+      "countryId": "country_21",
+      "countryName": "希腊王国",
+      "color": "#8c96c6"
+    },
+    "Attica": {
+      "countryId": "country_21",
+      "countryName": "希腊王国",
+      "color": "#8c96c6"
+    },
+    "Peloponnese": {
+      "countryId": "country_21",
+      "countryName": "希腊王国",
+      "color": "#8c96c6"
+    },
+    "Ionian_Islands": {
+      "countryId": "country_21",
+      "countryName": "希腊王国",
+      "color": "#8c96c6"
+    },
+    "Crete": {
+      "countryId": "country_21",
+      "countryName": "希腊王国",
+      "color": "#8c96c6"
+    },
+    "West_Aegean_Islands": {
+      "countryId": "country_21",
+      "countryName": "希腊王国",
+      "color": "#8c96c6"
+    },
+    "East_Aegean_Islands": {
+      "countryId": "country_21",
+      "countryName": "希腊王国",
+      "color": "#8c96c6"
+    },
+    "Khorasan": {
+      "countryId": "country_22",
+      "countryName": "伊朗王国",
+      "color": "#38a6a5"
+    },
+    "Kerman": {
+      "countryId": "country_22",
+      "countryName": "伊朗王国",
+      "color": "#38a6a5"
+    },
+    "Sistan": {
+      "countryId": "country_22",
+      "countryName": "伊朗王国",
+      "color": "#38a6a5"
+    },
+    "Fars": {
+      "countryId": "country_22",
+      "countryName": "伊朗王国",
+      "color": "#38a6a5"
+    },
+    "Isfahan": {
+      "countryId": "country_22",
+      "countryName": "伊朗王国",
+      "color": "#38a6a5"
+    },
+    "Semnan": {
+      "countryId": "country_22",
+      "countryName": "伊朗王国",
+      "color": "#38a6a5"
+    },
+    "Irakajemi": {
+      "countryId": "country_22",
+      "countryName": "伊朗王国",
+      "color": "#38a6a5"
+    },
+    "Tabriz": {
+      "countryId": "country_22",
+      "countryName": "伊朗王国",
+      "color": "#38a6a5"
+    },
+    "Mazandaran": {
+      "countryId": "country_22",
+      "countryName": "伊朗王国",
+      "color": "#38a6a5"
+    },
+    "Luristan": {
+      "countryId": "country_22",
+      "countryName": "伊朗王国",
+      "color": "#38a6a5"
+    },
+    "Persian_Kurdistan": {
+      "countryId": "country_22",
+      "countryName": "伊朗王国",
+      "color": "#38a6a5"
+    },
+    "Laristan": {
+      "countryId": "country_22",
+      "countryName": "伊朗王国",
+      "color": "#38a6a5"
+    },
+    "Hail": {
+      "countryId": "country_23",
+      "countryName": "阿拉伯诸酋长国",
+      "color": "#0f8554"
+    },
+    "Nejd": {
+      "countryId": "country_23",
+      "countryName": "阿拉伯诸酋长国",
+      "color": "#0f8554"
+    },
+    "Abu_Dhabi": {
+      "countryId": "country_23",
+      "countryName": "阿拉伯诸酋长国",
+      "color": "#0f8554"
+    },
+    "Oman": {
+      "countryId": "country_23",
+      "countryName": "阿拉伯诸酋长国",
+      "color": "#0f8554"
+    },
+    "Yemen": {
+      "countryId": "country_23",
+      "countryName": "阿拉伯诸酋长国",
+      "color": "#0f8554"
+    },
+    "Shan_States": {
+      "countryId": "country_24",
+      "countryName": "缅甸贡榜王朝",
+      "color": "#73af48"
+    },
+    "Burma": {
+      "countryId": "country_24",
+      "countryName": "缅甸贡榜王朝",
+      "color": "#73af48"
+    },
+    "Kachin": {
+      "countryId": "country_24",
+      "countryName": "缅甸贡榜王朝",
+      "color": "#73af48"
+    },
+    "Pegu": {
+      "countryId": "country_24",
+      "countryName": "缅甸贡榜王朝",
+      "color": "#73af48"
+    },
+    "Chiang_Mai": {
+      "countryId": "country_25",
+      "countryName": "暹罗",
+      "color": "#edad08"
+    },
+    "Bangkok": {
+      "countryId": "country_25",
+      "countryName": "暹罗",
+      "color": "#edad08"
+    },
+    "Nakhon_Ratchasima": {
+      "countryId": "country_25",
+      "countryName": "暹罗",
+      "color": "#edad08"
+    },
+    "Laos": {
+      "countryId": "country_26",
+      "countryName": "越南阮朝",
+      "color": "#e17c05"
+    },
+    "Tonkin": {
+      "countryId": "country_26",
+      "countryName": "越南阮朝",
+      "color": "#e17c05"
+    },
+    "Annam": {
+      "countryId": "country_26",
+      "countryName": "越南阮朝",
+      "color": "#e17c05"
+    },
+    "Cambodia": {
+      "countryId": "country_26",
+      "countryName": "越南阮朝",
+      "color": "#e17c05"
+    },
+    "Mekong": {
+      "countryId": "country_26",
+      "countryName": "越南阮朝",
+      "color": "#e17c05"
+    },
+    "Hyderabad": {
+      "countryId": "country_27",
+      "countryName": "莫卧儿帝国诸土邦",
+      "color": "#b3de69"
+    },
+    "Nagpur": {
+      "countryId": "country_27",
+      "countryName": "莫卧儿帝国诸土邦",
+      "color": "#b3de69"
+    },
+    "Central_India": {
+      "countryId": "country_27",
+      "countryName": "莫卧儿帝国诸土邦",
+      "color": "#b3de69"
+    },
+    "Rajputana": {
+      "countryId": "country_27",
+      "countryName": "莫卧儿帝国诸土邦",
+      "color": "#b3de69"
+    },
+    "Gujarat": {
+      "countryId": "country_27",
+      "countryName": "莫卧儿帝国诸土邦",
+      "color": "#b3de69"
+    },
+    "Sindh": {
+      "countryId": "country_27",
+      "countryName": "莫卧儿帝国诸土邦",
+      "color": "#b3de69"
+    },
+    "Baluchistan": {
+      "countryId": "country_27",
+      "countryName": "莫卧儿帝国诸土邦",
+      "color": "#b3de69"
+    },
+    "Quetta": {
+      "countryId": "country_27",
+      "countryName": "莫卧儿帝国诸土邦",
+      "color": "#b3de69"
+    },
+    "Punjab": {
+      "countryId": "country_27",
+      "countryName": "莫卧儿帝国诸土邦",
+      "color": "#b3de69"
+    },
+    "Kashmir": {
+      "countryId": "country_27",
+      "countryName": "莫卧儿帝国诸土邦",
+      "color": "#b3de69"
+    },
+    "Pashtunistan": {
+      "countryId": "country_27",
+      "countryName": "莫卧儿帝国诸土邦",
+      "color": "#b3de69"
+    },
+    "Himalayas": {
+      "countryId": "country_27",
+      "countryName": "莫卧儿帝国诸土邦",
+      "color": "#b3de69"
+    },
+    "Sariwon": {
+      "countryId": "country_28",
+      "countryName": "朝鲜",
+      "color": "#4393c3"
+    },
+    "Pyongyang": {
+      "countryId": "country_28",
+      "countryName": "朝鲜",
+      "color": "#4393c3"
+    },
+    "Seoul": {
+      "countryId": "country_28",
+      "countryName": "朝鲜",
+      "color": "#4393c3"
+    },
+    "Yangho": {
+      "countryId": "country_28",
+      "countryName": "朝鲜",
+      "color": "#4393c3"
+    },
+    "Busan": {
+      "countryId": "country_28",
+      "countryName": "朝鲜",
+      "color": "#4393c3"
+    },
+    "Kanto": {
+      "countryId": "country_29",
+      "countryName": "日本德川幕府",
+      "color": "#2166ac"
+    },
+    "Chubu": {
+      "countryId": "country_29",
+      "countryName": "日本德川幕府",
+      "color": "#2166ac"
+    },
+    "Tohoku": {
+      "countryId": "country_29",
+      "countryName": "日本德川幕府",
+      "color": "#2166ac"
+    },
+    "Hokkaido": {
+      "countryId": "country_29",
+      "countryName": "日本德川幕府",
+      "color": "#2166ac"
+    },
+    "Kansai": {
+      "countryId": "country_29",
+      "countryName": "日本德川幕府",
+      "color": "#2166ac"
+    },
+    "Kyushu": {
+      "countryId": "country_29",
+      "countryName": "日本德川幕府",
+      "color": "#2166ac"
+    },
+    "Shikoku": {
+      "countryId": "country_29",
+      "countryName": "日本德川幕府",
+      "color": "#2166ac"
+    },
+    "Chugoku": {
+      "countryId": "country_29",
+      "countryName": "日本德川幕府",
+      "color": "#2166ac"
+    }
+  }
+}
