@@ -8,7 +8,7 @@ import { byGood, goods, industries } from "./industry.ts";
 export function importRegionalSave(region: Scenario, world: Scenario, save: unknown): GameState {
   const scenario = region;
   const countryId = z.enum(Object.keys(scenario.countries));
-  const stateId = z.enum(Object.keys(scenario.states));
+  const stateId = z.enum(Object.values(scenario.states).filter((s) => s.ownerId !== null).map((s) => s.id));
   const uint = z.int().nonnegative();
   const latestDay = Math.floor((8.64e15 - Date.parse(scenario.startDate)) / DAY_MS);
   const legacy = z.object({

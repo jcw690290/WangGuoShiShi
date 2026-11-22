@@ -85,6 +85,7 @@ export function canReach(
   const site = scenario.states[target];
   return (
     site &&
+    Object.hasOwn(state.ownerByStateId, target) &&
     state.ownerByStateId[target] !== id &&
     (state.nations[state.ownerByStateId[target]].infamy > 100 ||
       landBorder(scenario, state, id, target) ||
@@ -418,13 +419,14 @@ export function aiDiplomacy(scenario: Scenario, state: GameState): BorderCommand
   if (!d || d.phase === "resolved") {
     // Limit AI plays to one at a time. Give the player a full opening month to make the first demand.
     if (state.elapsedDays % 56 !== 0) return [];
-    const sites = Object.values(scenario.states);
+    const sites = Object.values(scenario.states).filter((s) => Object.hasOwn(state.ownerByStateId, s.id));
     for (let offset = 0; offset < sites.length; offset++) {
       const site = sites[(state.rng + offset) % sites.length],
         owner = state.ownerByStateId[site.id];
       for (const nb of site.neighbors) {
         const id = state.ownerByStateId[nb];
         if (
+          Object.hasOwn(state.ownerByStateId, nb) &&
           id !== owner &&
           id !== player &&
           !state.nations[id].overlord &&

@@ -46,7 +46,7 @@ button:focus-visible {
 }
 
 .masthead-inner {
-  max-width: 1260px;
+  max-width: 1580px;
   padding: 15px 32px;
   margin: 0 auto;
   display: flex;
@@ -109,7 +109,7 @@ button:focus-visible {
 }
 
 main {
-  max-width: 1260px;
+  max-width: 1580px;
   margin: 0 auto;
   padding: 28px 32px 36px;
 }
@@ -165,17 +165,20 @@ main {
 
 .map-frame {
   position: relative;
-  height: clamp(345px, 53vh, 580px);
+  height: clamp(420px, 67vh, 760px);
   overflow: hidden;
-  background-color: #e9e4d5;
-  background-image:
-    linear-gradient(#a193781f 1px, transparent 1px), linear-gradient(90deg, #a193781f 1px, transparent 1px),
-    radial-gradient(ellipse at 50% 44%, #f5eed9, #e2dccd);
-  background-size:
-    26px 26px,
-    26px 26px,
-    auto;
-  box-shadow: inset 0 0 50px #6e59321c;
+  isolation: isolate;
+  border: 7px double #a28b5b;
+  background: radial-gradient(ellipse at 48% 45%, #eddfb8 5%, #d8bf86 78%, #b7955b);
+  box-shadow: inset 0 0 70px #80592f40;
+}
+.map-frame::after {
+  content: "";
+  position: absolute;
+  inset: 0;
+  pointer-events: none;
+  background: repeating-linear-gradient(10deg, #715b2504 0 1px, transparent 1px 4px);
+  box-shadow: inset 0 0 34px #66472530;
 }
 .map-host {
   position: absolute;
@@ -565,18 +568,65 @@ input:not([type="checkbox"]) {
   display: block;
   touch-action: none;
 }
-.zoom-controls {
+.map-navigation {
   position: absolute;
-  inset: auto 12px 12px auto;
+  right: 12px;
+  bottom: 14px;
   display: flex;
-  gap: 4px;
+  gap: 6px;
 }
-.zoom-controls button {
-  background: var(--paper);
-  border: 1px solid var(--line);
+.map-navigation button {
+  min-height: 44px;
+  padding: 8px 12px;
+  border: 1px solid #9c8153;
   border-radius: 3px;
-  padding: 6px 9px;
+  background: #f4e6c9ed;
+  box-shadow: 0 2px 4px #59432120;
+  font-size: 13px;
 }
+.map-host:focus-visible { outline: 3px solid #795128; outline-offset: -3px; }
+.map-cartouche {
+  position: absolute;
+  top: 18px;
+  left: 18px;
+  display: grid;
+  gap: 4px;
+  pointer-events: none;
+  text-align: center;
+  padding: 12px 18px;
+  color: #5b482c;
+  border: 3px double #9f8555;
+  background: #f2e2bde0;
+  font-family: var(--serif);
+  box-shadow: 0 2px 12px #62421f15;
+}
+.map-cartouche span { font-size: 10px; letter-spacing: .35em; }
+.map-cartouche strong { font-size: 19px; letter-spacing: .15em; }
+.map-cartouche small { font-size: 10px; letter-spacing: .1em; }
+.map-compass {
+  position: absolute;
+  right: 18px;
+  top: 16px;
+  text-align: center;
+  pointer-events: none;
+  color: #6d5735;
+  font: 12px var(--serif);
+}
+.map-compass b { font-size: 44px; line-height: 1; }
+.map-help {
+  position: absolute;
+  bottom: 14px;
+  left: 14px;
+  max-width: calc(100% - 200px);
+  pointer-events: none;
+  color: #57472d;
+  text-shadow: 0 1px #fff2cc;
+  font-size: 12px;
+  line-height: 1.6;
+}
+.map-help span { display: block; font-size: 10px; }
+.claim-territory { display: grid; gap: 10px; padding-top: 12px; border-top: 1px solid var(--line); }
+.claim-territory button { min-height: 44px; font-weight: 700; }
 .group-grid {
   display: grid;
   grid-template-columns: repeat(2, 1fr);
@@ -606,7 +656,8 @@ input:not([type="checkbox"]) {
     padding: 8px;
   }
   .map-frame {
-    height: clamp(230px, 42vh, 350px);
+    height: clamp(360px, 62svh, 560px);
+    border-width: 5px;
   }
   .masthead {
     position: static;
@@ -614,4 +665,10 @@ input:not([type="checkbox"]) {
   .research-row {
     grid-template-columns: 1fr;
   }
+  .map-panel > .panel-header { align-items: flex-start; flex-direction: column; }
+  .map-cartouche { top: 10px; left: 10px; padding: 7px 10px; }
+  .map-cartouche strong { font-size: 14px; }
+  .map-cartouche small, .map-help span { display: none; }
+  .map-help { bottom: 62px; max-width: calc(100% - 28px); }
+  .map-navigation { right: 10px; bottom: 10px; }
 }

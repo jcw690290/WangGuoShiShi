@@ -106,41 +106,43 @@ export const nationSchema = z.object({
 export type Nation = z.infer<typeof nationSchema>;
 export const hash = (s: string) => [...s].reduce((n, c) => (Math.imul(n, 31) + c.charCodeAt(0)) >>> 0, 1820);
 const startingShares = [0.69, 0.18, 0.018, 0.012, 0.02, 0.05, 0.01, 0.02];
+export function initSiteSociety(site: Scenario["states"][string]): SiteSocial {
+  const pops: Pop[] = [];
+  let remainder = site.population;
+  for (const [i, occupation] of occupations.entries()) {
+    const total =
+      i === occupations.length - 1 ? remainder : Math.floor(site.population * startingShares[i]);
+    remainder -= total;
+    const minority = Math.floor(total * 0.12);
+    for (const foreign of [false, true]) {
+      const rank = i < 2 ? 1 : i < 6 ? 2 : 3;
+      pops.push({
+        occupation,
+        people: foreign ? minority : total - minority,
+        culture: foreign ? "地方文化-" + site.id : site.ownerId ?? "本地文化-" + site.id,
+        religion: foreign ? "地方信仰-" + site.id : site.ownerId ?? "本地信仰-" + site.id,
+        wealth: rank * rank * 4,
+        literacy: 12 * rank + (hash(site.id) % 10),
+        radicals: 0,
+      });
+    }
+  }
+  return {
+    pops,
+    infrastructure: 1 + (hash(site.id) % 3),
+    university: 0,
+    construction: 1,
+    barracks: 1,
+    conscription: 1,
+    arsenal: 1,
+    ammunition: 1,
+  };
+}
 export function initSociety(scenario: Scenario) {
   const societies: Record<string, SiteSocial> = {};
   const nations: Record<string, Nation> = {};
-  for (const site of Object.values(scenario.states)) {
-    const pops: Pop[] = [];
-    let remainder = site.population;
-    for (const [i, occupation] of occupations.entries()) {
-      const total =
-        i === occupations.length - 1 ? remainder : Math.floor(site.population * startingShares[i]);
-      remainder -= total;
-      const minority = Math.floor(total * 0.12);
-      for (const foreign of [false, true]) {
-        const rank = i < 2 ? 1 : i < 6 ? 2 : 3;
-        pops.push({
-          occupation,
-          people: foreign ? minority : total - minority,
-          culture: foreign ? "地方文化-" + site.id : site.ownerId,
-          religion: foreign ? "地方信仰-" + site.id : site.ownerId,
-          wealth: rank * rank * 4,
-          literacy: 12 * rank + (hash(site.id) % 10),
-          radicals: 0,
-        });
-      }
-    }
-    societies[site.id] = {
-      pops,
-      infrastructure: 1 + (hash(site.id) % 3),
-      university: 0,
-      construction: 1,
-      barracks: 1,
-      conscription: 1,
-      arsenal: 1,
-      ammunition: 1,
-    };
-  }
+  for (const site of Object.values(scenario.states))
+    if (site.ownerId !== null) societies[site.id] = initSiteSociety(site);
   for (const id of Object.keys(scenario.countries)) {
     nations[id] = {
       government: ["地主", "乡民"],

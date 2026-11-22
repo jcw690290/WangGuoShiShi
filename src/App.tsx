@@ -8,7 +8,9 @@ import { createGame, dispatch, getGameDate, isScenarioFinished, spanDays } from 
 import type { GameCommand, Span } from "./game/engine.ts";
 import { planWar } from "./game/diplomacy.ts";
 import { loadGame, saveGame } from "./game/storage.ts";
+import { CLAIM_COST, claimError } from "./game/territory.ts";
 import { StateMap } from "./map/StateMap.tsx";
+import { countryColor } from "./map/cartography.ts";
 import type { StateGeometry } from "./map/geometry.ts";
 import { atlas } from "./scenario/scenario.ts";
 import type { Scenario } from "./scenario/scenario.ts";
@@ -41,7 +43,7 @@ export function App({ scenario, geometry }: { scenario: Scenario; geometry: Stat
   const matches = useMemo(
     () =>
       Object.entries(atlas).filter(([id, s]) =>
-        (id + " " + s.name + " " + (scenario.countries[game.ownerByStateId[id]]?.name ?? "未分配"))
+        (id + " " + s.name + " " + (scenario.countries[game.ownerByStateId[id]]?.name ?? "无主领土"))
           .toLowerCase()
           .includes(search.trim().toLowerCase()),
       ),
@@ -128,7 +130,7 @@ export function App({ scenario, geometry }: { scenario: Scenario; geometry: Stat
           <h1>{scenario.name}</h1>
           <p>
             {countries.length} 个国家 · {Object.keys(atlas).length} 个州 ·{" "}
-            {Object.keys(atlas).length - Object.keys(scenario.states).length} 个未分配州
+            {Object.keys(atlas).length - Object.keys(game.ownerByStateId).length} 个无主州可占领
             {scenario.endDate && ` · 剧本期限 ${dateFormat.format(new Date(scenario.endDate))}`}
           </p>
         </header>
@@ -158,7 +160,7 @@ export function App({ scenario, geometry }: { scenario: Scenario; geometry: Stat
           <section className="panel map-panel">
             <header className="panel-header">
               <h2>世界政区图</h2>
-              <span>点选州 · 滚轮缩放 · 拖动平移</span>
+              <span>单指拖动 · 双指缩放 · 轻触选州</span>
             </header>
             <StateMap
               scenario={scenario}
@@ -169,16 +171,16 @@ export function App({ scenario, geometry }: { scenario: Scenario; geometry: Stat
             />
             <div className="legend">
               <span>
-                <i className="swatch" style={{ background: "#d1dbdd" }} />
-                未分配
+                <i className="swatch" style={{ background: "#d6c599" }} />
+                无主领土
               </span>
               {site && (
                 <span>
                   <i
                     className="swatch"
-                    style={{ background: owner ? scenario.countries[owner].color : "#d1dbdd" }}
+                    style={{ background: owner ? countryColor(scenario.countries[owner]) : "#d6c599" }}
                   />
-                  {atlas[site].name} · {owner ? scenario.countries[owner].name : "未分配"}
+                  {atlas[site].name} · {owner ? scenario.countries[owner].name : "无主领土"}
                 </span>
               )}
               <span>
@@ -243,15 +245,31 @@ export function App({ scenario, geometry }: { scenario: Scenario; geometry: Stat
                   <option value="">{matches.length} 个匹配州</option>
                   {matches.map(([id, s]) => (
                     <option key={id} value={id}>
-                      {s.name} · {scenario.countries[game.ownerByStateId[id]]?.name ?? "未分配"}
+                      {s.name} · {scenario.countries[game.ownerByStateId[id]]?.name ?? "无主领土"}
                     </option>
                   ))}
                 </select>
                 {site && (
                   <p aria-live="polite">
-                    <strong>{atlas[site].name}</strong> · {owner ? scenario.countries[owner].name : "未分配"}
-                    {!owner && " · 无国家市场"}
+                    <strong>{atlas[site].name}</strong> · {owner ? scenario.countries[owner].name : "无主领土"}
+                    {!owner && " · 占领后加入本国市场"}
                   </p>
+                )}
+                {site && !owner && (
+                  <div className="claim-territory">
+                    <p>无主领土可直接占领，无需宣战。一次支付 {silver(CLAIM_COST)}，立即获得州归属、人口和建设权限。</p>
+                    <button
+                      className="build"
+                      disabled={locked || finished || Boolean(claimError(scenario, game, site))}
+                      onClick={() => {
+                        send({ type: "claimState", stateId: site });
+                        setNotice(`已占领 ${atlas[site].name} · 支出 ${silver(CLAIM_COST)}`);
+                      }}
+                    >
+                      占领 {atlas[site].name}
+                    </button>
+                    <p role="status">{finished ? "剧本已结束" : claimError(scenario, game, site) ?? "可占领 · 不限制接壤或跨海"}</p>
+                  </div>
                 )}
               </div>
             </section>
