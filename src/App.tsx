@@ -2,8 +2,9 @@ import { useEffect, useMemo, useState } from "react";
 import { DiplomacyPanel } from "./DiplomacyPanel.tsx";
 import { EconomyPanel } from "./EconomyPanel.tsx";
 import { PoliticsPanel } from "./PoliticsPanel.tsx";
+import { count, silver } from "./format.ts";
 import { projectEconomy } from "./game/economy.ts";
-import { createGame, dispatch, getGameDate, spanDays } from "./game/engine.ts";
+import { createGame, dispatch, getGameDate, isScenarioFinished, spanDays } from "./game/engine.ts";
 import type { GameCommand, Span } from "./game/engine.ts";
 import { planWar } from "./game/diplomacy.ts";
 import { loadGame, saveGame } from "./game/storage.ts";
@@ -23,7 +24,8 @@ export function App({ scenario, geometry }: { scenario: Scenario; geometry: Stat
   const [span, setSpan] = useState<Span>("week"),
     [until, setUntil] = useState<number | null>(null);
   const [search, setSearch] = useState("");
-  const running = until !== null && game.elapsedDays < until,
+  const finished = isScenarioFinished(scenario, game),
+    running = !finished && until !== null && game.elapsedDays < until,
     locked = busy || running,
     player = game.playerCountryId;
   const site =
@@ -46,6 +48,7 @@ export function App({ scenario, geometry }: { scenario: Scenario; geometry: Stat
     [search, game.ownerByStateId, scenario],
   );
   const date = getGameDate(scenario, game);
+  const dateISO = date.toISOString().slice(0, 10);
   function send(cmd: GameCommand) {
     setGame((previous) => dispatch(scenario, previous, cmd));
   }
@@ -99,11 +102,11 @@ export function App({ scenario, geometry }: { scenario: Scenario; geometry: Stat
           </div>
           <div className="time-controls">
             <span className="paused">{running ? "推进中" : "已暂停"}</span>
-            <time dateTime={date.toISOString().slice(0, 10)}>{dateFormat.format(date)}</time>
+            <time dateTime={dateISO}>{dateFormat.format(date)}</time>
             <select
               aria-label="推进跨度"
               value={span}
-              disabled={locked}
+              disabled={locked || finished}
               onChange={(e) => setSpan(e.target.value as Span)}
             >
               <option value="day">一天</option>
@@ -112,7 +115,7 @@ export function App({ scenario, geometry }: { scenario: Scenario; geometry: Stat
             </select>
             <button
               className="advance"
-              disabled={!player || busy}
+              disabled={!player || busy || finished}
               onClick={() => setUntil(running ? null : game.elapsedDays + spanDays(scenario, game, span))}
             >
               {running ? "暂停" : "推进"}
@@ -126,8 +129,31 @@ export function App({ scenario, geometry }: { scenario: Scenario; geometry: Stat
           <p>
             {countries.length} 个国家 · {Object.keys(atlas).length} 个州 ·{" "}
             {Object.keys(atlas).length - Object.keys(scenario.states).length} 个未分配州
+            {scenario.endDate && ` · 剧本期限 ${dateFormat.format(new Date(scenario.endDate))}`}
           </p>
         </header>
+        {finished && player && (
+          <section className="panel scenario-result" aria-labelledby="result-title">
+            <header className="panel-header">
+              <h2 id="result-title">剧本结束 · {dateISO === scenario.endDate ? "期末结算" : "存档实况"}</h2>
+            </header>
+            <div className="control-block">
+              <p role="status">
+                {dateISO === scenario.endDate
+                  ? `已于 ${dateFormat.format(date)} 到达剧本期限。`
+                  : `此存档已超过剧本期限，以下为 ${dateFormat.format(date)} 的存档实况。`}
+              </p>
+              <p>
+                {scenario.countries[player].name} · 国库 {silver(game.countryEconomies[player].treasury)} · 属州{" "}
+                {count(Object.values(game.ownerByStateId).filter((id) => id === player).length)} 个 · 人口{" "}
+                {count(Object.entries(game.stateEconomies).reduce(
+                  (sum, [id, state]) => sum + (game.ownerByStateId[id] === player ? state.population : 0),
+                  0,
+                ))} 人
+              </p>
+            </div>
+          </section>
+        )}
         <div className="workspace">
           <section className="panel map-panel">
             <header className="panel-header">
@@ -255,16 +281,16 @@ export function App({ scenario, geometry }: { scenario: Scenario; geometry: Stat
               playerId={player}
               selectedId={owner ? site : null}
               report={report}
-              busy={locked}
+              busy={locked || finished}
               send={send}
             />
-            <PoliticsPanel game={game} playerId={player} busy={locked} send={send} />
+            <PoliticsPanel game={game} playerId={player} busy={locked || finished} send={send} />
             <DiplomacyPanel
               scenario={scenario}
               game={game}
               playerId={player}
               report={report}
-              busy={locked}
+              busy={locked || finished}
               send={send}
               selectedId={owner ? site : null}
             />

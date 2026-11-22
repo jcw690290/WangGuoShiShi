@@ -30,6 +30,7 @@ export interface Scenario {
   id: string;
   name: string;
   startDate: string;
+  endDate?: string;
   countries: Record<string, Country>;
   states: Record<string, ScenarioState>;
   borderDispute: z.infer<typeof borderDispute>;
@@ -143,6 +144,7 @@ export const scenario: Scenario = {
   id: "world-1820",
   name: "1820 世界剧本",
   startDate: demo.startDate,
+  endDate: "1823-01-01",
   borderDispute: demo.borderDispute,
   countries: Object.fromEntries(
     countries.map(({ id, name, color, stateCount }) => [

@@ -1,10 +1,11 @@
 import { useMemo, useState } from "react";
 import {
   attacking,
+  canAddGoal,
+  canDemandGoal,
   canReach,
   frontLine,
   goalNames,
-  subjectGoal,
   goals,
   holdings,
   interested,
@@ -137,10 +138,7 @@ export function DiplomacyPanel({ scenario, game, playerId: id, report, busy, sen
                     ? btn(
                         "提出外交要求",
                         { type: "demandBorder", countryId: id, targetStateId: target.id, goal },
-                        !!n.overlord ||
-                          (goal === "annex" &&
-                            game.nations[game.ownerByStateId[target.id]].overlord !== id) ||
-                          (subjectGoal(goal) && !!n.marketLeader),
+                        !!n.overlord || !canDemandGoal(game, id, game.ownerByStateId[target.id], goal),
                       )
                     : btn("声明沿海利益", {
                         type: "declareInterest",
@@ -161,12 +159,7 @@ export function DiplomacyPanel({ scenario, game, playerId: id, report, busy, sen
                   <>
                     <p>剩余博弈点 {d.maneuvers}</p>
                     {goals
-                      .filter(
-                        (g) =>
-                          !d.goals.includes(g) &&
-                          g !== "annex" &&
-                          (!subjectGoal(g) || (!n.marketLeader && !d.goals.some(subjectGoal))),
-                      )
+                      .filter((g) => canAddGoal(game, d, g))
                       .map((g) =>
                         btn("追加" + goalNames[g], { type: "addGoal", countryId: id, goal: g }, !d.maneuvers),
                       )}

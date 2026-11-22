@@ -57,14 +57,24 @@ export const DAY_MS = 86400000;
 export function getGameDate(scenario: Scenario, state: GameState) {
   return new Date(Date.parse(scenario.startDate) + DAY_MS * state.elapsedDays);
 }
+function remainingDays(scenario: Scenario, state: GameState) {
+  if (scenario.endDate === undefined) return Infinity;
+  return Math.max(0, (Date.parse(scenario.endDate) - getGameDate(scenario, state).getTime()) / DAY_MS);
+}
+export function isScenarioFinished(scenario: Scenario, state: GameState) {
+  return remainingDays(scenario, state) === 0;
+}
 export function spanDays(scenario: Scenario, state: GameState, span: Span) {
-  if (span !== "halfYear") return span === "day" ? 1 : 7;
+  const remaining = remainingDays(scenario, state);
+  if (remaining === 0) return 0;
+  if (span !== "halfYear") return Math.min(remaining, span === "day" ? 1 : 7);
   const date = getGameDate(scenario, state);
   const end = new Date(Date.UTC(date.getUTCFullYear(), date.getUTCMonth() + 7, 0));
   end.setUTCDate(Math.min(date.getUTCDate(), end.getUTCDate()));
-  return (end.getTime() - date.getTime()) / DAY_MS;
+  return Math.min(remaining, (end.getTime() - date.getTime()) / DAY_MS);
 }
 export function advanceDay(scenario: Scenario, state: GameState): GameState {
+  if (isScenarioFinished(scenario, state)) return state;
   const next = tickDiplomacy(scenario, { ...state, elapsedDays: state.elapsedDays + 1 });
   if (next.elapsedDays % 7 !== 0) return next;
   const settled = settleEconomy(next, planWar(scenario, next));
@@ -75,43 +85,38 @@ export function advanceDay(scenario: Scenario, state: GameState): GameState {
     const { market } = settled.lastEconomy.countries[id];
     if (id !== state.playerCountryId) {
       const job = chooseConstruction(scenario, result, id, market);
-      if (job) result = dispatch(scenario, result, { type: "queueConstruction", countryId: id, ...job });
+      if (job) result = applyCommand(scenario, result, { type: "queueConstruction", countryId: id, ...job });
       const n = result.nations[id];
       const pending = techs.filter((t) => availableTech(n, t));
       if (!n.research && pending.length)
-        result = dispatch(scenario, result, {
+        result = applyCommand(scenario, result, {
           type: "startResearch",
           countryId: id,
           tech: pending[(result.rng + hash(id)) % pending.length],
         });
       if (!n.reform && !n.laws.includes("普选制")) {
         const cmd = { type: "proposeLaw", countryId: id, law: "普选制" } as const;
-        if (!politicsError(result, cmd)) result = dispatch(scenario, result, cmd);
+        if (!politicsError(result, cmd)) result = applyCommand(scenario, result, cmd);
       }
     }
     const job = chooseConstruction(scenario, result, id, market, true);
     if (job)
-      result = dispatch(scenario, result, {
+      result = applyCommand(scenario, result, {
         type: "queueConstruction",
         countryId: id,
         privateBuild: true,
         ...job,
       });
   }
-  for (const cmd of aiDiplomacy(scenario, result)) result = dispatch(scenario, result, cmd);
+  for (const cmd of aiDiplomacy(scenario, result)) result = applyCommand(scenario, result, cmd);
   return result;
 }
 export function dispatch(scenario: Scenario, state: GameState, cmd: GameCommand): GameState {
-  if (cmd.type === "selectCountry") {
-    if (state.playerCountryId !== null || !Object.hasOwn(scenario.countries, cmd.countryId))
-      throw new Error("无法选择这个国家");
-    return { ...state, playerCountryId: cmd.countryId };
-  }
-  if (!state.playerCountryId) throw new Error("请先选择国家");
   switch (cmd.type) {
     case "advanceDay":
     case "advanceWeek":
     case "advanceHalfYear": {
+      if (!state.playerCountryId) throw new Error("请先选择国家");
       const days = spanDays(
         scenario,
         state,
@@ -120,6 +125,23 @@ export function dispatch(scenario: Scenario, state: GameState, cmd: GameCommand)
       for (let i = 0; i < days; i++) state = advanceDay(scenario, state);
       return state;
     }
+    default:
+      if (isScenarioFinished(scenario, state)) throw new Error("剧本已结束");
+      return applyCommand(scenario, state, cmd);
+  }
+}
+function applyCommand(
+  scenario: Scenario,
+  state: GameState,
+  cmd: Exclude<GameCommand, { type: "advanceWeek" | "advanceDay" | "advanceHalfYear" }>,
+): GameState {
+  if (cmd.type === "selectCountry") {
+    if (state.playerCountryId !== null || !Object.hasOwn(scenario.countries, cmd.countryId))
+      throw new Error("无法选择这个国家");
+    return { ...state, playerCountryId: cmd.countryId };
+  }
+  if (!state.playerCountryId) throw new Error("请先选择国家");
+  switch (cmd.type) {
     case "queueConstruction": {
       const { countryId: id, stateId, good, privateBuild } = cmd;
       const error = constructionError(scenario, state, id, stateId, good, privateBuild);

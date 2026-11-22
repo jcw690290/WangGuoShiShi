@@ -16,6 +16,21 @@ export const goalNames = {
 export function subjectGoal(g: Goal): g is "puppet" | "vassal" | "protectorate" {
   return g === "puppet" || g === "vassal" || g === "protectorate";
 }
+export function canDemandGoal(state: GameState, claimantId: string, defenderId: string, goal: Goal) {
+  return (
+    (goal !== "annex" || state.nations[defenderId].overlord === claimantId) &&
+    (!subjectGoal(goal) || !state.nations[claimantId].marketLeader)
+  );
+}
+
+export function canAddGoal(state: GameState, dispute: BorderDispute, goal: Goal) {
+  return (
+    !dispute.goals.includes(goal) &&
+    (!subjectGoal(goal) || !dispute.goals.some(subjectGoal)) &&
+    canDemandGoal(state, dispute.claimantId, dispute.defenderId, goal)
+  );
+}
+
 export const disputeSchema = z.object({
   targetStateId: z.string(),
   claimantId: z.string(),
@@ -200,8 +215,7 @@ export function applyBorderCommand(scenario: Scenario, state: GameState, cmd: Bo
       (d && d.phase !== "resolved") ||
       !interested(scenario, state, id, target) ||
       n.overlord ||
-      (cmd.goal === "annex" && state.nations[defender].overlord !== id) ||
-      (subjectGoal(cmd.goal) && n.marketLeader)
+      !canDemandGoal(state, id, defender, cmd.goal)
     )
       throw new Error("无法提出这项外交要求");
     const defenders = Object.keys(state.nations).filter(
@@ -242,13 +256,7 @@ export function applyBorderCommand(scenario: Scenario, state: GameState, cmd: Bo
   if (cmd.type === "addGoal" || cmd.type === "sway") {
     if (id !== d.claimantId || d.phase !== "bargaining" || !d.maneuvers) throw new Error("没有可用博弈点");
     if (cmd.type === "addGoal") {
-      if (
-        d.goals.includes(cmd.goal) ||
-        (subjectGoal(cmd.goal) && d.goals.some(subjectGoal)) ||
-        (cmd.goal === "annex" && state.nations[d.defenderId].overlord !== id) ||
-        (subjectGoal(cmd.goal) && n.marketLeader)
-      )
-        throw new Error("无效目标");
+      if (!canAddGoal(state, d, cmd.goal)) throw new Error("无效目标");
       return {
         ...change({ infamy: n.infamy + (cmd.goal === "annex" ? 3 : 12) }),
         borderDispute: { ...d, maneuvers: d.maneuvers - 1, goals: [...d.goals, cmd.goal] },
