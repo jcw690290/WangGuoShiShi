@@ -87,13 +87,13 @@ export function RoomDialog({
     <dialog className="online-dialog" ref={dialog} aria-labelledby="online-title">
       <header>
         <h2 id="online-title">好友联机</h2>
-        <button aria-label="关闭联机菜单" onClick={() => dialog.current!.close()}>×</button>
+        <button className="menu-button close-menu" aria-label="关闭联机菜单" onClick={() => dialog.current!.close()}>×</button>
       </header>
       {!onlineConfigured ? <p>当前版本的联机服务尚未配置。</p> : room ? (
         <>
           <div className="room-invite">
             <p>房间码 <code>{room.code}</code></p>
-            <button disabled={busy} onClick={() => void act(async () => {
+            <button className="menu-button" disabled={busy} onClick={() => void act(async () => {
               const link = new URL(window.location.href);
               link.searchParams.set("room", room.code);
               await navigator.clipboard.writeText(link.href);
@@ -129,19 +129,19 @@ export function RoomDialog({
                 onClick={() => void act(() => connection!.start(room, seat!.country!))}>开始联机</button>}
             </>
           )}
-          <button disabled={busy} onClick={() => { setCopied(false); void leave(); }}>退出房间</button>
+          <button className="menu-button" disabled={busy} onClick={() => { setCopied(false); void leave(); }}>退出房间</button>
         </>
       ) : connection ? (
-        <><p role="status">正在读取房间…</p><button disabled={busy} onClick={() => void leave()}>返回</button></>
+        <><p role="status">正在读取房间…</p><button className="menu-button" disabled={busy} onClick={() => void leave()}>返回</button></>
       ) : (
         <>
           <button className="advance" disabled={busy} onClick={() => void enter()}>创建房间</button>
           <form className="room-join" onSubmit={(event) => { event.preventDefault(); void enter(code); }}>
             <label htmlFor="room-code">房间码</label>
             <input id="room-code" value={code} maxLength={12} autoComplete="off" onChange={(event) => setCode(event.target.value)} />
-            <button disabled={busy || !/^[A-Fa-f0-9]{12}$/.test(code.trim())}>加入房间</button>
+            <button className="menu-button" disabled={busy || !/^[A-Fa-f0-9]{12}$/.test(code.trim())}>加入房间</button>
           </form>
-          {lastCode && <button disabled={busy} onClick={() => void enter(lastCode)}>继续上次房间</button>}
+          {lastCode && <button className="menu-button" disabled={busy} onClick={() => void enter(lastCode)}>继续上次房间</button>}
         </>
       )}
       {error && <p className="room-error" role="alert">{error}</p>}

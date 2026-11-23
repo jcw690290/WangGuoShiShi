@@ -68,11 +68,12 @@ async function mountMap(
       return [id, shape];
     }),
   );
-  const borders = new Graphics(),
+  const selection = new Graphics(),
+    borders = new Graphics(),
     names = new Container(),
-    highlight = new Graphics();
+    occupationHighlight = new Graphics();
   const edges = mapEdges(geometry);
-  map.addChild(borders, names, highlight);
+  map.addChild(selection, borders, names, occupationHighlight);
   const provinceLabels = Object.entries(geometry).map(([id, polygons]) => {
     const text = new Text({
       text: atlas[id].name,
@@ -312,19 +313,20 @@ async function mountMap(
           nationTexts.push({ text, size: info.size });
         }
       }
-      highlight.clear();
+      selection.clear();
+      occupationHighlight.clear();
       for (const id of new Set([occupation, selectedId]))
         if (id !== null) {
+          const selected = id === selectedId;
+          const highlight = selected ? selection : occupationHighlight;
           for (const [shell, ...holes] of geometry[id]) {
             highlight.poly(shell.flat()).fill({
-              color: id === selectedId ? "#fff3cc" : "#dd982e",
-              alpha: 0.24,
+              color: selected ? "#fff3cc" : "#dd982e",
+              alpha: selected ? 0.36 : 0.24,
             });
             for (const hole of holes) highlight.poly(hole.flat()).cut();
-            highlight.poly(shell.flat()).stroke({
-              color: id === selectedId ? "#fff7dc" : "#a96714",
-              width: 1.3,
-            });
+            if (!selected)
+              highlight.poly(shell.flat()).stroke({ color: "#a96714", width: 1.3 });
           }
         }
       focus = selectedId;
