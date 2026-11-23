@@ -151,10 +151,10 @@ export function App({ scenario, geometry }: { scenario: Scenario; geometry: Stat
       <header className="masthead">
         <div className="masthead-inner">
           <div className="brand"><span className="seal" aria-hidden="true">万</span>万国史诗</div>
-          <div className="time-controls">
+          <div className={connection ? "time-controls online-time-controls" : "time-controls"}>
             {connection ? (
               <>
-                <span className="paused">{view?.error ? "同步中断" : !onlinePlaying ? "联机房间" : !view.room.hostOnline ? "房主离线" : running ? "推进中" : "已暂停"}</span>
+                <span className="paused online-status" role="status">{view?.error ? "同步中断" : !onlinePlaying ? "联机房间" : !view.room.hostOnline ? "房主离线" : running ? "推进中" : "已暂停"}</span>
                 {onlinePlaying && <time dateTime={dateISO}>{dateFormat.format(date)}</time>}
                 {canDrive && (
                   <>

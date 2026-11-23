@@ -753,4 +753,6 @@ input:not([type="checkbox"]) {
 .room-error { color: #8b3024; }
 @media (max-width: 580px) {
   .header-menus { grid-column: 2; grid-row: 1; }
+  .online-time-controls { flex-wrap: wrap; }
+  .online-time-controls .online-status { display: inline; }
 }
