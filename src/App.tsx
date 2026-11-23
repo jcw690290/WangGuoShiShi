@@ -13,12 +13,14 @@ import { StateMap } from "./map/StateMap.tsx";
 import { capitals } from "./map/capitals.ts";
 import { countryColor } from "./map/cartography.ts";
 import type { StateGeometry } from "./map/geometry.ts";
+import { RoomDialog, useOnlineRoom } from "./online/RoomDialog.tsx";
+import type { Speed } from "./online/protocol.ts";
 import { atlas } from "./scenario/scenario.ts";
 import type { Scenario } from "./scenario/scenario.ts";
 
 const dateFormat = new Intl.DateTimeFormat("zh-CN", { dateStyle: "long", timeZone: "UTC" });
 export function App({ scenario, geometry }: { scenario: Scenario; geometry: StateGeometry }) {
-  const [game, setGame] = useState(() => createGame(scenario)),
+  const [soloGame, setGame] = useState(() => createGame(scenario)),
     [selected, setSelected] = useState<string | null>(null);
   const [busy, setBusy] = useState(false),
     [notice, setNotice] = useState("");
@@ -27,13 +29,33 @@ export function App({ scenario, geometry }: { scenario: Scenario; geometry: Stat
   const [span, setSpan] = useState<Span>("week"),
     [until, setUntil] = useState<number | null>(null);
   const menu = useRef<HTMLDialogElement>(null);
+  const roomDialog = useRef<HTMLDialogElement>(null);
+  const online = useOnlineRoom(scenario, () => {
+    setUntil(null);
+    setSelected(null);
+    setNotice("");
+    setCommandId(null);
+  });
+  const { view, connection } = online;
+  const [commandId, setCommandId] = useState<number | null>(null);
+  const [onlineSpeed, setOnlineSpeed] = useState<Speed>(2000);
+  const onlineCountry = view?.room.members.find((member) => member.user === connection!.user)?.country;
+  const game = useMemo(() => {
+    return view?.game ? { ...view.game, playerCountryId: onlineCountry! } : soloGame;
+  }, [view?.game, onlineCountry, soloGame]);
+  const onlinePlaying = view?.room.status === "playing";
+  const canDrive = onlinePlaying && view.room.hostOnline && view.leased && !view.error;
   const tabs = ["经济与人口", "政治与科技", "外交与战争"] as const;
   const [tab, setTab] = useState<number>(0);
   const [search, setSearch] = useState("");
-  const finished = isScenarioFinished(scenario, game),
-    running = !finished && until !== null && game.elapsedDays < until,
-    locked = busy || running,
-    player = game.playerCountryId;
+  const finished = (!connection || onlinePlaying) && isScenarioFinished(scenario, game),
+    running = !finished && (onlinePlaying
+      ? view.room.hostOnline && view.room.speed > 0
+      : !connection && until !== null && game.elapsedDays < until),
+    locked = connection
+      ? online.busy || commandId !== null || !view?.room.hostOnline || Boolean(view.error)
+      : busy || running,
+    player = connection ? onlineCountry ?? null : game.playerCountryId;
   const site =
     selected ??
     (player
@@ -56,10 +78,35 @@ export function App({ scenario, geometry }: { scenario: Scenario; geometry: Stat
   const date = getGameDate(scenario, game);
   const dateISO = date.toISOString().slice(0, 10);
   function send(cmd: GameCommand) {
+    if (connection) {
+      void online.act(async () => {
+        setNotice("等待房主确认指令…");
+        try {
+          setCommandId(await connection.submit(cmd));
+        } catch (error) {
+          setNotice("");
+          throw error;
+        }
+      });
+      return;
+    }
     setGame((previous) => dispatch(scenario, previous, cmd));
   }
+  const commandResult = view?.room.results.find((result) => result.id === commandId);
   useEffect(() => {
-    if (!running) return;
+    if (!commandResult) return;
+    setNotice(commandResult.error ? "指令未执行 · " + commandResult.error : "指令已执行");
+    setCommandId(null);
+  }, [commandResult]);
+  useEffect(() => {
+    if (!connection) {
+      setSelected(null);
+      setCommandId(null);
+      setNotice("");
+    }
+  }, [connection]);
+  useEffect(() => {
+    if (!running || connection) return;
     const timer = setTimeout(
       () => {
         setGame((previous) => {
@@ -72,7 +119,7 @@ export function App({ scenario, geometry }: { scenario: Scenario; geometry: Stat
       span === "halfYear" ? 35 : 65,
     );
     return () => clearTimeout(timer);
-  }, [running, until, span, game.elapsedDays, scenario]);
+  }, [running, until, span, game.elapsedDays, scenario, connection]);
   useEffect(() => {
     if (finished && !menu.current!.open) menu.current!.showModal();
   }, [finished]);
@@ -104,7 +151,34 @@ export function App({ scenario, geometry }: { scenario: Scenario; geometry: Stat
       <header className="masthead">
         <div className="masthead-inner">
           <div className="brand"><span className="seal" aria-hidden="true">万</span>万国史诗</div>
-          <div className="time-controls">
+          <div className={connection ? "time-controls online-time-controls" : "time-controls"}>
+            {connection ? (
+              <>
+                <span className="paused online-status" role="status">{view?.error ? "同步中断" : !onlinePlaying ? "联机房间" : !view.room.hostOnline ? "房主离线" : running ? "推进中" : "已暂停"}</span>
+                {onlinePlaying && <time dateTime={dateISO}>{dateFormat.format(date)}</time>}
+                {canDrive && (
+                  <>
+                    <select
+                      aria-label="联机推进速度"
+                      disabled={online.busy || finished}
+                      value={view.room.speed || onlineSpeed}
+                      onChange={(event) => {
+                        const speed = Number(event.target.value) as Speed;
+                        setOnlineSpeed(speed);
+                        if (running) void online.act(() => connection.setSpeed(speed));
+                      }}
+                    >
+                      <option value={4000}>4 秒／天</option>
+                      <option value={2000}>2 秒／天</option>
+                      <option value={1000}>1 秒／天</option>
+                    </select>
+                    <button className="advance" disabled={online.busy || finished} onClick={() => {
+                      void online.act(() => connection.setSpeed(running ? 0 : onlineSpeed));
+                    }}>{running ? "暂停" : "继续"}</button>
+                  </>
+                )}
+              </>
+            ) : <>
             <span className="paused">{running ? "推进中" : "已暂停"}</span>
             <time dateTime={dateISO}>{dateFormat.format(date)}</time>
             <select
@@ -124,14 +198,18 @@ export function App({ scenario, geometry }: { scenario: Scenario; geometry: Stat
             >
               {running ? "暂停" : "推进"}
             </button>
+            </>}
           </div>
-          <button className="menu-entry" aria-haspopup="dialog" onClick={() => menu.current!.showModal()}>政务菜单</button>
+          <div className="header-menus">
+            <button className="menu-entry" aria-haspopup="dialog" onClick={() => roomDialog.current!.showModal()}>联机</button>
+            <button className="menu-entry" aria-haspopup="dialog" onClick={() => menu.current!.showModal()}>政务菜单</button>
+          </div>
         </div>
       </header>
       <main className="map-workspace">
         <StateMap scenario={scenario} geometry={geometry} game={game}
           selectedId={player ? selected : null} preview={player ? null : choice} onSelect={setSelected} />
-        {!player && <aside className="country-picker">
+        {!player && !connection && <aside className="country-picker">
           <h1>选择国家</h1>
           <div className="country-choices">
             {countries.map(c => <button key={c.id} aria-pressed={c.id === choice}
@@ -145,21 +223,22 @@ export function App({ scenario, geometry }: { scenario: Scenario; geometry: Stat
             }}>开始执政</button>
           </footer>
         </aside>}
-        {player && selected && <button className="site-chip" onClick={() => {
+        {player && (!connection || onlinePlaying) && selected && <button className="site-chip" onClick={() => {
           setTab(0); menu.current!.showModal();
         }}>{atlas[selected].name} · {owner ? scenario.countries[owner].name : "无主领土"} ›</button>}
       </main>
+      <RoomDialog scenario={scenario} online={online} dialog={roomDialog} />
       <dialog className="government" ref={menu} aria-label="政务菜单">
         <header className="menu-tabs">
           {tabs.map((title, i) => <button key={title} aria-pressed={tab === i}
             onClick={() => setTab(i)}>{title}</button>)}
-          <div className="slot-actions" role="group" aria-label="本地存档">
+          {!connection && <div className="slot-actions" role="group" aria-label="本地存档">
             <button disabled={!player || locked} onClick={() => void slot("save")}>存档</button>
             <button disabled={locked} onClick={() => void slot("load")}>读档</button>
-          </div>
+          </div>}
           <button className="close-menu" aria-label="关闭菜单" onClick={() => menu.current!.close()}>×</button>
         </header>
-        <p role="status" className="save-notice">{notice}</p>
+        <p role="status" className="save-notice">{online.error || notice}</p>
         <div className="menu-body">
         {finished && player && (
           <section className="panel scenario-result" aria-labelledby="result-title">
@@ -183,7 +262,7 @@ export function App({ scenario, geometry }: { scenario: Scenario; geometry: Stat
             </div>
           </section>
         )}
-          {player ? <>
+          {player && (!connection || onlinePlaying) ? <>
             {tab === 0 && <EconomyPanel
               scenario={scenario}
               game={game}
@@ -242,7 +321,7 @@ export function App({ scenario, geometry }: { scenario: Scenario; geometry: Stat
                       disabled={locked || finished || Boolean(claimError(scenario, game, site))}
                       onClick={() => {
                         send({ type: "claimState", stateId: site });
-                        setNotice(`已占领 ${atlas[site].name} · 支出 ${silver(CLAIM_COST)}`);
+                        if (!connection) setNotice(`已占领 ${atlas[site].name} · 支出 ${silver(CLAIM_COST)}`);
                       }}
                     >
                       占领 {atlas[site].name}
