@@ -1,3 +1,4 @@
+import { GameRuleError } from "./rules.ts";
 import type { Scenario } from "../scenario/scenario.ts";
 import { isScenarioFinished } from "./engine.ts";
 import type { GameState } from "./engine.ts";
@@ -25,7 +26,7 @@ export function applyClaim(
   stateId: string,
 ): GameState {
   const error = claimError(scenario, state, stateId);
-  if (error) throw new Error(error);
+  if (error) throw new GameRuleError(error);
   const id = state.playerCountryId!,
     site = scenario.states[stateId];
   const country = state.countryEconomies[id];

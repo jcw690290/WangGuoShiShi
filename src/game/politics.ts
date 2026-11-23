@@ -1,3 +1,4 @@
+import { GameRuleError } from "./rules.ts";
 import type { GameState } from "./engine.ts";
 import type { EconomyReport } from "./economy.ts";
 import { groups, influence, literacyOf, reformConditions, techs } from "./society.ts";
@@ -71,7 +72,7 @@ export function politicsError(state: GameState, command: PoliticsCommand) {
 }
 export function applyPolitics(state: GameState, command: PoliticsCommand): GameState {
   const error = politicsError(state, command);
-  if (error) throw new Error(error);
+  if (error) throw new GameRuleError(error);
   const change =
     command.type === "setGovernment"
       ? { government: command.government }

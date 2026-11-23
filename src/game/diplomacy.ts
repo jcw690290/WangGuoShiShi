@@ -1,3 +1,4 @@
+import { GameRuleError } from "./rules.ts";
 import { z } from "zod";
 import type { Scenario } from "../scenario/scenario.ts";
 import type { GameState } from "./engine.ts";
@@ -172,14 +173,14 @@ export function applyBorderCommand(scenario: Scenario, state: GameState, cmd: Bo
     n = state.nations[id],
     d = state.borderDispute;
   if (!state.playerCountryId || !n || !Object.values(state.ownerByStateId).includes(id))
-    throw new Error("国家没有可用领土");
+    throw new GameRuleError("国家没有可用领土");
   const change = (patch: Partial<typeof n>) => ({
     ...state,
     nations: { ...state.nations, [id]: { ...n, ...patch } },
   });
   if (cmd.type === "promoteGeneral") {
     if (n.generalRank >= 5 || state.countryEconomies[id].treasury < 80000)
-      throw new Error("晋升需要 800 两，最高五级");
+      throw new GameRuleError("晋升需要 800 两，最高五级");
     const paid = state.countryEconomies[id];
     return {
       ...change({ generalRank: n.generalRank + 1 }),
@@ -187,7 +188,7 @@ export function applyBorderCommand(scenario: Scenario, state: GameState, cmd: Bo
     };
   }
   if (cmd.type === "leaveUnion") {
-    if (!n.marketLeader || n.overlord) throw new Error("无法退出当前市场");
+    if (!n.marketLeader || n.overlord) throw new GameRuleError("无法退出当前市场");
     return { ...change({ marketLeader: null }), lastEconomy: null };
   }
   if (cmd.type === "joinUnion") {
@@ -201,15 +202,15 @@ export function applyBorderCommand(scenario: Scenario, state: GameState, cmd: Bo
       !Object.values(state.ownerByStateId).includes(cmd.leaderId) ||
       (d && d.phase !== "resolved" && participants(d).includes(id))
     )
-      throw new Error("无法加入该关税同盟");
+      throw new GameRuleError("无法加入该关税同盟");
     return { ...change({ marketLeader: cmd.leaderId }), lastEconomy: null };
   }
   if (cmd.type === "declareInterest" || cmd.type === "demandBorder") {
     const target = cmd.targetStateId,
       defender = state.ownerByStateId[target];
-    if (!canReach(scenario, state, id, target)) throw new Error("需要接壤或双方沿海的目标州");
+    if (!canReach(scenario, state, id, target)) throw new GameRuleError("需要接壤或双方沿海的目标州");
     if (cmd.type === "declareInterest") {
-      if (interested(scenario, state, id, target)) throw new Error("已经拥有利益");
+      if (interested(scenario, state, id, target)) throw new GameRuleError("已经拥有利益");
       return change({ interests: [...n.interests, target] });
     }
     if (
@@ -218,7 +219,7 @@ export function applyBorderCommand(scenario: Scenario, state: GameState, cmd: Bo
       n.overlord ||
       !canDemandGoal(state, id, defender, cmd.goal)
     )
-      throw new Error("无法提出这项外交要求");
+      throw new GameRuleError("无法提出这项外交要求");
     const defenders = Object.keys(state.nations).filter(
       (x) =>
         x !== id &&
@@ -252,12 +253,12 @@ export function applyBorderCommand(scenario: Scenario, state: GameState, cmd: Bo
       },
     };
   }
-  if (!d || d.phase === "resolved" || !participants(d).includes(id)) throw new Error("没有本国参与的争端");
+  if (!d || d.phase === "resolved" || !participants(d).includes(id)) throw new GameRuleError("没有本国参与的争端");
   const patch = (fields: Partial<BorderDispute>) => ({ ...state, borderDispute: { ...d, ...fields } });
   if (cmd.type === "addGoal" || cmd.type === "sway") {
-    if (id !== d.claimantId || d.phase !== "bargaining" || !d.maneuvers) throw new Error("没有可用博弈点");
+    if (id !== d.claimantId || d.phase !== "bargaining" || !d.maneuvers) throw new GameRuleError("没有可用博弈点");
     if (cmd.type === "addGoal") {
-      if (!canAddGoal(state, d, cmd.goal)) throw new Error("无效目标");
+      if (!canAddGoal(state, d, cmd.goal)) throw new GameRuleError("无效目标");
       return {
         ...change({ infamy: n.infamy + (cmd.goal === "annex" ? 3 : 12) }),
         borderDispute: { ...d, maneuvers: d.maneuvers - 1, goals: [...d.goals, cmd.goal] },
@@ -269,7 +270,7 @@ export function applyBorderCommand(scenario: Scenario, state: GameState, cmd: Bo
       state.nations[cmd.allyId].overlord ||
       !interested(scenario, state, cmd.allyId, d.targetStateId)
     )
-      throw new Error("第三国需要在目标地区拥有利益");
+      throw new GameRuleError("第三国需要在目标地区拥有利益");
     return patch({
       maneuvers: d.maneuvers - 1,
       allies: [...d.allies, cmd.allyId],
@@ -278,24 +279,24 @@ export function applyBorderCommand(scenario: Scenario, state: GameState, cmd: Bo
   }
   if (cmd.type === "backDown") {
     if (d.phase === "war" || (id !== d.claimantId && id !== d.defenderId))
-      throw new Error("无法在此阶段让步");
+      throw new GameRuleError("无法在此阶段让步");
     return treaty(state, d, id === d.defenderId, id === d.claimantId);
   }
-  if (d.phase !== "war") throw new Error("尚未进入战争");
+  if (d.phase !== "war") throw new GameRuleError("尚未进入战争");
   if (cmd.type === "signTreaty" || cmd.type === "armistice") {
     if ((id !== d.claimantId && id !== d.defenderId) || d.lastChange === null)
-      throw new Error("尚无法签署和约");
+      throw new GameRuleError("尚无法签署和约");
     if (cmd.type === "signTreaty" && d.progress < scenario.borderDispute.cessionProgress)
-      throw new Error("战线进度尚未达到割让条件");
+      throw new GameRuleError("战线进度尚未达到割让条件");
     return treaty(state, d, cmd.type === "signTreaty");
   }
   if (cmd.type === "mobilize") {
-    if (d.mobilized.includes(id)) throw new Error("已经征兵");
+    if (d.mobilized.includes(id)) throw new GameRuleError("已经征兵");
     return patch({ mobilized: [...d.mobilized, id] });
   }
   if (cmd.type === "raid") {
     if (!holdings(scenario, state, id).some((s) => s.coastal) || d.raid.includes(id))
-      throw new Error("没有可派遣的舰队");
+      throw new GameRuleError("没有可派遣的舰队");
     return patch({ raid: [...d.raid, id] });
   }
   return patch({
@@ -413,9 +414,12 @@ export function advanceFront(scenario: Scenario, state: GameState, report: Econo
   const progress = Math.max(0, Math.min(100, d.progress + delta));
   return { ...state, borderDispute: { ...d, progress, lastChange: progress - d.progress } };
 }
-export function aiDiplomacy(scenario: Scenario, state: GameState): BorderCommand[] {
-  const d = state.borderDispute,
-    player = state.playerCountryId!;
+export function aiDiplomacy(
+  scenario: Scenario,
+  state: GameState,
+  humanCountries: ReadonlySet<string | null> = new Set([state.playerCountryId]),
+): BorderCommand[] {
+  const d = state.borderDispute;
   if (!d || d.phase === "resolved") {
     // Limit AI plays to one at a time. Give the player a full opening month to make the first demand.
     if (state.elapsedDays % 56 !== 0) return [];
@@ -428,7 +432,7 @@ export function aiDiplomacy(scenario: Scenario, state: GameState): BorderCommand
         if (
           Object.hasOwn(state.ownerByStateId, nb) &&
           id !== owner &&
-          id !== player &&
+          !humanCountries.has(id) &&
           !state.nations[id].overlord &&
           state.nations[owner].overlord !== id
         )
@@ -439,19 +443,19 @@ export function aiDiplomacy(scenario: Scenario, state: GameState): BorderCommand
   }
   if (
     d.phase === "countdown" &&
-    d.defenderId !== player &&
+    !humanCountries.has(d.defenderId) &&
     holdings(scenario, state, d.claimantId).length > 2 * holdings(scenario, state, d.defenderId).length
   )
     return [{ type: "backDown", countryId: d.defenderId }];
   if (d.phase !== "war") return [];
   const orders: BorderCommand[] = [];
-  for (const id of participants(d).filter((i) => i !== player)) {
+  for (const id of participants(d).filter((i) => !humanCountries.has(i))) {
     if (!d.mobilized.includes(id)) orders.push({ type: "mobilize", countryId: id });
     if (!d.advance.includes(id)) orders.push({ type: "orderAdvance", countryId: id });
   }
-  if (d.claimantId !== player && d.progress >= scenario.borderDispute.cessionProgress)
+  if (!humanCountries.has(d.claimantId) && d.progress >= scenario.borderDispute.cessionProgress)
     orders.push({ type: "signTreaty", countryId: d.claimantId });
-  else if (d.claimantId !== player && state.elapsedDays - d.since >= 84 && d.lastChange !== null)
+  else if (!humanCountries.has(d.claimantId) && state.elapsedDays - d.since >= 84 && d.lastChange !== null)
     orders.push({ type: "armistice", countryId: d.claimantId });
   return orders;
 }
