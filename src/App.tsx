@@ -44,7 +44,7 @@ export function App({ scenario, geometry }: { scenario: Scenario; geometry: Stat
     return view?.game ? { ...view.game, playerCountryId: onlineCountry! } : soloGame;
   }, [view?.game, onlineCountry, soloGame]);
   const onlinePlaying = view?.room.status === "playing";
-  const canDrive = onlinePlaying && view.leased && !view.error;
+  const canDrive = onlinePlaying && view.room.hostOnline && view.leased && !view.error;
   const tabs = ["经济与人口", "政治与科技", "外交与战争"] as const;
   const [tab, setTab] = useState<number>(0);
   const [search, setSearch] = useState("");
@@ -154,7 +154,7 @@ export function App({ scenario, geometry }: { scenario: Scenario; geometry: Stat
           <div className="time-controls">
             {connection ? (
               <>
-                <span className="paused">{!onlinePlaying ? "联机房间" : !view.room.hostOnline ? "房主离线" : running ? "推进中" : "已暂停"}</span>
+                <span className="paused">{view?.error ? "同步中断" : !onlinePlaying ? "联机房间" : !view.room.hostOnline ? "房主离线" : running ? "推进中" : "已暂停"}</span>
                 {onlinePlaying && <time dateTime={dateISO}>{dateFormat.format(date)}</time>}
                 {canDrive && (
                   <>

@@ -22,14 +22,13 @@ export class RoomConnection {
   private game: GameState | null = null;
   private checkpoint = 0;
   private leased = false;
-  private renewAt = 0;
+  private heartbeatTimer: ReturnType<typeof setTimeout> | undefined;
   private tickAt = Infinity;
   private online = new Set<string>();
   private timer: ReturnType<typeof setTimeout> | undefined;
   private working = false;
   private wakeRequested = false;
   private closed = false;
-  private retry = false;
   private pause = false;
   private error = "";
 
@@ -48,6 +47,7 @@ export class RoomConnection {
   close() {
     this.closed = true;
     clearTimeout(this.timer);
+    clearTimeout(this.heartbeatTimer);
     document.removeEventListener("visibilitychange", this.onVisibility);
     window.removeEventListener("online", this.wake);
     if (this.channel) void onlineClient().removeChannel(this.channel);
@@ -119,6 +119,28 @@ export class RoomConnection {
     this.timer = setTimeout(() => void this.run(), delay);
   }
 
+  private async heartbeat() {
+    if (this.closed) return;
+    const previous = this.leased;
+    try {
+      if (!document.hidden) this.leased = (await this.call("lease", { lease: this.lease })) === true;
+    } catch (error) {
+      if (this.closed) return;
+      if (!(error instanceof OnlineRequestError && error.retryable)) {
+        this.error = error instanceof Error ? error.message : String(error);
+        this.emit();
+        this.fail(this.error);
+        this.close();
+        return;
+      }
+      this.leased = false;
+      this.pause = true;
+    }
+    if (this.closed) return;
+    if (previous !== this.leased) this.wake();
+    this.heartbeatTimer = setTimeout(() => void this.heartbeat(), 4000);
+  }
+
   private connectRealtime() {
     this.channel = onlineClient()
       .channel("wgss:" + this.id, { config: { private: true, presence: { key: this.user } } })
@@ -171,37 +193,29 @@ export class RoomConnection {
       if (!this.channel) this.connectRealtime();
 
       if (room.host === this.user) {
-        const now = Date.now();
-        if (!room.hostOnline) this.leased = false;
-        if (this.pause || this.retry) {
-          this.retry = false;
-          this.pause = false;
-          if (this.leased && room.speed) {
-            await this.call("speed", { lease: this.lease, speed: 0 });
+        // Renew control independently of downloading snapshots and committing days.
+        this.heartbeatTimer ??= setTimeout(() => void this.heartbeat(), 0);
+        if (this.pause) {
+          if (!room.speed) {
+            this.pause = false;
+          } else if (this.leased && await this.call("speed", { lease: this.lease, speed: 0 })) {
+            this.pause = false;
             room = await this.read();
           }
         }
-        if (!document.hidden && now >= this.renewAt) {
-          const previouslyLeased = this.leased;
-          this.leased = (await this.call("lease", { lease: this.lease })) === true;
-          this.renewAt = Date.now() + 5000;
-          if (this.leased && !previouslyLeased) room = await this.read();
-        }
         this.emit();
         if (this.closed) return;
-        if (!document.hidden) {
-          delay = Math.min(delay, this.renewAt - Date.now());
-          if (this.leased && this.game) {
-            if (room.pending.length) {
-              await this.processCommand(room, this.game);
-              delay = 0;
-            } else if (room.speed) {
-              if (Date.now() >= this.tickAt) {
-                await this.step(room, this.game);
-                this.tickAt = Date.now() + room.speed;
-              }
-              delay = Math.min(delay, this.tickAt - Date.now());
+        if (!document.hidden && this.leased && room.hostOnline && this.game) {
+          if (room.pending.length) {
+            await this.processCommand(room, this.game);
+            delay = 0;
+          } else if (room.speed && !this.pause) {
+            if (Date.now() >= this.tickAt) {
+              const startedAt = Date.now();
+              await this.step(room, this.game);
+              this.tickAt = startedAt + room.speed;
             }
+            delay = Math.min(delay, this.tickAt - Date.now());
           }
         }
       } else {
@@ -216,7 +230,7 @@ export class RoomConnection {
         this.close();
         return;
       }
-      this.retry = true;
+      this.pause = true;
       delay = 3000;
     } finally {
       this.working = false;

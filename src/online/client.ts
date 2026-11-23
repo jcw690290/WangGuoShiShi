@@ -29,7 +29,8 @@ export async function onlineUser() {
 }
 
 export async function request(action: string, args: Record<string, unknown>): Promise<unknown> {
-  const { data, error, status } = await onlineClient().rpc("wgss_online", { action, args }).abortSignal(AbortSignal.timeout(10000));
+  const timeout = action === "lease" ? 8000 : 20000;
+  const { data, error, status } = await onlineClient().rpc("wgss_online", { action, args }).abortSignal(AbortSignal.timeout(timeout));
   if (error) throw new OnlineRequestError(error.message, status === 0 || status >= 500);
   return data;
 }
