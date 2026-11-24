@@ -4,7 +4,7 @@ import { dispatch } from "../game/engine.ts";
 import type { GameState } from "../game/engine.ts";
 import { GameRuleError } from "../game/rules.ts";
 import { groups, laws, projectTypes, techs } from "../game/society.ts";
-import { parseSave, saveVersion } from "../game/storage.ts";
+import { parseSave } from "../game/storage.ts";
 import type { Scenario } from "../scenario/scenario.ts";
 
 export const protocolVersion = 1;
@@ -57,7 +57,10 @@ export function applyPlayerCommand(scenario: Scenario, state: GameState, country
 }
 
 export async function encodeSnapshot(scenario: Scenario, state: GameState) {
-  const envelope = JSON.stringify({ version: saveVersion, scenarioId: scenario.id, state });
+  const { tickInDay, ...world } = state;
+  if (tickInDay !== 0) throw new GameRuleError("联机快照必须在日界提交");
+  // Protocol 1 clients share the existing whole-day snapshot format.
+  const envelope = JSON.stringify({ version: 5, scenarioId: scenario.id, state: world });
   const stream = new Blob([envelope]).stream().pipeThrough(new CompressionStream("gzip"));
   const bytes = new Uint8Array(await new Response(stream).arrayBuffer());
   return btoa(Array.from(bytes, (byte) => String.fromCharCode(byte)).join(""));
