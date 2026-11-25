@@ -19,11 +19,13 @@ function civilianOutput(report: EconomyReport, holdings: readonly string[]) {
     const { industries: activity, industrial } = report.states[id];
     for (const good of goods) total += activity[good].output * industries[good].basePrice;
     if (industrial) for (const good of industrialGoods) total -= industrial.used[good] * industries[good].basePrice;
-    const toolRecipe = inputs.tools;
-    const toolInputs = (Object.keys(toolRecipe) as Array<keyof typeof toolRecipe>).reduce((sum, good) =>
-      sum + Math.ceil(activity.tools.employed * toolRecipe[good] / industries.tools.jobs) * industries[good].basePrice, 0);
-    manufacturing += activity.cloth.output * industries.cloth.basePrice +
-      activity.tools.output * industries.tools.basePrice - toolInputs;
+    manufacturing += activity.cloth.output * industries.cloth.basePrice;
+    for (const line of ["tools", "paper"] as const) {
+      const recipe: Partial<Record<(typeof industrialGoods)[number], number>> = inputs[line];
+      const inputsCost = industrialGoods.reduce((sum, good) =>
+        sum + Math.ceil(activity[line].employed * (recipe[good] ?? 0) / industries[line].jobs) * industries[good].basePrice, 0);
+      manufacturing += activity[line].output * industries[line].basePrice - inputsCost;
+    }
   }
   return { total, manufacturing };
 }
@@ -109,6 +111,14 @@ export function measureCampaign(
   }
   if (labour > 0) metrics.U = 1 - Math.min(1, employed / labour);
   if (held.every((id) => report.states[id].foodFulfillment !== undefined)) metrics.FOOD = food / people;
+  if (held.every((id) => report.states[id].householdBasicOrders !== undefined &&
+      report.states[id].householdConsumption !== undefined)) {
+    metrics.BASIC_CONSUMPTION = Math.min(...goods.filter((good) => industries[good].demandPerPerson > 0).map((good) => {
+      const total = held.reduce((sum, id) => sum + report.states[id].householdConsumption![good], 0);
+      const required = held.reduce((sum, id) => sum + report.states[id].householdBasicOrders![good], 0);
+      return required > 0 ? Math.min(1, total / required) : 1;
+    }));
+  }
   const dispute = state.borderDispute;
   if (dispute?.phase === "war" && participants(dispute).includes(countryId))
     metrics.SUP = report.countries[countryId].military.readiness;

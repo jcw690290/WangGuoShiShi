@@ -7,13 +7,18 @@ export const inputs = {
   iron: { tools: 3 },
   coal: { tools: 3 },
   tools: { iron: 30, wood: 20, coal: 5 },
+  paper: { wood: 40, coal: 10, tools: 1 },
+  services: { paper: 2, tools: 1 },
 } satisfies Record<IndustrialGood, Readonly<Partial<ByIndustrialGood<number>>>>;
 const units = z.int().nonnegative();
-export const materialSchema = z.object(byIndustrialGood(() => units));
+export const materialSchema = z.object({
+  wood: units, iron: units, coal: units, tools: units, paper: units.default(0), services: units.default(0),
+});
 export const industrialAccountSchema = z.object({ capital: units, stocks: materialSchema });
 export type IndustrialAccount = z.infer<typeof industrialAccountSchema>;
 export const industrialReportSchema = industrialAccountSchema.extend({
   used: materialSchema, bought: materialSchema, spent: units, sales: units, distributed: units,
+  skilledWages: units.optional(),
 });
 export type IndustrialReport = z.infer<typeof industrialReportSchema>;
 
@@ -21,13 +26,34 @@ export function emptyIndustrialAccount(): IndustrialAccount {
   return { capital: 0, stocks: byIndustrialGood(() => 0) };
 }
 
-export const industrialWagePerJob = (good: IndustrialGood) => good === "tools" ? 116 : 100;
+const regularWage = 100;
+const skilledPositions = {
+  wood: [0, 0], iron: [0, 0], coal: [0, 0], tools: [20, 180], paper: [20, 180], services: [50, 150],
+} satisfies Record<IndustrialGood, [number, number]>;
+
+export function industrialPayroll(good: IndustrialGood, employed: number) {
+  const [perHundred, wage] = skilledPositions[good];
+  const skilled = Math.ceil(employed * perHundred / 100);
+  const skilledWages = skilled * wage;
+  return { skilled, skilledWages, total: (employed - skilled) * regularWage + skilledWages };
+}
+
+export function trainedLabourCapacity(good: IndustrialGood, trained: number) {
+  const [perHundred] = skilledPositions[good];
+  return perHundred > 0 ? Math.floor(trained * 100 / perHundred) : Infinity;
+}
+
+export function affordableIndustryWorkers(good: IndustrialGood, capital: number) {
+  const wage = industrialPayroll(good, 100).total / 100;
+  const estimated = Math.floor(capital / wage);
+  return industrialPayroll(good, estimated).total <= capital ? estimated : estimated - 1;
+}
 
 export function workingCapitalPerLevel(good: IndustrialGood) {
   const recipe: Readonly<Partial<ByIndustrialGood<number>>> = inputs[good];
   const materialCost = industrialGoods.reduce((sum, material) =>
     sum + (recipe[material] ?? 0) * industries[material].basePrice, 0);
-  return 4 * (materialCost + industries[good].jobs * industrialWagePerJob(good));
+  return 4 * (materialCost + industrialPayroll(good, industries[good].jobs).total);
 }
 
 export function workingCapitalTarget(levels: ScenarioLevels) {

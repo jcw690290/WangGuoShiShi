@@ -2,7 +2,7 @@ import { useState } from "react";
 import type { FormEvent } from "react";
 import { count, silver } from "./format.ts";
 import type { GameCommand, GameState } from "./game/engine.ts";
-import { goods, industries } from "./game/industry.ts";
+import { tradableGoods, industries } from "./game/industry.ts";
 import type { Good } from "./game/industry.ts";
 import { marketOf } from "./game/market.ts";
 import { tradeRouteKey, tradeStatuses } from "./game/trade.ts";
@@ -76,7 +76,7 @@ export function TradePanel({ scenario, game, stateId, playerId, busy, send }: Pr
             {sources.map((id) => <option key={id} value={id}>{scenario.states[id].name} · {scenario.countries[game.ownerByStateId[id]].name}</option>)}
           </select></label>
           <label>商品 <select value={good} onChange={(event) => setGood(event.target.value as Good)}>
-            {goods.map((id) => <option key={id} value={id}>{industries[id].goodName}</option>)}
+            {tradableGoods.map((id) => <option key={id} value={id}>{industries[id].goodName}</option>)}
           </select></label>
           <label>周运量上限 <input name="limit" type="number" min="1" max="100000" defaultValue="500" required /></label>
           <button className="build" type="submit" disabled={busy || duplicate}>批准进口</button>

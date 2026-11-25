@@ -78,6 +78,7 @@ export function routeTransport(scenario: Scenario, from: string, to: string, mod
 }
 
 export function applyTradeCommand(scenario: Scenario, state: GameState, cmd: TradeCommand): GameState {
+  if (cmd.good === "services") throw new GameRuleError("服务只能在本州成交");
   const routes = state.tradeRoutes ?? [];
   const key = tradeRouteKey(cmd);
   const route = routes.find((candidate) => tradeRouteKey(candidate) === key);
