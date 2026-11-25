@@ -1,6 +1,7 @@
 import { GameRuleError } from "./rules.ts";
 import { z } from "zod";
 import { diplomaticTie, removeDiplomaticTies } from "./diplomatic-ties.ts";
+import { newFrontier } from "./governance.ts";
 import type { Scenario } from "../scenario/scenario.ts";
 import type { GameState } from "./engine.ts";
 import type { EconomyReport } from "./economy.ts";
@@ -118,14 +119,17 @@ function treaty(state: GameState, d: BorderDispute, victory: boolean, withdrawal
   const { occupation: released, ...world } = state;
   const ownerByStateId = { ...state.ownerByStateId },
     countryEconomies = { ...state.countryEconomies },
-    nations = { ...state.nations };
+    nations = { ...state.nations },
+    societies = { ...state.societies };
   const a = d.claimantId,
     b = d.defenderId;
   if (victory) {
     if (d.goals.includes("annex") || d.goals.includes("cession")) {
       for (const id of Object.keys(ownerByStateId))
-        if (ownerByStateId[id] === b && (id === d.targetStateId || d.goals.includes("annex")))
+        if (ownerByStateId[id] === b && (id === d.targetStateId || d.goals.includes("annex"))) {
           ownerByStateId[id] = a;
+          societies[id] = { ...societies[id], governance: { ...newFrontier } };
+        }
       countryEconomies[b] = {
         ...countryEconomies[b],
         queue: countryEconomies[b].queue.filter((p) => ownerByStateId[p.stateId] === b),
@@ -173,6 +177,7 @@ function treaty(state: GameState, d: BorderDispute, victory: boolean, withdrawal
     ownerByStateId,
     countryEconomies,
     nations,
+    societies,
     lastEconomy: null,
     borderDispute: {
       ...d,
