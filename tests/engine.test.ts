@@ -157,6 +157,8 @@ test("职业支持分配与选举权重改变八个集团，合法性和激进�
 test("改革和研究进入下一期结算，科技只有在外国掌握之后才扩散", () => {
   let g = start();
   g = send(g, { type: "setGovernment", countryId: "first", government: ["地主", "乡民", "实业家"] });
+  g.societies.border.university = 1;
+  g.nations.first.knowledge["纺织工艺"] = 99.9;
   g = send(g, { type: "proposeLaw", countryId: "first", law: "工资税改革" });
   g = send(g, { type: "startResearch", countryId: "first", tech: "纺织工艺" });
   assert.throws(() => send(g, { type: "proposeLaw", countryId: "first", law: "工资税改革" }), /议案/);
