@@ -8,7 +8,7 @@ import {
   techEffect,
   lawEffect,
 } from "./game/politics.ts";
-import { groups, influence, laws, reformConditions, techs, literacyOf } from "./game/society.ts";
+import { distributionName, groups, influence, laws, literacyOf, powerDistribution, reformConditions, reformWork, techs, unrestOf } from "./game/society.ts";
 import type { Law } from "./game/society.ts";
 interface Props {
   game: GameState;
@@ -19,10 +19,13 @@ interface Props {
 export function PoliticsPanel({ game, playerId: id, busy, send }: Props) {
   const n = game.nations[id],
     sites = ownedSocieties(game, id),
+    people = sites.flatMap((site) => site.pops),
     power = influence(sites, id, n);
   const [selected, setLaw] = useState<Law>("工资税改革");
   const law = n.reform ?? selected,
-    conditions = reformConditions(n, power, law);
+    conditions = reformConditions(n, power, law, unrestOf(people));
+  const progress = n.reformProgress / reformWork;
+  const stage = progress < 1 / 3 ? "组织支持" : progress < 2 / 3 ? "争论修正" : "实施";
   const proposal = { type: "proposeLaw", countryId: id, law } as const;
   const reason = politicsError(game, proposal);
   return (
@@ -35,7 +38,7 @@ export function PoliticsPanel({ game, playerId: id, busy, send }: Props) {
         <section className="panel">
           <header className="panel-header">
             <h3>政府与利益集团</h3>
-            <span>合法性 {conditions.legitimacy} / 100</span>
+            <span>{distributionName[powerDistribution(n)]} · 合法性 {conditions.legitimacy} / 100</span>
           </header>
           <div className="control-block">
             <p>勾选执政集团。议案需要政府支持，或至少 25% 的运动支持。</p>
@@ -73,11 +76,12 @@ export function PoliticsPanel({ game, playerId: id, busy, send }: Props) {
             </select>
             <p>{lawEffect[law]}</p>
             <p>
-              运动支持 {conditions.support.toFixed(1)}% · 每周审议 {conditions.speed} 点
+              运动支持 {conditions.support.toFixed(1)}% · 激进人口 {conditions.resistance.toFixed(1)}%
+              {" · "}{conditions.speed > 0 ? `按当前条件需约 ${Math.ceil((reformWork - n.reformProgress) / conditions.speed)} 周` : "审议暂停"}
             </p>
             {n.reform ? (
               <p role="status">
-                {n.reform} · 已审议 {n.reformProgress} / 2
+                {n.reform} · {stage} · {Math.floor(progress * 100)}%
               </p>
             ) : (
               <>
@@ -92,7 +96,7 @@ export function PoliticsPanel({ game, playerId: id, busy, send }: Props) {
         <section className="panel">
           <header className="panel-header">
             <h3>研究与扩散</h3>
-            <span>识字率 {literacyOf(sites.flatMap((s) => s.pops)).toFixed(1)}%</span>
+            <span>识字率 {literacyOf(people).toFixed(1)}%</span>
           </header>
           <div className="control-block">
             {techs.map((t) => (
