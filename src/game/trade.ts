@@ -4,29 +4,39 @@ import { culturalAffinityOf, cultureShares } from "./culture.ts";
 import { attacking, participants } from "./diplomacy.ts";
 import type { GameState } from "./engine.ts";
 import { byGood, goods } from "./industry.ts";
-import type { ByGood, Good } from "./industry.ts";
+import type { ByGood } from "./industry.ts";
 import type { MarketFill } from "./market.ts";
 import { marketOf } from "./market.ts";
 import { GameRuleError } from "./rules.ts";
+import { convoyCargoCapacity, seaVoyageCargoCost } from "./transport.ts";
 
 const units = z.int().nonnegative();
 export const tradeLimit = z.int().positive().max(100_000);
-export const tradeRouteSchema = z.object({
+export const tradeModes = ["land", "sea"] as const;
+export type TradeMode = (typeof tradeModes)[number];
+const tradeEndpoint = {
   from: z.string(),
   to: z.string(),
+  good: z.enum(goods),
+  mode: z.enum(tradeModes).default("land"),
+};
+export const tradeRouteSchema = z.object({
+  ...tradeEndpoint,
   exporter: z.string(),
   importer: z.string(),
-  good: z.enum(goods),
   limit: tradeLimit,
   paused: z.boolean(),
   fromCapacity: units.positive(),
   toCapacity: units.positive(),
+  cargoCost: units.positive().default(1),
 });
 export type TradeRoute = z.infer<typeof tradeRouteSchema>;
-export type TradeCommand =
-  | { type: "openTradeRoute"; countryId: string; from: string; to: string; good: Good; limit: number }
-  | { type: "setTradeRoute"; countryId: string; from: string; to: string; good: Good; limit: number; paused: boolean }
-  | { type: "removeTradeRoute"; countryId: string; from: string; to: string; good: Good };
+type RouteSelection = Pick<TradeRoute, "from" | "to" | "good"> & { mode?: TradeMode };
+export type TradeCommand = { countryId: string } & RouteSelection & (
+  | { type: "openTradeRoute"; limit: number }
+  | { type: "setTradeRoute"; limit: number; paused: boolean }
+  | { type: "removeTradeRoute" }
+);
 
 export const tradeStatuses = {
   shipped: "已发货",
@@ -34,15 +44,14 @@ export const tradeStatuses = {
   sovereignty: "归属已变更",
   occupied: "口岸被占领",
   war: "两国交战",
+  blockaded: "口岸受封锁",
   commonMarket: "同一关税市场",
   noVolume: "暂无可运货量",
   unprofitable: "价差无法覆盖运费和关税",
 } as const;
 export const tradeDeliverySchema = z.object({
-  from: z.string(),
-  to: z.string(),
-  good: z.enum(goods),
-  status: z.enum(["shipped", "paused", "sovereignty", "occupied", "war", "commonMarket", "noVolume", "unprofitable"]),
+  ...tradeEndpoint,
+  status: z.enum(["shipped", "paused", "sovereignty", "occupied", "war", "blockaded", "commonMarket", "noVolume", "unprofitable"]),
   quantity: units,
   purchase: units,
   freight: units,
@@ -53,13 +62,18 @@ export const tradeDeliverySchema = z.object({
   (row.status === "shipped" ? row.quantity > 0 : row.quantity === 0 && row.sales === 0));
 export type TradeDelivery = z.infer<typeof tradeDeliverySchema>;
 
-export const tradeRouteKey = ({ from, to, good }: Pick<TradeRoute, "from" | "to" | "good">) =>
-  JSON.stringify([from, to, good]);
+export const tradeRouteKey = ({ from, to, good, mode = "land" }: RouteSelection) =>
+  JSON.stringify([from, to, good, mode]);
 
-export function landRouteCapacity(scenario: Scenario, from: string, to: string) {
-  if (!Object.hasOwn(scenario.states, from) || !Object.hasOwn(scenario.states, to) ||
-      !scenario.states[to].neighbors.includes(from)) return;
-  return { fromCapacity: scenario.states[from].grainTransport, toCapacity: scenario.states[to].grainTransport };
+export function routeTransport(scenario: Scenario, from: string, to: string, mode: TradeMode) {
+  if (from === to || !Object.hasOwn(scenario.states, from) || !Object.hasOwn(scenario.states, to)) return;
+  const source = scenario.states[from], target = scenario.states[to];
+  if (mode === "land" ? !target.neighbors.includes(from) : !(source.coastal && target.coastal)) return;
+  return {
+    fromCapacity: source.grainTransport,
+    toCapacity: target.grainTransport,
+    cargoCost: mode === "sea" ? seaVoyageCargoCost(source.label, target.label) : 1,
+  };
 }
 
 export function applyTradeCommand(scenario: Scenario, state: GameState, cmd: TradeCommand): GameState {
@@ -67,18 +81,18 @@ export function applyTradeCommand(scenario: Scenario, state: GameState, cmd: Tra
   const key = tradeRouteKey(cmd);
   const route = routes.find((candidate) => tradeRouteKey(candidate) === key);
   if (cmd.type === "openTradeRoute") {
-    const capacity = landRouteCapacity(scenario, cmd.from, cmd.to);
+    const { from, to, good, limit, mode = "land", countryId: importer } = cmd;
+    const capacity = routeTransport(scenario, from, to, mode);
     const exporter = state.ownerByStateId[cmd.from];
-    if (state.ownerByStateId[cmd.to] !== cmd.countryId || !Object.hasOwn(state.ownerByStateId, cmd.from) || !capacity)
-      throw new GameRuleError("请选择本国进口州与接壤的出口州");
-    if (marketOf(state, exporter) === marketOf(state, cmd.countryId))
-      throw new GameRuleError("陆路贸易连接不同关税市场");
+    if (state.ownerByStateId[to] !== importer || !Object.hasOwn(state.ownerByStateId, from) || !capacity)
+      throw new GameRuleError(mode === "sea" ? "请选择本国沿海进口州与沿海外国出口州" : "请选择本国进口州与接壤的出口州");
+    if (marketOf(state, exporter) === marketOf(state, importer))
+      throw new GameRuleError("贸易连接不同关税市场");
     if (route?.exporter === exporter && route.importer === cmd.countryId)
-      throw new GameRuleError("该商品的陆路线路已存在");
-    if (!tradeLimit.safeParse(cmd.limit).success) throw new GameRuleError("周运量上限应为 1–100000");
-    const { from, to, good, limit, countryId: importer } = cmd;
+      throw new GameRuleError("该商品的线路已存在");
+    if (!tradeLimit.safeParse(limit).success) throw new GameRuleError("周运量上限应为 1–100000");
     const remaining = route ? routes.filter((candidate) => candidate !== route) : routes;
-    return { ...state, tradeRoutes: [...remaining, { from, to, good, limit, importer, exporter, paused: false, ...capacity }] };
+    return { ...state, tradeRoutes: [...remaining, { from, to, good, mode, limit, importer, exporter, paused: false, ...capacity }] };
   }
   if (!route || route.importer !== cmd.countryId) throw new GameRuleError("只能管理本国设立的进口线路");
   if (cmd.type === "removeTradeRoute")
@@ -90,13 +104,43 @@ export function applyTradeCommand(scenario: Scenario, state: GameState, cmd: Tra
   };
 }
 
+export function expectedTrade(state: GameState) {
+  const sites = new Map<string, ByGood<{ incoming: number; outgoing: number }>>();
+  const markets = new Map<string, ByGood<{ incoming: number; outgoing: number }>>();
+  const delivered = state.lastEconomy?.trade;
+  if (!delivered?.length || !state.tradeRoutes?.length) return { sites, markets };
+  const active = new Map(state.tradeRoutes.filter((route) => !route.paused &&
+    state.ownerByStateId[route.from] === route.exporter &&
+    state.ownerByStateId[route.to] === route.importer).map((route) => [tradeRouteKey(route), route]));
+  function add(book: typeof sites, id: string, good: TradeRoute["good"], side: "incoming" | "outgoing", quantity: number) {
+    const quantities = book.get(id) ?? byGood(() => ({ incoming: 0, outgoing: 0 }));
+    quantities[good][side] += quantity;
+    book.set(id, quantities);
+  }
+  for (const shipment of delivered) {
+    if (!shipment.quantity) continue;
+    const route = active.get(tradeRouteKey(shipment));
+    if (!route) continue;
+    const fromMarket = marketOf(state, route.exporter), toMarket = marketOf(state, route.importer);
+    if (fromMarket === toMarket) continue;
+    const quantity = Math.min(shipment.quantity, route.limit);
+    add(sites, route.from, route.good, "outgoing", quantity);
+    add(sites, route.to, route.good, "incoming", quantity);
+    add(markets, fromMarket, route.good, "outgoing", quantity);
+    add(markets, toMarket, route.good, "incoming", quantity);
+  }
+  return { sites, markets };
+}
+
 type Orders = Record<string, ByGood<number>>;
-export function settleLandTrade(
+export function settleTrade(
   state: GameState,
   supplies: Orders,
   demands: Orders,
   sites: Record<string, { localPrices: ByGood<number> }>,
   fills: ByGood<Record<string, MarketFill>>,
+  militaryCargo: ReadonlyMap<string, number>,
+  blockadedPorts: ReadonlySet<string>,
 ) {
   const transfers = new Map<string, {
     sent: ByGood<number>; received: ByGood<number>; producerPayment: ByGood<number>;
@@ -112,11 +156,12 @@ export function settleLandTrade(
     return transfer;
   }
   const use = new Map<string, number>();
+  const seaCargo = new Map<string, number>();
   const dispute = state.borderDispute;
   const fighters = dispute?.phase === "war" ? new Set(participants(dispute)) : new Set<string>();
   const deliveries = (state.tradeRoutes ?? []).map((route): TradeDelivery => {
-    const { from, to, importer, exporter, good } = route;
-    const empty = { from, to, good, quantity: 0, purchase: 0, freight: 0, tariff: 0, sales: 0, profit: 0 };
+    const { from, to, importer, exporter, good, mode, cargoCost } = route;
+    const empty = { from, to, good, mode, quantity: 0, purchase: 0, freight: 0, tariff: 0, sales: 0, profit: 0 };
     if (route.paused) return { ...empty, status: "paused" };
     if (state.ownerByStateId[from] !== exporter || state.ownerByStateId[to] !== importer)
       return { ...empty, status: "sovereignty" };
@@ -125,14 +170,19 @@ export function settleLandTrade(
     if (dispute?.phase === "war" && fighters.has(importer) && fighters.has(exporter) &&
         attacking(dispute, importer) !== attacking(dispute, exporter))
       return { ...empty, status: "war" };
+    if (mode === "sea" && (blockadedPorts.has(from) || blockadedPorts.has(to)))
+      return { ...empty, status: "blockaded" };
     const exportingMarket = marketOf(state, exporter), importingMarket = marketOf(state, importer);
     if (exportingMarket === importingMarket) return { ...empty, status: "commonMarket" };
     const source = at(from), target = at(to);
     const sourceCapacity = route.fromCapacity * state.societies[from].infrastructure;
     const targetCapacity = route.toCapacity * state.societies[to].infrastructure;
     const shippedFrom = use.get(from) ?? 0, shippedTo = use.get(to) ?? 0;
+    const usedAtSea = seaCargo.get(importer) ?? 0;
+    const spaceAtSea = state.nations[importer].convoys * convoyCargoCapacity - (militaryCargo.get(importer) ?? 0) - usedAtSea;
     const quantity = Math.min(
       route.limit, sourceCapacity - shippedFrom, targetCapacity - shippedTo,
+      mode === "sea" ? Math.floor(spaceAtSea / cargoCost) : Infinity,
       supplies[from][good] - fills[good][from].local - fills[good][from].poolSold - source.sent[good],
       demands[to][good] - fills[good][to].local - fills[good][to].poolBought - target.received[good],
     );
@@ -143,20 +193,21 @@ export function settleLandTrade(
     for (const [culture, share] of cultureShares(state.societies[from].pops))
       if (Object.hasOwn(affinity, culture)) familiarity += affinity[culture] * share;
     const purchase = ask * quantity, sales = bid * quantity;
-    const standardFreight = Math.ceil(purchase * 0.05);
+    const standardFreight = Math.ceil(purchase * 0.05 * cargoCost);
     const freight = standardFreight - Math.floor(standardFreight * familiarity / 1000);
     const tariff = Math.floor(purchase * 0.10);
     const profit = sales - purchase - freight - tariff;
     if (profit <= 0) return { ...empty, status: "unprofitable" };
     use.set(from, shippedFrom + quantity);
     use.set(to, shippedTo + quantity);
+    if (mode === "sea") seaCargo.set(importer, usedAtSea + quantity * cargoCost);
     source.sent[good] += quantity;
     target.received[good] += quantity;
     source.producerPayment[good] += purchase;
     target.freight += freight;
     target.profit += profit;
     target.tariff += tariff;
-    return { from, to, good, quantity, status: "shipped", purchase, freight, tariff, sales, profit };
+    return { from, to, good, mode, quantity, status: "shipped", purchase, freight, tariff, sales, profit };
   });
-  return { transfers, deliveries };
+  return { transfers, deliveries, seaCargo };
 }

@@ -6,7 +6,7 @@ import { GameRuleError } from "../game/rules.ts";
 import { groups, laws, projectTypes, techs } from "../game/society.ts";
 import { governanceModes } from "../game/governance.ts";
 import { goods } from "../game/industry.ts";
-import { tradeLimit } from "../game/trade.ts";
+import { tradeLimit, tradeModes } from "../game/trade.ts";
 import { parseSave } from "../game/storage.ts";
 import type { Scenario } from "../scenario/scenario.ts";
 
@@ -19,9 +19,12 @@ const commandSchema = z.discriminatedUnion("type", [
   z.strictObject({ type: z.literal("claimState"), stateId: id }),
   z.strictObject({ type: z.literal("setLocalGovernance"), countryId: id, stateId: id, mode: z.enum(governanceModes) }),
   z.strictObject({ type: z.literal(["startIntegration", "cancelIntegration"]), countryId: id, stateId: id }),
-  z.strictObject({ type: z.literal("openTradeRoute"), countryId: id, from: id, to: id, good: z.enum(goods), limit: tradeLimit }),
-  z.strictObject({ type: z.literal("setTradeRoute"), countryId: id, from: id, to: id, good: z.enum(goods), limit: tradeLimit, paused: z.boolean() }),
-  z.strictObject({ type: z.literal("removeTradeRoute"), countryId: id, from: id, to: id, good: z.enum(goods) }),
+  z.strictObject({ type: z.literal("openTradeRoute"), countryId: id, from: id, to: id, good: z.enum(goods),
+    mode: z.enum(tradeModes).optional(), limit: tradeLimit }),
+  z.strictObject({ type: z.literal("setTradeRoute"), countryId: id, from: id, to: id, good: z.enum(goods),
+    mode: z.enum(tradeModes).optional(), limit: tradeLimit, paused: z.boolean() }),
+  z.strictObject({ type: z.literal("removeTradeRoute"), countryId: id, from: id, to: id, good: z.enum(goods),
+    mode: z.enum(tradeModes).optional() }),
   z.strictObject({ type: z.literal("queueConstruction"), countryId: id, stateId: id, good: z.enum(projectTypes), privateBuild: z.boolean().optional() }),
   z.strictObject({ type: z.literal("setGovernment"), countryId: id, government: z.array(z.enum(groups)).max(groups.length) }),
   z.strictObject({ type: z.literal("proposeLaw"), countryId: id, law: z.enum(laws) }),

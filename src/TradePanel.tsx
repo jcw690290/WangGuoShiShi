@@ -6,7 +6,7 @@ import { goods, industries } from "./game/industry.ts";
 import type { Good } from "./game/industry.ts";
 import { marketOf } from "./game/market.ts";
 import { tradeRouteKey, tradeStatuses } from "./game/trade.ts";
-import type { TradeRoute } from "./game/trade.ts";
+import type { TradeMode, TradeRoute } from "./game/trade.ts";
 import type { Scenario } from "./scenario/scenario.ts";
 
 interface Props {
@@ -18,9 +18,11 @@ interface Props {
   send: (command: GameCommand) => void;
 }
 
+const modeNames = { land: "陆路", sea: "海运" };
+
 function RouteControls({ route, busy, send }: { route: TradeRoute; busy: boolean; send: Props["send"] }) {
-  const { importer: countryId, from, to, good, paused } = route;
-  const key = { countryId, from, to, good };
+  const { importer: countryId, from, to, mode, good, paused } = route;
+  const key = { countryId, from, to, mode, good };
   function setLimit(event: FormEvent<HTMLFormElement>) {
     event.preventDefault();
     const limit = Number(new FormData(event.currentTarget).get("limit"));
@@ -40,25 +42,34 @@ function RouteControls({ route, busy, send }: { route: TradeRoute; busy: boolean
   );
 }
 
-export function LandTradePanel({ scenario, game, stateId, playerId, busy, send }: Props) {
+export function TradePanel({ scenario, game, stateId, playerId, busy, send }: Props) {
   const [choice, setChoice] = useState("");
   const [good, setGood] = useState<Good>("grain");
+  const [draftMode, setMode] = useState<TradeMode>("land");
   const owns = game.ownerByStateId[stateId] === playerId;
   const routes = (game.tradeRoutes ?? []).filter((row) => row.to === stateId || row.from === stateId);
-  const sources = owns ? scenario.states[stateId].neighbors.filter((id) => Object.hasOwn(game.ownerByStateId, id) &&
-    marketOf(game, game.ownerByStateId[id]) !== marketOf(game, playerId)) : [];
+  const port = owns && scenario.states[stateId].coastal;
+  const mode = port ? draftMode : "land";
+  const eligible = (id: string) => Object.hasOwn(game.ownerByStateId, id) &&
+    marketOf(game, game.ownerByStateId[id]) !== marketOf(game, playerId);
+  const landSources = owns ? scenario.states[stateId].neighbors.filter(eligible) : [];
+  const sources = mode === "land" ? landSources :
+    Object.keys(game.ownerByStateId).filter((id) => scenario.states[id].coastal && eligible(id));
   const source = sources.includes(choice) ? choice : sources[0];
-  if (!routes.length && !sources.length) return null;
+  if (!routes.length && !landSources.length && !port) return null;
   function openRoute(event: FormEvent<HTMLFormElement>) {
     event.preventDefault();
     const limit = Number(new FormData(event.currentTarget).get("limit"));
-    send({ type: "openTradeRoute", countryId: playerId, from: source, to: stateId, good, limit });
+    send({ type: "openTradeRoute", countryId: playerId, from: source, to: stateId, mode, good, limit });
   }
   const duplicate = routes.some((route) => route.from === source && route.to === stateId &&
-    route.good === good && route.importer === playerId && route.exporter === game.ownerByStateId[source]);
+    route.mode === mode && route.good === good && route.importer === playerId && route.exporter === game.ownerByStateId[source]);
   return (
     <details>
-      <summary>陆路贸易</summary>
+      <summary>跨市场贸易</summary>
+      {port && <label>运输方式 <select value={mode} onChange={(event) => setMode(event.target.value as TradeMode)}>
+        <option value="land">陆路</option><option value="sea">海运</option>
+      </select></label>}
       {source && (
         <form className="diplomacy-actions" onSubmit={openRoute}>
           <label>出口州 <select value={source} onChange={(event) => setChoice(event.target.value)}>
@@ -78,7 +89,7 @@ export function LandTradePanel({ scenario, game, stateId, playerId, busy, send }
           return (
             <li key={key}>
               <div>
-                <strong>{scenario.states[route.from].name} → {scenario.states[route.to].name} · {industries[route.good].goodName}</strong>
+                <strong>{scenario.states[route.from].name} → {scenario.states[route.to].name} · {modeNames[route.mode]} · {industries[route.good].goodName}</strong>
                 <p>{route.paused ? "已暂停" : latest ? tradeStatuses[latest.status] : "待周结"} · 周上限 {count(route.limit)}</p>
                 {latest?.status === "shipped" && <p>
                   上周运量 {count(latest.quantity)} · 购货 {silver(latest.purchase)} · 销售 {silver(latest.sales)} ·
