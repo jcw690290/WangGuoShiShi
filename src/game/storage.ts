@@ -16,6 +16,7 @@ import type { EndingRecord } from "./campaign.ts";
 import { fiscalAccountSchema } from "./fiscal.ts";
 import { syncOccupation } from "./occupation.ts";
 import { diplomaticTieSchema } from "./diplomatic-ties.ts";
+import { landRouteCapacity, tradeDeliverySchema, tradeRouteKey, tradeRouteSchema } from "./trade.ts";
 const storeName = "saves";
 const indexName = "saveIndex";
 const archiveName = "endings";
@@ -184,6 +185,7 @@ const countryReport = z.object({
   interestPaid: uint.optional(),
   universityWages: uint.optional(),
   administrationWages: uint.optional(),
+  tradeTariff: uint.optional(),
 });
 const siteReport = z.object({
   industries: z.object(byGood(() => industry)),
@@ -195,6 +197,7 @@ const siteReport = z.object({
   regulars: uint,
   universityStaff: z.number().nonnegative().optional(),
   administrationStaff: z.number().nonnegative().optional(),
+  freightWages: uint.optional(),
   builders: uint,
   armourers: uint,
   access: fraction,
@@ -236,9 +239,14 @@ export function parseSave(scenario: Scenario, save: unknown): GameState {
     nations: z.record(countries, nationSchema),
     borderDispute: disputeSchema.nullable(),
     diplomaticTies: z.array(diplomaticTieSchema.extend({ senior: countries, partner: countries })).optional(),
+    tradeRoutes: z.array(tradeRouteSchema.extend({ from: sites, to: sites, exporter: countries, importer: countries })).optional(),
     occupation: z.object({ stateId: sites, controllerId: countries }).optional(),
     lastEconomy: z
-      .object({ states: z.record(activeSite, siteReport), countries: z.record(countries, countryReport) })
+      .object({
+        states: z.record(activeSite, siteReport),
+        countries: z.record(countries, countryReport),
+        trade: z.array(tradeDeliverySchema).optional(),
+      })
       .nullable(),
     lastPopulation: lastPopulation.optional(),
   });
@@ -302,6 +310,19 @@ export function parseSave(scenario: Scenario, save: unknown): GameState {
       pairs.add(pair);
     }
   }
+  if (state.tradeRoutes) {
+    const keys = new Set<string>();
+    for (const route of state.tradeRoutes) {
+      const key = tradeRouteKey(route);
+      const capacity = landRouteCapacity(scenario, route.from, route.to);
+      if (keys.has(key) || !capacity || route.importer === route.exporter ||
+          route.fromCapacity !== capacity.fromCapacity || route.toCapacity !== capacity.toCapacity ||
+          !Object.hasOwn(state.ownerByStateId, route.from) || !Object.hasOwn(state.ownerByStateId, route.to)) invalid();
+      keys.add(key);
+    }
+  }
+  if (state.lastEconomy?.trade?.some(({ from, to }) => !landRouteCapacity(scenario, from, to) ||
+      !Object.hasOwn(state.ownerByStateId, from) || !Object.hasOwn(state.ownerByStateId, to))) invalid();
   for (const [id, n] of Object.entries(state.nations)) {
     const fiscal = state.countryEconomies[id].fiscal;
     if (fiscal && fiscal.week.day > state.elapsedDays) invalid();

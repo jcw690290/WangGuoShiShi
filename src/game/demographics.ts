@@ -91,13 +91,27 @@ export function settlePopulationMonth<T extends GameState>(scenario: Scenario, s
     }
   }
   const shares = Object.fromEntries(Object.entries(societies).map(([id, site]) => [id, cultureShares(site.pops)]));
+  const tradeContacts = new Map<string, Map<string, number>>();
+  for (const { from, to, quantity } of state.lastEconomy?.trade ?? []) {
+    if (quantity === 0) continue;
+    for (const [local, partner] of [[from, to], [to, from]]) {
+      const exchanges = tradeContacts.get(local) ?? new Map<string, number>();
+      exchanges.set(partner, (exchanges.get(partner) ?? 0) + quantity);
+      tradeContacts.set(local, exchanges);
+    }
+  }
   for (const [id, site] of Object.entries(societies)) {
     const neighbors = scenario.states[id].neighbors.filter((neighbor) => Object.hasOwn(shares, neighbor));
+    const trade = [...(tradeContacts.get(id) ?? [])].map(([partner, quantity]) => ({
+      shares: shares[partner],
+      strength: 0.15 * Math.min(1, quantity / (0.02 * stateEconomies[id].population)),
+    }));
     site.culturalAffinity = updateCulturalAffinity(
       culturalAffinityOf(state.societies[id]),
       shares[id],
       neighbors.map((neighbor) => shares[neighbor]),
       educationBySite[id],
+      trade,
     );
   }
   return { ...state, stateEconomies, societies, lastPopulation: { day: state.elapsedDays, changes } };

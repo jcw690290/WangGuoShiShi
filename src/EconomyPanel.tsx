@@ -10,6 +10,7 @@ import type { Scenario } from "./scenario/scenario.ts";
 import { affinityLevel, culturalAffinityOf } from "./game/culture.ts";
 import { governanceModes, governanceOf, governanceRules, integrationDuration, integrationStaffNeeded } from "./game/governance.ts";
 import type { GovernanceMode } from "./game/governance.ts";
+import { LandTradePanel } from "./LandTradePanel.tsx";
 
 function cultureName(scenario: Scenario, id: string) {
   const separator = id.indexOf("-");
@@ -257,6 +258,7 @@ function StateIndustry({
             </>
           )}
         </details>
+        <LandTradePanel key={stateId} {...{ scenario, game, stateId, playerId, busy, send }} />
       </div>
     </section>
   );
@@ -310,6 +312,10 @@ export function EconomyPanel({ scenario, game, playerId, selectedId, report, bus
             {report.countries[marketId].universityWages !== undefined && <div>
               <dt>大学实付工资</dt>
               <dd>{silver(report.countries[marketId].universityWages!)}</dd>
+            </div>}
+            {(report.countries[marketId].tradeTariff ?? 0) > 0 && <div>
+              <dt>实收进口关税</dt>
+              <dd>{silver(report.countries[marketId].tradeTariff!)}</dd>
             </div>}
             <div>
               <dt>贡金收入 / 上缴</dt>
