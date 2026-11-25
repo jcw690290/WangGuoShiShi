@@ -13,7 +13,7 @@ import type { GovernanceMode } from "./game/governance.ts";
 import { TradePanel } from "./TradePanel.tsx";
 import { convoyCargoCapacity } from "./game/transport.ts";
 import { incidentNames, unrestEffects } from "./game/unrest.ts";
-import { extraGoods } from "./game/households.ts";
+import { basicEquivalentSupply, extraGoods } from "./game/households.ts";
 
 function cultureName(scenario: Scenario, id: string) {
   const separator = id.indexOf("-");
@@ -69,6 +69,9 @@ function StateIndustry({
   const stability = society.stability;
   const incident = stability?.incident;
   const localEffects = unrestEffects(stability);
+  const fuelNeed = snapshot.householdBasicOrders?.wood;
+  const basicSupply = snapshot.householdConsumption &&
+    basicEquivalentSupply(snapshot.householdConsumption, snapshot.householdExtras?.delivered);
   return (
     <section className="panel" aria-labelledby="industry-title">
       <header className="panel-header">
@@ -106,9 +109,10 @@ function StateIndustry({
         </div>
         {snapshot.householdConsumption && <div>
           <dt>家庭到货</dt>
-          <dd>粮食 {count(snapshot.householdConsumption.grain)} · 布匹 {count(snapshot.householdConsumption.cloth)} ·
-            木材 {count(snapshot.householdConsumption.wood)} · 服务 {count(snapshot.householdConsumption.services)}</dd>
-          <small>粮食满足 {Math.round(snapshot.foodFulfillment! * 100)}%</small>
+          <dd>粮食 {count(snapshot.householdConsumption.grain)} · 副食品 {count(snapshot.householdConsumption.food)} · 布匹 {count(snapshot.householdConsumption.cloth)} ·
+            木材 {count(snapshot.householdConsumption.wood)} · 煤 {count(snapshot.householdConsumption.coal)} · 服务 {count(snapshot.householdConsumption.services)}</dd>
+          <small>基本食品满足 {Math.round(snapshot.foodFulfillment! * 100)}%
+            {fuelNeed !== undefined && basicSupply && ` · 基本燃料满足 ${Math.round((fuelNeed > 0 ? basicSupply.wood / fuelNeed : 1) * 100)}%`}</small>
         </div>}
         <div>
           <dt>常备军 / 建筑 / 军工</dt>
