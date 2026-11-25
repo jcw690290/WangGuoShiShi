@@ -135,12 +135,12 @@ export function advanceTick(
   const date = getGameDate(scenario, next);
   const monthly = isPopulationMonth(scenario, next);
   if (next.elapsedDays % 7 !== 0) {
-    const result = monthly ? settlePopulationMonth(next, date) : next;
+    const result = monthly ? settlePopulationMonth(scenario, next, date) : next;
     return finalizeCampaign(result, date, result.ownerByStateId !== state.ownerByStateId);
   }
   const yearFraction = fiscalWeekFraction(date);
   const weekly = settleEconomy(next, planWar(scenario, next), yearFraction);
-  const settled = monthly ? settlePopulationMonth(weekly, date) : weekly;
+  const settled = monthly ? settlePopulationMonth(scenario, weekly, date) : weekly;
   let result = advancePolitics(advanceFront(scenario, settled, settled.lastEconomy), settled.lastEconomy, date.getUTCFullYear(), yearFraction);
   result.rng = (Math.imul(result.rng, 1664525) + 1013904223) >>> 0;
   const owners = new Set(Object.values(result.ownerByStateId));

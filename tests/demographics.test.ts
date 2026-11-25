@@ -5,6 +5,7 @@ import { projectEconomy } from "../src/game/economy.ts";
 import { parseSave, saveVersion } from "../src/game/storage.ts";
 import { decodeSnapshot, encodeSnapshot } from "../src/online/protocol.ts";
 import { borderScenario } from "../src/scenario/scenario.ts";
+import { affinityLevel } from "../src/game/culture.ts";
 
 const countryId = "country_01";
 const start = (scenario = borderScenario) => dispatch(scenario, createGame(scenario), { type: "selectCountry", countryId });
@@ -58,4 +59,29 @@ test("周结和月结同一天先结算市场，旧档续算保持月结进度",
   }
   assert.deepEqual(next, dispatch(scenario, prior, { type: "advanceTick" }));
   assert.deepEqual(parseSave(scenario, { version: saveVersion, scenarioId: scenario.id, state: next }), next);
+});
+
+test("文化亲近按月从居民、邻州接触和实付教育增加，远方联系衰减且保持人口身份", async () => {
+  const g = start();
+  const report = projectEconomy(g);
+  const from = g.societies.Yunnan;
+  const adjacentCulture = g.societies.Tonkin.pops[0].culture;
+  const residentCulture = from.pops[0].culture;
+  assert.ok(borderScenario.states.Yunnan.neighbors.includes("Tonkin"));
+  assert.ok(!Object.hasOwn(from.culturalAffinity!, adjacentCulture));
+  from.culturalAffinity = { ...from.culturalAffinity, remote: 48, [residentCulture]: 99.5 };
+  const before = { ...g, elapsedDays: 30, tickInDay: 3, lastEconomy: report };
+  const after = dispatch(borderScenario, before, { type: "advanceTick" });
+  const updated = after.societies.Yunnan.culturalAffinity!;
+  assert.ok(updated[adjacentCulture] > 0 && updated[adjacentCulture] <= 1);
+  assert.ok(updated[residentCulture] > 99.5 && updated[residentCulture] < 99.6);
+  assert.equal(updated.remote, 47.75);
+  assert.deepEqual(after.societies.Yunnan.pops.map((p) => p.culture), from.pops.map((p) => p.culture));
+  assert.deepEqual([0, 25, 50, 75].map(affinityLevel), ["陌生", "接触", "熟悉", "亲近"]);
+  const funded = structuredClone(before);
+  funded.lastEconomy.states.Yunnan.universityStaff = 500;
+  const educated = dispatch(borderScenario, funded, { type: "advanceTick" });
+  assert.ok(educated.societies.Yunnan.culturalAffinity![adjacentCulture] > updated[adjacentCulture]);
+  assert.deepEqual(await decodeSnapshot(borderScenario, await encodeSnapshot(borderScenario, educated)), educated);
+  assert.deepEqual(parseSave(borderScenario, { version: saveVersion, scenarioId: borderScenario.id, state: educated }), educated);
 });

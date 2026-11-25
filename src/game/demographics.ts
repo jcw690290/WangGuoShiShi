@@ -1,6 +1,8 @@
 import type { GameState } from "./engine.ts";
 import { marketOf } from "./economy.ts";
 import { accepted } from "./society.ts";
+import type { Scenario } from "../scenario/scenario.ts";
+import { culturalAffinityOf, cultureShares, updateCulturalAffinity } from "./culture.ts";
 
 export interface PopulationMonth {
   day: number;
@@ -11,7 +13,7 @@ const birthRate = 0.036;
 const deathRate = 0.030;
 const severeFoodShortageMortality = 0.030;
 
-export function settlePopulationMonth<T extends GameState>(state: T, date: Date): T {
+export function settlePopulationMonth<T extends GameState>(scenario: Scenario, state: T, date: Date): T {
   const year = date.getUTCFullYear();
   const previous = new Date(Date.UTC(year, date.getUTCMonth() - 1, 1));
   const previousYear = previous.getUTCFullYear();
@@ -21,6 +23,7 @@ export function settlePopulationMonth<T extends GameState>(state: T, date: Date)
   const stateEconomies = { ...state.stateEconomies };
   const societies = { ...state.societies };
   const changes: Record<string, number> = {};
+  const educationBySite: Record<string, number> = {};
 
   for (const [siteId, owner] of Object.entries(state.ownerByStateId)) {
     const economy = stateEconomies[siteId];
@@ -39,6 +42,7 @@ export function settlePopulationMonth<T extends GameState>(state: T, date: Date)
     const { knowledge } = state.nations[owner];
     const education = knowledge["高等教育"] === 100 ? 2 : knowledge["公共教育"] === 100 ? 1 : 0;
     const coverage = Math.min(1, (state.lastEconomy?.states[siteId].universityStaff ?? 0) * 1000 / population);
+    educationBySite[siteId] = coverage;
     let peopleSoFar = 0;
     let apportioned = 0;
     const pops = site.pops.map((pop) => {
@@ -65,9 +69,11 @@ export function settlePopulationMonth<T extends GameState>(state: T, date: Date)
     const target = destinations.get(marketOf(state, owner));
     if (target === undefined || state.ownerByStateId[target] === owner) continue;
     const nation = state.nations[owner];
+    const affinity = culturalAffinityOf(state.societies[target]);
     for (const pop of societies[site].pops) {
       if (pop.occupation !== "工程师" || accepted(pop, owner, nation) || pop.people === 0) continue;
-      const people = Math.min(Math.ceil(pop.people * 0.02), stateEconomies[site].population - 1);
+      const familiarity = Object.hasOwn(affinity, pop.culture) ? affinity[pop.culture] : 0;
+      const people = Math.min(Math.ceil(pop.people * (0.01 + familiarity / 10_000)), stateEconomies[site].population - 1);
       if (people === 0) break;
       const cohort = societies[target].pops.find((candidate) =>
         candidate.occupation === pop.occupation && candidate.culture === pop.culture && candidate.religion === pop.religion,
@@ -83,6 +89,16 @@ export function settlePopulationMonth<T extends GameState>(state: T, date: Date)
       changes[site] -= people;
       changes[target] += people;
     }
+  }
+  const shares = Object.fromEntries(Object.entries(societies).map(([id, site]) => [id, cultureShares(site.pops)]));
+  for (const [id, site] of Object.entries(societies)) {
+    const neighbors = scenario.states[id].neighbors.filter((neighbor) => Object.hasOwn(shares, neighbor));
+    site.culturalAffinity = updateCulturalAffinity(
+      culturalAffinityOf(state.societies[id]),
+      shares[id],
+      neighbors.map((neighbor) => shares[neighbor]),
+      educationBySite[id],
+    );
   }
   return { ...state, stateEconomies, societies, lastPopulation: { day: state.elapsedDays, changes } };
 }

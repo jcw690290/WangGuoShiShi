@@ -134,6 +134,13 @@ test("同盟内技术人口迁往接纳其身份的国家，迁入与迁出人�
     .reduce((sum, p) => sum + p.people, 0);
   while (g.elapsedDays < 30) g = send(g, { type: "advanceDay" });
   assert.equal(countEngineers(g, a), 0);
+  const localCulture = "地方文化-Tonkin";
+  const cohorts = g.societies.Tonkin.pops;
+  const farmers = cohorts.find((p) => p.culture === localCulture && p.occupation === "农民")!;
+  const engineers = cohorts.find((p) => p.culture === localCulture && p.occupation === "工程师")!;
+  assert.ok(farmers.people > 200);
+  farmers.people -= 200;
+  engineers.people += 200;
   const closed = structuredClone(g);
   closed.nations[a].laws = closed.nations[a].laws.filter((law) => law !== "信仰自由");
   const baseline = send(closed, { type: "advanceDay" });
@@ -142,6 +149,13 @@ test("同盟内技术人口迁往接纳其身份的国家，迁入与迁出人�
   assert.ok(arrivals > 0);
   assert.equal(countEngineers(baseline, b) - countEngineers(moved, b), arrivals);
   assert.deepEqual(load(moved), moved);
+  const familiar = structuredClone(g);
+  for (const [id, site] of Object.entries(familiar.societies)) {
+    if (familiar.ownerByStateId[id] === a) site.culturalAffinity![localCulture] = 100;
+  }
+  const established = send(familiar, { type: "advanceDay" });
+  assert.ok(countEngineers(established, a) > arrivals);
+  assert.equal(countEngineers(established, a) + countEngineers(established, b), countEngineers(baseline, b));
 });
 test("补足粮食后推进到和约门槛，移交州并结束征兵", () => {
   let g = send(start(), { type: "queueConstruction", countryId: a, stateId: "Yunnan", good: "grain" });
