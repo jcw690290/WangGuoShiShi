@@ -229,7 +229,6 @@ export function evolvePops(
   site: SiteSocial,
   id: string,
   nation: Nation,
-  growth: number,
   grainPrice: number,
   grainWages: number,
   clothWages: number,
@@ -240,12 +239,7 @@ export function evolvePops(
   const totals = Object.fromEntries(
     occupations.map((o) => [o, site.pops.reduce((s, p) => s + (p.occupation === o ? p.people : 0), 0)]),
   ) as Record<Occupation, number>;
-  const birthWeight = (p: Pop) =>
-    p.people * (growth >= 0 ? 1 + Math.min(p.wealth, 50) / 40 : 1 / (1 + p.wealth / 40));
-  const weight = site.pops.reduce((s, p) => s + birthWeight(p), 0);
-  let cumulative = 0,
-    assigned = 0;
-  const pops = site.pops.map((p, i) => {
+  const pops = site.pops.map((p) => {
     const isAccepted = accepted(p, id, nation);
     const income =
       p.occupation === "农民"
@@ -260,13 +254,6 @@ export function evolvePops(
       (((income / Math.max(1, totals[p.occupation])) * 0.3) / (grainPrice / 100)) * (isAccepted ? 1 : 0.65),
     );
     const wealth = Math.max(0.5, p.wealth * 0.96 + Math.min(150, living) * 0.04);
-    const literacy = Math.min(
-      100,
-      p.literacy +
-        0.006 * wealth +
-        (nation.knowledge["高等教育"] === 100 ? 0.08 : 0.03) * site.university +
-        (nation.knowledge["公共教育"] === 100 ? 0.12 : 0),
-    );
     const suffering = wealth < 4 + p.literacy / 12 + (nation.knowledge["公共教育"] === 100 ? 1 : 0);
     const radicals = Math.max(
       0,
@@ -277,11 +264,7 @@ export function evolvePops(
           (isAccepted ? 0 : 0.12 * tuning.radicalGrowth),
       ),
     );
-    cumulative += birthWeight(p);
-    const share = i === site.pops.length - 1 ? growth : Math.round((growth * cumulative) / weight);
-    const change = share - assigned;
-    assigned = share;
-    return { ...p, wealth, literacy, radicals, people: p.people + change };
+    return { ...p, wealth, radicals };
   });
   // Fill workshop vacancies from rural households of the same identity.
   const targetLabourers = Math.ceil(textileJobs / 0.4);

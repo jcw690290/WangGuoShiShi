@@ -11,6 +11,8 @@ import type { PoliticsCommand } from "./politics.ts";
 import { initSociety, techs, hash } from "./society.ts";
 import type { Nation, SiteSocial } from "./society.ts";
 import { applyClaim } from "./territory.ts";
+import { settlePopulationMonth } from "./demographics.ts";
+import type { PopulationMonth } from "./demographics.ts";
 
 export interface GameState {
   elapsedDays: number;
@@ -25,6 +27,7 @@ export interface GameState {
   nations: Record<string, Nation>;
   societies: Record<string, SiteSocial>;
   lastEconomy: EconomyReport | null;
+  lastPopulation: PopulationMonth | null;
   borderDispute: BorderDispute | null;
 }
 export type Span = "day" | "week" | "halfYear";
@@ -55,6 +58,7 @@ export function createGame(scenario: Scenario, seed = 1820, difficulty: Difficul
     rng: seed >>> 0,
     ...social,
     lastEconomy: null,
+    lastPopulation: null,
     borderDispute: null,
     ownerByStateId: Object.fromEntries(owned.map((s) => [s.id, s.ownerId!])),
     stateEconomies: Object.fromEntries(
@@ -76,6 +80,9 @@ export function elapsedTicks(state: GameState) {
 
 export function getGameDate(scenario: Scenario, state: GameState) {
   return new Date(Date.parse(scenario.startDate) + DAY_MS * state.elapsedDays);
+}
+export function isPopulationMonth(scenario: Scenario, state: GameState) {
+  return state.tickInDay === 0 && state.elapsedDays > 0 && getGameDate(scenario, state).getUTCDate() === 1;
 }
 function remainingDays(scenario: Scenario, state: GameState) {
   if (scenario.endDate === undefined) return Infinity;
@@ -111,8 +118,10 @@ export function advanceTick(
   const tickInDay = state.tickInDay + 1;
   if (tickInDay < TICKS_PER_DAY) return { ...state, tickInDay };
   const next = tickDiplomacy(scenario, { ...state, elapsedDays: state.elapsedDays + 1, tickInDay: 0 });
-  if (next.elapsedDays % 7 !== 0) return next;
-  const settled = settleEconomy(next, planWar(scenario, next));
+  const monthly = isPopulationMonth(scenario, next);
+  if (next.elapsedDays % 7 !== 0) return monthly ? settlePopulationMonth(next, getGameDate(scenario, next)) : next;
+  const weekly = settleEconomy(next, planWar(scenario, next));
+  const settled = monthly ? settlePopulationMonth(weekly, getGameDate(scenario, weekly)) : weekly;
   let result = advancePolitics(advanceFront(scenario, settled, settled.lastEconomy), settled.lastEconomy);
   result.rng = (Math.imul(result.rng, 1664525) + 1013904223) >>> 0;
   const owners = new Set(Object.values(result.ownerByStateId));

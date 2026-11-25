@@ -1,5 +1,5 @@
 import type { RealtimeChannel } from "@supabase/supabase-js";
-import { advanceDay, createGame, dispatch, isScenarioFinished } from "../game/engine.ts";
+import { advanceDay, createGame, dispatch, isPopulationMonth, isScenarioFinished } from "../game/engine.ts";
 import type { GameCommand, GameState } from "../game/engine.ts";
 import { GameRuleError } from "../game/rules.ts";
 import type { Scenario } from "../scenario/scenario.ts";
@@ -263,8 +263,8 @@ export class RoomConnection {
       await this.setSpeed(0);
       return;
     }
-    // Day ticks between weekly settlements only change the date and diplomatic phase.
-    const checkpoint = next.elapsedDays % 7 === 0;
+    // Daily deltas carry the date and diplomatic phase. Economy and population use full snapshots.
+    const checkpoint = next.elapsedDays % 7 === 0 || isPopulationMonth(this.scenario, next);
     const update = checkpoint
       ? { snapshot: await encodeSnapshot(this.scenario, next) }
       : { day: { elapsedDays: next.elapsedDays, borderDispute: next.borderDispute } };
