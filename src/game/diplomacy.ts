@@ -3,6 +3,7 @@ import { z } from "zod";
 import { diplomaticTie, removeDiplomaticTies } from "./diplomatic-ties.ts";
 import { newFrontier } from "./governance.ts";
 import { convoyCargoCapacity, raidedConvoyCargoCapacity } from "./transport.ts";
+import { unrestEffects } from "./unrest.ts";
 import type { Scenario } from "../scenario/scenario.ts";
 import type { GameState } from "./engine.ts";
 import type { EconomyReport } from "./economy.ts";
@@ -387,7 +388,10 @@ export function planWar(scenario: Scenario, state: GameState): WarPlan | undefin
       for (const next of scenario.states[site].neighbors)
         if (state.ownerByStateId[next] === id) connectedStates.add(next);
     let grainTransport = starts.reduce(
-      (n, s) => n + s.grainTransport * state.societies[s.id].infrastructure,
+      (n, s) => {
+        const site = state.societies[s.id];
+        return n + Math.floor(s.grainTransport * site.infrastructure * unrestEffects(site.stability).transport);
+      },
       0,
     );
     // Supplies from a disconnected front must cross the sea. The home depot is the

@@ -85,6 +85,13 @@ test("同一口岸共享运力、文化熟悉度降低运费，停运和交战�
   assert.equal(war.lastEconomy!.countries[vietnam].tradeTariff, 0);
 });
 
+test("地方运输受阻降低实际进口容量", () => {
+  const approved = dispatch(scenario, start(), order);
+  assert.equal(projectEconomy(approved).trade![0].quantity, 100);
+  approved.societies[to].stability = { unrest: 50, incident: { cause: "war", since: 0, negotiated: false }, lastIncident: { war: 0 } };
+  assert.equal(projectEconomy(approved).trade![0].quantity, 80);
+});
+
 test("世界开局俄罗斯可在奥卢通过陆路获得诺尔兰剩余的布匹", () => {
   const countryId = "country_09";
   const initial = dispatch(world, createGame(world, 1820, "standard", {

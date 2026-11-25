@@ -9,6 +9,7 @@ import type { MarketFill } from "./market.ts";
 import { marketOf } from "./market.ts";
 import { GameRuleError } from "./rules.ts";
 import { convoyCargoCapacity, seaVoyageCargoCost } from "./transport.ts";
+import { unrestEffects } from "./unrest.ts";
 
 const units = z.int().nonnegative();
 export const tradeLimit = z.int().positive().max(100_000);
@@ -175,8 +176,9 @@ export function settleTrade(
     const exportingMarket = marketOf(state, exporter), importingMarket = marketOf(state, importer);
     if (exportingMarket === importingMarket) return { ...empty, status: "commonMarket" };
     const source = at(from), target = at(to);
-    const sourceCapacity = route.fromCapacity * state.societies[from].infrastructure;
-    const targetCapacity = route.toCapacity * state.societies[to].infrastructure;
+    const sourceSite = state.societies[from], targetSite = state.societies[to];
+    const sourceCapacity = Math.floor(route.fromCapacity * sourceSite.infrastructure * unrestEffects(sourceSite.stability).transport);
+    const targetCapacity = Math.floor(route.toCapacity * targetSite.infrastructure * unrestEffects(targetSite.stability).transport);
     const shippedFrom = use.get(from) ?? 0, shippedTo = use.get(to) ?? 0;
     const usedAtSea = seaCargo.get(importer) ?? 0;
     const spaceAtSea = state.nations[importer].convoys * convoyCargoCapacity - (militaryCargo.get(importer) ?? 0) - usedAtSea;
@@ -188,9 +190,9 @@ export function settleTrade(
     );
     if (quantity <= 0) return { ...empty, status: "noVolume" };
     const ask = sites[from].localPrices[good], bid = sites[to].localPrices[good];
-    const affinity = culturalAffinityOf(state.societies[to]);
+    const affinity = culturalAffinityOf(targetSite);
     let familiarity = 0;
-    for (const [culture, share] of cultureShares(state.societies[from].pops))
+    for (const [culture, share] of cultureShares(sourceSite.pops))
       if (Object.hasOwn(affinity, culture)) familiarity += affinity[culture] * share;
     const purchase = ask * quantity, sales = bid * quantity;
     const standardFreight = Math.ceil(purchase * 0.05 * cargoCost);

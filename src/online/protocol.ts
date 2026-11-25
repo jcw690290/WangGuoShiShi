@@ -19,6 +19,7 @@ const commandSchema = z.discriminatedUnion("type", [
   z.strictObject({ type: z.literal("claimState"), stateId: id }),
   z.strictObject({ type: z.literal("setLocalGovernance"), countryId: id, stateId: id, mode: z.enum(governanceModes) }),
   z.strictObject({ type: z.literal(["startIntegration", "cancelIntegration"]), countryId: id, stateId: id }),
+  z.strictObject({ type: z.literal("negotiateLocalUnrest"), countryId: id, stateId: id }),
   z.strictObject({ type: z.literal("openTradeRoute"), countryId: id, from: id, to: id, good: z.enum(goods),
     mode: z.enum(tradeModes).optional(), limit: tradeLimit }),
   z.strictObject({ type: z.literal("setTradeRoute"), countryId: id, from: id, to: id, good: z.enum(goods),

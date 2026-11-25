@@ -3,6 +3,8 @@ import { marketOf } from "./economy.ts";
 import { accepted } from "./society.ts";
 import type { Scenario } from "../scenario/scenario.ts";
 import { culturalAffinityOf, cultureShares, updateCulturalAffinity } from "./culture.ts";
+import { participants } from "./diplomacy.ts";
+import { advanceUnrest, emptyStability } from "./unrest.ts";
 
 export interface PopulationMonth {
   day: number;
@@ -24,6 +26,10 @@ export function settlePopulationMonth<T extends GameState>(scenario: Scenario, s
   const societies = { ...state.societies };
   const changes: Record<string, number> = {};
   const educationBySite: Record<string, number> = {};
+  const dispute = state.borderDispute;
+  const war = dispute?.phase === "war" ? dispute : undefined;
+  const warParties = new Set(war ? participants(war) : []);
+  const frontline = new Set(war ? [war.targetStateId, ...scenario.states[war.targetStateId].neighbors] : []);
 
   for (const [siteId, owner] of Object.entries(state.ownerByStateId)) {
     const economy = stateEconomies[siteId];
@@ -53,7 +59,18 @@ export function settlePopulationMonth<T extends GameState>(scenario: Scenario, s
       const literacyGain = Math.min(0.002, (0.0001 + 0.0006 * education * coverage) * (1 - pop.literacy / 100));
       return { ...pop, people, literacy: pop.literacy + 100 * literacyGain };
     });
-    societies[siteId] = { ...site, pops };
+    const totals = pops.reduce((facts, pop) => {
+      facts.radicals += pop.radicals * pop.people;
+      facts.living += pop.livingStandard * pop.people;
+      if (!accepted(pop, owner, state.nations[owner])) facts.excluded += pop.people;
+      return facts;
+    }, { radicals: 0, living: 0, excluded: 0 });
+    const stability = advanceUnrest(site.stability ?? emptyStability(), date, state.elapsedDays, {
+      radicals: totals.radicals / populationAfter, living: totals.living / populationAfter,
+      excluded: totals.excluded / populationAfter, food,
+      war: state.occupation?.stateId === siteId ? 35 : warParties.has(owner) && frontline.has(siteId) ? 15 : 0,
+    });
+    societies[siteId] = { ...site, pops, stability };
   }
 
   const destinations = new Map<string, string>();
