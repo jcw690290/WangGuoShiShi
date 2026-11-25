@@ -4,6 +4,7 @@ import type { Scenario } from "../scenario/scenario.ts";
 import type { GameState } from "./engine.ts";
 import type { EconomyReport } from "./economy.ts";
 import { ruleTuning } from "./settings.ts";
+import { syncOccupation } from "./occupation.ts";
 
 export const goals = ["cession", "reparations", "puppet", "vassal", "protectorate", "annex"] as const;
 export type Goal = (typeof goals)[number];
@@ -108,6 +109,7 @@ export function attacking(d: BorderDispute, id: string) {
   return id === d.claimantId || d.allies.includes(id);
 }
 function treaty(state: GameState, d: BorderDispute, victory: boolean, withdrawal = false): GameState {
+  const { occupation: released, ...world } = state;
   const ownerByStateId = { ...state.ownerByStateId },
     countryEconomies = { ...state.countryEconomies },
     nations = { ...state.nations };
@@ -156,7 +158,7 @@ function treaty(state: GameState, d: BorderDispute, victory: boolean, withdrawal
     }
   }
   return {
-    ...state,
+    ...world,
     ownerByStateId,
     countryEconomies,
     nations,
@@ -413,7 +415,7 @@ export function advanceFront(scenario: Scenario, state: GameState, report: Econo
     }
   }
   const progress = Math.max(0, Math.min(100, d.progress + delta));
-  return { ...state, borderDispute: { ...d, progress, lastChange: progress - d.progress } };
+  return syncOccupation(scenario, { ...state, borderDispute: { ...d, progress, lastChange: progress - d.progress } });
 }
 export function aiDiplomacy(
   scenario: Scenario,

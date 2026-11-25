@@ -32,6 +32,7 @@ interface Props {
   scenario: Scenario;
   geometry: StateGeometry;
   game: GameState;
+  owners: GameState["ownerByStateId"];
   selectedId: string | null;
   preview: string | null;
   onSelect: (id: string) => void;
@@ -233,12 +234,10 @@ async function mountMap(
   let previousOwners: GameState["ownerByStateId"] | null = null,
     previousOccupation: string | null = null;
   return {
-    draw(game: GameState, selectedId: string | null, preview: string | null) {
-      const d = game.borderDispute,
-        occupation =
-          d?.phase === "war" && d.progress >= 50 ? d.targetStateId : null;
+    draw(game: GameState, owners: GameState["ownerByStateId"], selectedId: string | null, preview: string | null) {
+      const occupation = game.occupation?.stateId ?? null;
       if (
-        previousOwners === game.ownerByStateId &&
+        previousOwners === owners &&
         focus === selectedId && preview === previewCountry &&
         previousOccupation === occupation
       )
@@ -246,15 +245,15 @@ async function mountMap(
       if (preview !== previewCountry && preview) {
         centerCapital(preview);
       }
-      if (previousOwners !== game.ownerByStateId || preview !== previewCountry) {
+      if (previousOwners !== owners || preview !== previewCountry) {
         for (const [id, shape] of shapes) {
-          shape.tint = preview && game.ownerByStateId[id] !== preview ? 0x676b70 : 0xffffff;
+          shape.tint = preview && owners[id] !== preview ? 0x676b70 : 0xffffff;
         }
       }
       previewCountry = preview;
-      if (previousOwners !== game.ownerByStateId) {
+      if (previousOwners !== owners) {
         for (const [id, shape] of shapes) {
-          const owner = game.ownerByStateId[id];
+          const owner = owners[id];
           shape.clear();
           for (const [shell, ...holes] of geometry[id]) {
             shape
@@ -276,7 +275,7 @@ async function mountMap(
             states.length === 1 ||
             states.some(
               (id) =>
-                game.ownerByStateId[id] !== game.ownerByStateId[states[0]],
+                owners[id] !== owners[states[0]],
             )
           )
             borders.moveTo(a[0], a[1]).lineTo(b[0], b[1]);
@@ -290,7 +289,7 @@ async function mountMap(
         nationTexts.length = 0;
         for (const info of countryLabels(
           scenario,
-          game.ownerByStateId,
+          owners,
           geometry,
         )) {
           const text = new Text({
@@ -330,7 +329,7 @@ async function mountMap(
           }
         }
       focus = selectedId;
-      previousOwners = game.ownerByStateId;
+      previousOwners = owners;
       previousOccupation = occupation;
       place();
     },
@@ -355,18 +354,19 @@ export function StateMap({
   scenario,
   geometry,
   game,
+  owners,
   selectedId,
   preview,
   onSelect,
 }: Props) {
   const host = useRef<HTMLDivElement>(null);
   const map = useRef<Awaited<ReturnType<typeof mountMap>>>(null);
-  const frame = useRef({ game, selectedId, preview });
+  const frame = useRef({ game, owners, selectedId, preview });
   const [error, setError] = useState<string>();
   useEffect(() => {
-    frame.current = { game, selectedId, preview };
-    map.current?.draw(game, selectedId, preview);
-  }, [game, selectedId, preview]);
+    frame.current = { game, owners, selectedId, preview };
+    map.current?.draw(game, owners, selectedId, preview);
+  }, [game, owners, selectedId, preview]);
   useEffect(() => {
     let disposed = false;
     void mountMap(host.current!, scenario, geometry, onSelect).then(
@@ -376,7 +376,7 @@ export function StateMap({
           return;
         }
         map.current = instance;
-        instance.draw(frame.current.game, frame.current.selectedId, frame.current.preview);
+        instance.draw(frame.current.game, frame.current.owners, frame.current.selectedId, frame.current.preview);
       },
       (error: unknown) => {
         if (!disposed)

@@ -16,6 +16,7 @@ import type { PopulationMonth } from "./demographics.ts";
 import { finalizeCampaign, startCampaign } from "./campaign.ts";
 import type { Campaign, CampaignSetup } from "./campaign.ts";
 import { fiscalWeekFraction } from "./fiscal.ts";
+import type { Occupation } from "./occupation.ts";
 
 export interface GameState {
   elapsedDays: number;
@@ -33,6 +34,7 @@ export interface GameState {
   lastPopulation: PopulationMonth | null;
   campaign?: Campaign;
   borderDispute: BorderDispute | null;
+  occupation?: Occupation;
 }
 export type Span = "day" | "week" | "halfYear";
 export type GameCommand =

@@ -42,6 +42,7 @@ export function App({ scenario, geometry, initialSaves, initialSaveNotice }: {
     [selected, setSelected] = useState<string | null>(null);
   const [screen, setScreen] = useState<"menu" | "new" | "tutorial" | "play">("menu");
   const [galleryOpen, setGalleryOpen] = useState(false);
+  const [mapLayer, setMapLayer] = useState<"owner" | "controller">("owner");
   const [governmentOpen, setGovernmentOpen] = useState(false);
   const [endYear, setEndYear] = useState(String(defaultEndYear));
   const [busy, setBusy] = useState(false),
@@ -93,6 +94,11 @@ export function App({ scenario, geometry, initialSaves, initialSaveNotice }: {
       ? (Object.keys(game.ownerByStateId).find((id) => game.ownerByStateId[id] === player) ?? null)
       : null);
   const owner = site ? game.ownerByStateId[site] : null;
+  const occupation = game.occupation;
+  const actualController = occupation?.stateId === site ? occupation.controllerId : null;
+  const mapOwners = useMemo(() => mapLayer === "controller" && occupation
+    ? { ...game.ownerByStateId, [occupation.stateId]: occupation.controllerId }
+    : game.ownerByStateId, [mapLayer, game.ownerByStateId, occupation]);
   const report = useMemo(
     () => governmentOpen ? game.lastEconomy ?? projectEconomy(game, planWar(scenario, game)) : null,
     [governmentOpen, game.lastEconomy, game.ownerByStateId, game.countryEconomies, game.stateEconomies,
@@ -350,7 +356,12 @@ export function App({ scenario, geometry, initialSaves, initialSaveNotice }: {
       </header>
       <main className="map-workspace">
         <StateMap scenario={scenario} geometry={geometry} game={connection || player ? game : opening}
+          owners={connection || player ? mapOwners : opening.ownerByStateId}
           selectedId={player ? selected : null} preview={picker ? choice : null} onSelect={setSelected} />
+        {player && <div className="map-layers" role="group" aria-label="地图图层">
+          <button className="menu-button" aria-pressed={mapLayer === "owner"} onClick={() => setMapLayer("owner")}>正式归属</button>
+          <button className="menu-button" aria-pressed={mapLayer === "controller"} onClick={() => setMapLayer("controller")}>实际控制</button>
+        </div>}
         {!connection && screen === "menu" && <StartMenu saveCount={saves?.length ?? null} busy={busy}
           hasCurrent={soloGame.playerCountryId !== null} newGame={launch} resume={() => void slot("recent")}
           gallery={() => setGalleryOpen(true)} returnToGame={() => setScreen("play")} notice={notice} />}
@@ -383,7 +394,8 @@ export function App({ scenario, geometry, initialSaves, initialSaveNotice }: {
         {player && (!connection || onlinePlaying) && selected && <button className="site-chip" onClick={() => {
           if (owner === player) markGuide(2);
           openGovernment(0);
-        }}>{atlas[selected].name} · {owner ? scenario.countries[owner].name : "无主领土"} ›</button>}
+        }}>{atlas[selected].name} · {owner ? scenario.countries[owner].name : "无主领土"}
+          {actualController && `（${scenario.countries[actualController].name}控制）`} ›</button>}
         {!connection && screen === "play" && game.campaign?.tutorialEnabled
           && !finished && <TutorialGuide campaign={game.campaign} skip={() => setGame((state) => ({
             ...state, campaign: { ...state.campaign!, guideSkipped: true },
@@ -508,6 +520,7 @@ export function App({ scenario, geometry, initialSaves, initialSaveNotice }: {
                 {site && (
                   <p aria-live="polite">
                     <strong>{atlas[site].name}</strong> · {owner ? scenario.countries[owner].name : "无主领土"}
+                    {actualController && ` · 实际控制 ${scenario.countries[actualController].name}`}
                     {!owner && " · 占领后加入本国市场"}
                   </p>
                 )}
