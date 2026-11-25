@@ -9,10 +9,15 @@ export const inputs = {
   tools: { iron: 30, wood: 20, coal: 5 },
   paper: { wood: 40, coal: 10, tools: 1 },
   services: { paper: 2, tools: 1 },
+  food: { tools: 1 },
+  fiber: { tools: 1 },
+  dailyGoods: { wood: 50, tools: 1 },
+  luxury: { fiber: 20, dailyGoods: 30, paper: 4, tools: 2 },
 } satisfies Record<IndustrialGood, Readonly<Partial<ByIndustrialGood<number>>>>;
 const units = z.int().nonnegative();
 export const materialSchema = z.object({
   wood: units, iron: units, coal: units, tools: units, paper: units.default(0), services: units.default(0),
+  food: units.default(0), fiber: units.default(0), dailyGoods: units.default(0), luxury: units.default(0),
 });
 export const industrialAccountSchema = z.object({ capital: units, stocks: materialSchema });
 export type IndustrialAccount = z.infer<typeof industrialAccountSchema>;
@@ -29,6 +34,7 @@ export function emptyIndustrialAccount(): IndustrialAccount {
 const regularWage = 100;
 const skilledPositions = {
   wood: [0, 0], iron: [0, 0], coal: [0, 0], tools: [20, 180], paper: [20, 180], services: [50, 150],
+  food: [0, 0], fiber: [0, 0], dailyGoods: [10, 180], luxury: [20, 180],
 } satisfies Record<IndustrialGood, [number, number]>;
 
 export function industrialPayroll(good: IndustrialGood, employed: number) {

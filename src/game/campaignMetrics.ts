@@ -20,7 +20,7 @@ function civilianOutput(report: EconomyReport, holdings: readonly string[]) {
     for (const good of goods) total += activity[good].output * industries[good].basePrice;
     if (industrial) for (const good of industrialGoods) total -= industrial.used[good] * industries[good].basePrice;
     manufacturing += activity.cloth.output * industries.cloth.basePrice;
-    for (const line of ["tools", "paper"] as const) {
+    for (const line of ["tools", "paper", "dailyGoods", "luxury"] as const) {
       const recipe: Partial<Record<(typeof industrialGoods)[number], number>> = inputs[line];
       const inputsCost = industrialGoods.reduce((sum, good) =>
         sum + Math.ceil(activity[line].employed * (recipe[good] ?? 0) / industries[line].jobs) * industries[good].basePrice, 0);
@@ -116,7 +116,8 @@ export function measureCampaign(
   if (held.every((id) => report.states[id].householdBasicOrders !== undefined &&
       report.states[id].householdConsumption !== undefined)) {
     metrics.BASIC_CONSUMPTION = Math.min(...goods.filter((good) => industries[good].demandPerPerson > 0).map((good) => {
-      const total = held.reduce((sum, id) => sum + report.states[id].householdConsumption![good], 0);
+      const total = held.reduce((sum, id) => sum + report.states[id].householdConsumption![good] -
+        (good === "services" ? report.states[id].householdExtras?.delivered.services ?? 0 : 0), 0);
       const required = held.reduce((sum, id) => sum + report.states[id].householdBasicOrders![good], 0);
       return required > 0 ? Math.min(1, total / required) : 1;
     }));

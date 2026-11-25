@@ -29,7 +29,8 @@ test("工商业按真实员工、库存和已落实资金生产并结算，预�
   assert.equal(forecast.industries.iron.output, 80);
   assert.equal(forecast.industries.coal.output, 100);
   assert.equal(forecast.industries.tools.output, 80);
-  assert.deepEqual(forecast.industrial!.used, { wood: 20, iron: 30, coal: 5, tools: 8, paper: 0, services: 0 });
+  assert.deepEqual(forecast.industrial!.used, { wood: 20, iron: 30, coal: 5, tools: 8, paper: 0, services: 0,
+    food: 0, fiber: 0, dailyGoods: 0, luxury: 0 });
   assert.equal(forecast.industries.tools.wages, 11_600);
   const shortage = structuredClone(initial);
   shortage.stateEconomies[stateId].industrial!.stocks.iron = 15;
@@ -93,7 +94,8 @@ test("造纸和服务使用实际原料与共享技术劳动力，服务在本�
   assert.equal(local.industries.services.output, 100);
   assert.equal(local.industries.services.wages, 12_500);
   assert.equal(local.industrial?.skilledWages, 14_700);
-  assert.deepEqual(local.industrial?.used, { wood: 60, iron: 30, coal: 15, tools: 10, paper: 2, services: 0 });
+  assert.deepEqual(local.industrial?.used, { wood: 60, iron: 30, coal: 15, tools: 10, paper: 2, services: 0,
+    food: 0, fiber: 0, dailyGoods: 0, luxury: 0 });
   assert.equal(local.householdConsumption?.services, 100);
   assert.equal(report.states.Guangxi.householdConsumption?.services, 0);
   assert.throws(() => dispatch(withServices, initial, { type: "openTradeRoute", countryId,
@@ -102,4 +104,39 @@ test("造纸和服务使用实际原料与共享技术劳动力，服务在本�
   assert.ok(settled.campaign?.outcome?.metrics.BASIC_CONSUMPTION !== undefined);
   assert.ok(settled.campaign.outcome.metrics.BASIC_CONSUMPTION <= 100 / 440);
   assert.deepEqual(parseSave(withServices, { version: saveVersion, scenarioId: withServices.id, state: settled }), settled);
+});
+
+test("副食品、纤维、日用品与奢侈品按实物产出，家庭从已付净收入下单", () => {
+  const newLevels = { food: 1, fiber: 1, dailyGoods: 1, luxury: 1, paper: 1, services: 1 };
+  const map = {
+    ...scenario,
+    states: { ...scenario.states, [stateId]: {
+      ...scenario.states[stateId], capacity: { ...scenario.states[stateId].capacity, ...newLevels },
+      buildings: { ...scenario.states[stateId].buildings, ...newLevels },
+    } },
+  };
+  const initial = start(map);
+  const preview = projectEconomy(initial).states[stateId];
+  assert.deepEqual((["food", "fiber", "dailyGoods", "luxury"] as const).map((line) =>
+    preview.industries[line].output), [70, 100, 70, 50]);
+  assert.equal(preview.industrial!.used.fiber, 20);
+  assert.equal(preview.industrial!.used.dailyGoods, 30);
+  assert.equal(preview.householdExtras!.budget, 0);
+  assert.equal(preview.householdConsumption!.luxury, 0);
+  const reduced = structuredClone(initial);
+  reduced.stateEconomies[stateId].industrial!.stocks.fiber = 10;
+  assert.equal(projectEconomy(reduced).states[stateId].industries.luxury.output, 25);
+
+  const first = dispatch(map, initial, { type: "advanceWeek" });
+  const available = first.stateEconomies[stateId].discretionaryBudget!;
+  assert.ok(available > 0);
+  const second = dispatch(map, first, { type: "advanceWeek" });
+  const local = second.lastEconomy!.states[stateId];
+  const extras = local.householdExtras!;
+  assert.equal(extras.budget, available);
+  assert.ok(extras.spending > 0 && extras.spending <= available);
+  assert.ok(extras.delivered.luxury > 0 && extras.delivered.luxury <= extras.orders.luxury);
+  assert.equal(local.householdConsumption!.luxury, extras.delivered.luxury);
+  assert.ok(local.householdConsumption!.grain <= local.householdBasicOrders!.grain);
+  assert.deepEqual(parseSave(map, { version: saveVersion, scenarioId: map.id, state: second }), second);
 });

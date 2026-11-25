@@ -7,6 +7,7 @@ import type { GameState } from "./engine.ts";
 import { byIndustrialGood, goods, industrialGoods, industries } from "./industry.ts";
 import { industrialAccountSchema, industrialReportSchema } from "./industrial.ts";
 import { officeReportSchema } from "./administration.ts";
+import { extrasReportSchema } from "./households.ts";
 import { projects } from "./economy.ts";
 import { nationSchema, siteSocialSchema, projectTypes } from "./society.ts";
 import { importRegionalSave } from "./legacySave.ts";
@@ -237,6 +238,7 @@ const siteReport = z.object({
   foodFulfillment: fraction.optional(),
   householdConsumption: goodsNumbers.optional(),
   householdBasicOrders: goodsNumbers.optional(),
+  householdExtras: extrasReportSchema.optional(),
   constructionGoods: goodsNumbers.optional(),
   industrial: industrialReportSchema.optional(),
   office: officeReportSchema.optional(),
@@ -279,7 +281,7 @@ export function parseSave(scenario: Scenario, save: unknown): GameState {
     stateEconomies: z.record(
       activeSite,
       z.object({ population: z.int().positive(), buildings: goodsNumbers, localQuotes: quotes.optional(),
-        industrial: industrialAccountSchema.optional() }),
+        industrial: industrialAccountSchema.optional(), discretionaryBudget: uint.optional() }),
     ),
     countryEconomies: z.record(countries, z.object({
       treasury: cash, queue: z.array(project), referenceQuotes: quotes.optional(), fiscal: fiscalAccountSchema.optional(),
