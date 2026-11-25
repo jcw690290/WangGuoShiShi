@@ -163,19 +163,23 @@ test("同盟内技术人口迁往接纳其身份的国家，迁入与迁出人�
   assert.ok(countEngineers(established, a) > arrivals);
   assert.equal(countEngineers(established, a) + countEngineers(established, b), countEngineers(baseline, b));
 });
-test("补足粮食后推进到和约门槛，移交州并结束征兵", () => {
+test("准备粮食和野战后勤后推进到和约门槛，移交州并结束征兵", () => {
   let g = send(startWithGrain({ Yunnan: 42, Guangxi: 42, Tonkin: 12, Annam: 12 }), {
     type: "queueConstruction", countryId: a, stateId: "Yunnan", good: "grain",
   });
   for (let i = 0; i < 7 && g.countryEconomies[a].queue.length; i++) g = week(g);
   assert.equal(g.stateEconomies.Yunnan.buildings.grain, 43);
+  g.nations[a].knowledge["野战后勤"] = 100;
   g = demand(g);
   for (let i = 0; i < 4; i++) g = week(g);
   g = send(g, { type: "promoteGeneral", countryId: a });
   g = send(g, { type: "promoteGeneral", countryId: a });
   g = send(g, { type: "mobilize", countryId: a });
   g = send(g, { type: "orderAdvance", countryId: a });
-  for (let i = 0; i < 60 && g.borderDispute!.progress < scenario.borderDispute.cessionProgress; i++)
+  g = week(g);
+  const armed = g.lastEconomy!.countries[a].military;
+  assert.ok(armed.equipment.weapons.delivered > 0 && armed.equipment.ammunition.delivered > 0);
+  for (let i = 1; i < 60 && g.borderDispute!.progress < scenario.borderDispute.cessionProgress; i++)
     g = week(g);
   assert.ok(g.borderDispute!.progress >= scenario.borderDispute.cessionProgress);
   assert.deepEqual(g.occupation, { stateId: targetStateId, controllerId: a });
@@ -203,13 +207,13 @@ test("军需缺口压低士气；保护国与封臣的贡金按类型结算", ()
   let g = demand(start());
   for (let i = 0; i < 4; i++) g = week(g);
   g = send(g, { type: "mobilize", countryId: a });
-  const core = g.societies.Yunnan;
+  const { Yunnan, Guangxi } = g.stateEconomies;
   g = {
     ...g,
-    societies: {
-      ...g.societies,
-      Yunnan: { ...core, ammunition: 0 },
-      Guangxi: { ...g.societies.Guangxi, ammunition: 0 },
+    stateEconomies: {
+      ...g.stateEconomies,
+      Yunnan: { ...Yunnan, buildings: { ...Yunnan.buildings, ammo: 0 } },
+      Guangxi: { ...Guangxi, buildings: { ...Guangxi.buildings, ammo: 0 } },
     },
   };
   g = week(g);

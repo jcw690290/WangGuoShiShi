@@ -119,7 +119,8 @@ export const borderScenario: Scenario = {
       const resources = { wood: Math.ceil(state.population / 5_000) + 1, iron: 1, coal: 1,
         tools: 1, fiber: Math.ceil(buildings.cloth * 0.7) };
       return [state.id, { ...state, ownerId: stateOwnerSchema.parse(sourceStates.get(state.id)).countryId,
-        buildings: { ...buildings, ...resources }, capacity: { ...convertCommercialLevels(state.capacity), ...resources } }];
+        buildings: { ...buildings, ...resources, steel: 1, arms: 1, ammo: 1 },
+        capacity: { ...convertCommercialLevels(state.capacity), ...resources, steel: 3, arms: 3, ammo: 3 } }];
     }),
   ),
 };
@@ -160,9 +161,12 @@ export const atlas = z.record(z.string(), siteSchema).parse(
     const dailyGoods = Math.max(1, Math.ceil(state.population / 16_000));
     const luxury = Math.max(1, Math.ceil(state.population / 35_000));
     const owned = sourceStates.has(id);
+    // Provisional opening industry based on available raw materials rather than historical factory counts.
+    const openingSteel = owned && iron > 0 && coal > 0 && state.population >= 12_000 ? 1 : 0;
     return [id, {
       ...state, name: (stateNames as Record<string, string>)[id],
-      capacity: { ...convertCommercialLevels(state.capacity), wood, iron, coal, tools, paper, services, food, fiber, dailyGoods, luxury },
+      capacity: { ...convertCommercialLevels(state.capacity), wood, iron, coal, tools, paper, services, food, fiber,
+        dailyGoods, luxury, steel: 3, arms: 3, ammo: 3 },
       buildings: {
         ...regionalBuildings,
         wood: owned ? Math.min(wood, Math.max(1, Math.ceil(state.population / 24_000))) : 0,
@@ -175,6 +179,9 @@ export const atlas = z.record(z.string(), siteSchema).parse(
         fiber: owned ? openingFiber : 0,
         dailyGoods: owned && state.buildings.cloth > 0 && state.population >= 16_000 ? 1 : 0,
         luxury: owned && state.buildings.cloth > 0 && state.population >= 32_000 ? 1 : 0,
+        steel: openingSteel,
+        arms: owned ? 1 : 0,
+        ammo: owned ? 1 : 0,
       },
     }];
   })),

@@ -5,13 +5,13 @@ import { disputeSchema, participants } from "./diplomacy.ts";
 import { createGame, DAY_MS, elapsedTicks, getGameDate, isPopulationMonth, TICKS_PER_DAY } from "./engine.ts";
 import type { GameState } from "./engine.ts";
 import { byIndustrialGood, commercialLevels, goods, industries, isGood, isIndustrialGood } from "./industry.ts";
-import { industrialAccountSchema, industrialReportSchema } from "./industrial.ts";
+import { initialIndustrialAccount, industrialAccountSchema, industrialReportSchema } from "./industrial.ts";
 import { officeReportSchema } from "./administration.ts";
 import { extrasReportSchema, substituteOrdersSchema } from "./households.ts";
 import { reservedCropland, subsistenceReportSchema } from "./subsistence.ts";
 import { migrateCommercialProduction } from "./commercialMigration.ts";
 import { openingMetrics } from "./campaignMetrics.ts";
-import { militaryProcurementCost, projects } from "./economy.ts";
+import { buildingCapacity, militaryProcurementCost, projects } from "./economy.ts";
 import { nationSchema, siteSocialSchema, projectTypes } from "./society.ts";
 import { importRegionalSave } from "./legacySave.ts";
 import { borderScenario } from "../scenario/scenario.ts";
@@ -30,7 +30,7 @@ const storeName = "saves";
 const indexName = "saveIndex";
 const archiveName = "endings";
 const achievementArchiveName = "achievements";
-export const saveVersion = 9;
+export const saveVersion = 10;
 export const manualSaveSlots = ["local", "manual-2", "manual-3", "manual-4", "manual-5"] as const;
 export const autoSaveSlots = ["auto-1", "auto-2", "auto-3"] as const;
 export const saveSlotSchema = z.enum([...manualSaveSlots, ...autoSaveSlots]);
@@ -211,7 +211,7 @@ const military = z.object({
   grainDrawn: uint,
   grainTransport: uint,
   seaCargoUsed: uint.optional(),
-  procurement: z.object({ grain: uint, cloth: uint }).optional(),
+  procurement: z.object({ grain: uint, cloth: uint, arms: uint.optional(), ammo: uint.optional() }).optional(),
   equipment: z.object({ weapons: issue, ammunition: issue, uniforms: issue }),
   readiness: fraction,
 });
@@ -255,7 +255,6 @@ const siteReport = z.object({
   administrationStaff: z.number().nonnegative().optional(),
   freightWages: uint.optional(),
   builders: uint,
-  armourers: uint,
   access: fraction,
   localPrices: goodsNumbers,
   dividends: uint,
@@ -288,7 +287,8 @@ export function parseSave(scenario: Scenario, save: unknown): GameState {
       activeSite,
       z.object({ population: z.int().positive(), buildings: goodsNumbers, localQuotes: quotes.optional(),
         industrial: industrialAccountSchema.optional(), discretionaryBudget: uint.optional(), cropland: uint.optional(),
-        commercialRecipes: z.literal(true).optional() }),
+        commercialRecipes: z.literal(true).optional(),
+        inheritedArmamentCapacity: z.object({ arms: uint.optional(), ammo: uint.optional() }).optional() }),
     ),
     countryEconomies: z.record(countries, z.object({
       treasury: cash, queue: z.array(project), referenceQuotes: quotes.optional(), fiscal: fiscalAccountSchema.optional(),
@@ -312,12 +312,19 @@ export function parseSave(scenario: Scenario, save: unknown): GameState {
   const timedStateSchema = stateSchema.extend({ tickInDay: uint.max(TICKS_PER_DAY - 1) });
   const settingsStateSchema = timedStateSchema.extend({ settings: settingsSchema });
   const campaignStateSchema = settingsStateSchema.extend({ lastPopulation, campaign: campaignSchema.optional() });
+  const legacyProject = project.extend({ good: z.enum([...projectTypes, "arsenal", "ammunition"])
+    .transform((good) => good === "arsenal" ? "arms" as const : good === "ammunition" ? "ammo" as const : good) });
+  const legacyFields = {
+    societies: z.record(activeSite, siteSocialSchema.extend({ arsenal: uint.optional(), ammunition: uint.optional() })),
+    countryEconomies: z.record(countries, stateSchema.shape.countryEconomies.valueType.extend({ queue: z.array(legacyProject) })),
+  };
   const schema = z
     .discriminatedUnion("version", [
-      z.object({ version: z.literal(5), scenarioId, state: stateSchema }),
-      z.object({ version: z.literal(6), scenarioId, state: timedStateSchema }),
-      z.object({ version: z.literal(7), scenarioId, state: settingsStateSchema }),
-      z.object({ version: z.literal(8), scenarioId, state: campaignStateSchema }),
+      z.object({ version: z.literal(5), scenarioId, state: stateSchema.extend(legacyFields) }),
+      z.object({ version: z.literal(6), scenarioId, state: timedStateSchema.extend(legacyFields) }),
+      z.object({ version: z.literal(7), scenarioId, state: settingsStateSchema.extend(legacyFields) }),
+      z.object({ version: z.literal(8), scenarioId, state: campaignStateSchema.extend(legacyFields) }),
+      z.object({ version: z.literal(9), scenarioId, state: campaignStateSchema.extend(legacyFields) }),
       z.object({
         version: z.literal(saveVersion),
         scenarioId,
@@ -327,7 +334,7 @@ export function parseSave(scenario: Scenario, save: unknown): GameState {
     .safeParse(save);
   if (!schema.success) throw new Error("存档数据无效或版本不兼容", { cause: schema.error });
   const data = schema.data;
-  const state: GameState = data.version === saveVersion || data.version === 8 ? data.state : {
+  const state: GameState = data.version === saveVersion || data.version === 9 || data.version === 8 ? data.state : {
     ...data.state,
     tickInDay: data.version === 5 ? 0 : data.state.tickInDay,
     settings: data.version === 7 ? data.state.settings : initialSettings("standard"),
@@ -373,7 +380,33 @@ export function parseSave(scenario: Scenario, save: unknown): GameState {
     (state.lastEconomy !== null && !sameSites(state.lastEconomy.states)) ||
     Object.values(scenario.states).some((s) => s.ownerId !== null && !Object.hasOwn(state.ownerByStateId, s.id))
   ) invalid();
-  if (data.version === saveVersion && owned.some((id) => state.stateEconomies[id].commercialRecipes !== true)) invalid();
+  if ((data.version === saveVersion || data.version === 9) &&
+      owned.some((id) => state.stateEconomies[id].commercialRecipes !== true)) invalid();
+  let migratedArmaments = false;
+  if (data.version !== saveVersion) for (const [id, site] of Object.entries(data.state.societies)) {
+    if (site.arsenal === undefined && site.ammunition === undefined) continue;
+    const local = state.stateEconomies[id];
+    const inherited = { arms: site.arsenal ?? 0, ammo: site.ammunition ?? 0 };
+    delete site.arsenal;
+    delete site.ammunition;
+    const opening = initialIndustrialAccount({ grain: 0, cloth: 0, ...inherited });
+    const account = local.industrial;
+    if (opening) local.industrial = account ? {
+      capital: account.capital + opening.capital,
+      stocks: byIndustrialGood((good) => account.stocks[good] + opening.stocks[good]),
+    } : opening;
+    const queue = state.countryEconomies[state.ownerByStateId[id]].queue;
+    for (const good of ["arms", "ammo"] as const) {
+      local.buildings[good] += inherited[good];
+      const committed = local.buildings[good] + queue.filter((p) => p.good === good && p.stateId === id).length;
+      if (committed > buildingCapacity(scenario.states[id], local, good)) {
+        local.inheritedArmamentCapacity ??= {};
+        local.inheritedArmamentCapacity[good] = committed;
+      }
+    }
+    migratedArmaments = true;
+  }
+  if (migratedArmaments) state.lastEconomy = null;
   if (data.version !== saveVersion && migrateCommercialProduction(state) && campaign?.outcome?.baseline && campaign.ending === null) {
     const fresh = openingMetrics(createGame(scenario, 1820, state.settings.difficulty), state.playerCountryId!);
     campaign.outcome = { ...campaign.outcome, metrics: {}, lossSince: null, victorySince: null, genericSince: null,
@@ -449,7 +482,7 @@ export function parseSave(scenario: Scenario, save: unknown): GameState {
     for (const g of goods)
       if (
         local.buildings[g] + queue.reduce((count, p) => count + (p.stateId === id && p.good === g ? p.levels ?? 1 : 0), 0) >
-        (scenario.states[id].capacity[g] ?? 0)
+        buildingCapacity(scenario.states[id], local, g)
       )
         invalid();
   }

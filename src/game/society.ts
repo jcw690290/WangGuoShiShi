@@ -61,8 +61,6 @@ export const siteSocialSchema = z.object({
   construction: z.int().positive(),
   barracks: z.int().nonnegative(),
   conscription: z.int().nonnegative(),
-  arsenal: z.int().nonnegative(),
-  ammunition: z.int().nonnegative(),
 });
 export type SiteSocial = z.infer<typeof siteSocialSchema>;
 export const laws = [
@@ -100,8 +98,6 @@ export const facilityTypes = [
   "construction",
   "barracks",
   "conscription",
-  "arsenal",
-  "ammunition",
 ] as const;
 export const facilityNames = {
   infrastructure: "交通设施",
@@ -110,8 +106,6 @@ export const facilityNames = {
   construction: "建造部门",
   barracks: "兵营",
   conscription: "征兵中心",
-  arsenal: "兵工厂",
-  ammunition: "弹药厂",
 };
 export const projectTypes = [...goods, ...facilityTypes] as const;
 export const subjectTypes = ["protectorate", "puppet", "vassal"] as const;
@@ -172,8 +166,6 @@ export function initSiteSociety(site: Scenario["states"][string]): SiteSocial {
     construction: 1,
     barracks: 1,
     conscription: 1,
-    arsenal: 1,
-    ammunition: 1,
   };
 }
 export function initSociety(scenario: Scenario) {
