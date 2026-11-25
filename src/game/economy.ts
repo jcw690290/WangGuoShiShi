@@ -6,7 +6,7 @@ import type { ByGood, Good } from "./industry.ts";
 import { accepted, evolvePops, facilityTypes, approval, tributeRate } from "./society.ts";
 import { getEconomicRules } from "./politics.ts";
 import { ruleTuning } from "./settings.ts";
-import { clearMarket } from "./market.ts";
+import { clearMarket, nextPrice, targetPrice } from "./market.ts";
 import type { MarketFill } from "./market.ts";
 
 export type Building = Good | (typeof facilityTypes)[number];
@@ -23,6 +23,7 @@ export const projects = {
 export interface StateEconomy {
   population: number;
   buildings: ByGood<number>;
+  localQuotes?: ByGood<number>;
 }
 export interface Project {
   stateId: string;
@@ -32,12 +33,14 @@ export interface Project {
 export interface CountryEconomy {
   treasury: number;
   queue: Project[];
+  referenceQuotes?: ByGood<number>;
 }
 export interface Market {
   demand: number;
   supply: number;
   price: number;
   traded?: number;
+  targetPrice?: number;
 }
 interface IndustryReport {
   employed: number;
@@ -100,8 +103,6 @@ export function weeklyBudgets(nations: GameState["nations"], report: EconomyRepo
 }
 export const workForce = (population: number) => Math.floor(population * 0.4);
 const fulfillment = (bought: number, demand: number) => demand ? bought / demand : 1;
-const priceOf = (good: Good, supply: number, demand: number) =>
-  Math.round(industries[good].basePrice * (1 + (0.75 * (demand - supply)) / Math.max(1, demand, supply)));
 export const privateShareOf = (n: GameState["nations"][string]) =>
   n.laws.includes("自由放任") ? 0.75 : n.laws.includes("干预主义") ? 0.5 : 0.35;
 export function marketOf(state: GameState, id: string) {
@@ -151,6 +152,10 @@ function issueSupplies(
 }
 
 export function projectEconomy(state: GameState, war?: WarPlan): EconomyReport {
+  return projectSettlement(state, war).report;
+}
+
+function projectSettlement(state: GameState, war?: WarPlan) {
   const report: EconomyReport = { states: {}, countries: {} };
   const markets: Record<string, ByGood<Market>> = {};
   const holdings: Record<string, string[]> = {};
@@ -288,17 +293,24 @@ export function projectEconomy(state: GameState, war?: WarPlan): EconomyReport {
     }
   }
   const fills = byGood((): Record<string, MarketFill> => ({}));
+  const referenceQuotes: Record<string, ByGood<number>> = {};
+  const localQuotes: Record<string, ByGood<number>> = {};
   for (const [marketId, market] of Object.entries(markets)) {
     const sites = marketSites[marketId];
-    for (const g of goods) {
+    referenceQuotes[marketId] = byGood((g) => {
       const good = market[g];
-      good.price = priceOf(g, good.supply, good.demand);
+      const base = industries[g].basePrice;
+      const target = targetPrice(base, good.supply, good.demand);
+      const quote = nextPrice(state.countryEconomies[marketId].referenceQuotes?.[g] ?? base, target);
+      good.targetPrice = Math.round(target);
+      good.price = Math.round(quote);
       const clearing = clearMarket(sites.map((id) => ({
         supply: supplies[id][g], demand: demands[id][g], access: report.states[id].access,
       })));
       good.traded = clearing.traded;
       sites.forEach((id, index) => { fills[g][id] = clearing.fills[index]; });
-    }
+      return quote;
+    });
   }
   for (const [owner, ids] of Object.entries(holdings)) {
     const c = report.countries[owner],
@@ -312,11 +324,16 @@ export function projectEconomy(state: GameState, war?: WarPlan): EconomyReport {
     for (const id of ids) {
       const s = report.states[id],
         site = state.societies[id];
+      localQuotes[id] = byGood((g) => {
+        const base = industries[g].basePrice;
+        const target = targetPrice(base, supplies[id][g], demands[id][g]);
+        return nextPrice(state.stateEconomies[id].localQuotes?.[g] ?? base, target);
+      });
       const fulfilled = byGood((g) => {
         const m = c.market[g],
           production = s.industries[g],
           { local: localTrade, poolBought, poolSold } = fills[g][id];
-        const localPrice = priceOf(g, supplies[id][g], demands[id][g]);
+        const localPrice = Math.round(localQuotes[id][g]);
         const price = Math.round(s.access * m.price + (1 - s.access) * localPrice);
         s.localPrices[g] = price;
         production.sold = localTrade + poolSold;
@@ -352,7 +369,7 @@ export function projectEconomy(state: GameState, war?: WarPlan): EconomyReport {
     c.wageTaxGain = Math.floor((wages * c.wageTaxRate) / 100) - Math.floor(wages * 0.1);
     if (nation.subjectType) c.tribute = Math.floor(c.tax * tributeRate[nation.subjectType]);
   }
-  return report;
+  return { report, referenceQuotes, localQuotes };
 }
 export function constructionError(
   scenario: Scenario,
@@ -435,9 +452,10 @@ export function settleEconomy(state: GameState, war?: WarPlan): GameState & { la
     nations[id] = { ...nation, privateQueue };
   }
   // Orders worked this week pay for their labour and inputs even when the last job finishes.
-  const production = projectEconomy({ ...state, stateEconomies, societies }, war);
+  const { report: production, referenceQuotes, localQuotes } = projectSettlement({ ...state, stateEconomies, societies }, war);
   for (const [id, s] of Object.entries(production.states)) {
     const owner = state.ownerByStateId[id];
+    stateEconomies[id] = { ...stateEconomies[id], localQuotes: localQuotes[id] };
     societies[id] = evolvePops(
       societies[id],
       owner,
@@ -455,6 +473,7 @@ export function settleEconomy(state: GameState, war?: WarPlan): GameState & { la
     countryEconomies[id] = {
       ...countryEconomies[id],
       treasury: countryEconomies[id].treasury + budgets[id].balance,
+      referenceQuotes: referenceQuotes[marketOf(state, id)],
     };
     const morale = war?.routes[id]
       ? Math.min(

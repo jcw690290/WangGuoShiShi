@@ -88,7 +88,7 @@ test("政府队列付款、所有权与容量校验，完工带来就业、产�
   assert.ok(report.states.border.industries.cloth.wages > 0);
   assert.ok(report.countries.first.tax > 0);
   assert.ok(
-    report.countries.first.market.cloth.price < projectEconomy(old).countries.first.market.cloth.price,
+    report.countries.first.market.cloth.targetPrice! < projectEconomy(old).countries.first.market.cloth.targetPrice!,
   );
   assert.equal(report.states.border.regulars, 100);
 });

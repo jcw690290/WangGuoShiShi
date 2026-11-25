@@ -51,7 +51,10 @@ const uint = z.int().nonnegative(),
   cash = z.int(),
   fraction = z.number().min(0).max(1);
 const goodsNumbers = z.object(byGood(() => uint));
-const market = z.object({ demand: uint, supply: uint, price: z.int().positive(), traded: uint.optional() })
+const quotes = z.object(byGood(() => z.number().positive()));
+const market = z.object({
+  demand: uint, supply: uint, price: z.int().positive(), traded: uint.optional(), targetPrice: z.int().positive().optional(),
+})
   .refine((good) => good.traded === undefined || good.traded <= Math.min(good.supply, good.demand));
 const industry = z.object({ employed: uint, output: uint, wages: uint, sold: uint.optional(), bought: uint.optional() })
   .refine((good) => good.sold === undefined || good.sold <= good.output);
@@ -114,9 +117,11 @@ export function parseSave(scenario: Scenario, save: unknown): GameState {
     ownerByStateId: z.record(activeSite, countries),
     stateEconomies: z.record(
       activeSite,
-      z.object({ population: z.int().positive(), buildings: goodsNumbers }),
+      z.object({ population: z.int().positive(), buildings: goodsNumbers, localQuotes: quotes.optional() }),
     ),
-    countryEconomies: z.record(countries, z.object({ treasury: cash, queue: z.array(project) })),
+    countryEconomies: z.record(countries, z.object({
+      treasury: cash, queue: z.array(project), referenceQuotes: quotes.optional(),
+    })),
     societies: z.record(activeSite, siteSocialSchema),
     nations: z.record(countries, nationSchema),
     borderDispute: disputeSchema.nullable(),

@@ -243,14 +243,17 @@ export function EconomyPanel({ scenario, game, playerId, selectedId, report, bus
               </thead>
               <tbody>
                 {goods.map((good) => {
-                  const { demand, supply, price, traded } = market[good];
+                  const { demand, supply, price, traded, targetPrice } = market[good];
                   const unmet = traded === undefined ? undefined : demand - traded;
                   return (
                     <tr key={good}>
                       <th scope="row">{industries[good].goodName}</th>
                       <td>{count(supply)}</td>
                       <td>{count(demand)}</td>
-                      <td>{silver(price)}</td>
+                      <td>
+                        {silver(price)}
+                        {targetPrice !== undefined && <><br /><small>目标 {silver(targetPrice)}</small></>}
+                      </td>
                       <td>{traded === undefined ? "未记录" : count(traded)}</td>
                       <td className={unmet ? "shortage" : undefined}>{unmet === undefined ? "未记录" : count(unmet)}</td>
                     </tr>

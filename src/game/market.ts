@@ -10,6 +10,14 @@ export interface MarketFill {
   poolSold: number;
 }
 
+export function targetPrice(basePrice: number, supply: number, demand: number) {
+  return basePrice * (1 + 0.75 * (demand - supply) / Math.max(demand, supply, 0.000001));
+}
+
+export function nextPrice(previous: number, target: number) {
+  return previous + 0.35 * (target - previous);
+}
+
 function ration(cumulative: number, total: number, volume: number) {
   if (total === volume) return cumulative;
   // Integer division keeps the rounding remainder inside the pool and each fill within its order.

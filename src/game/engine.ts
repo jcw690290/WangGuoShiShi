@@ -223,7 +223,7 @@ function applyCommand(
         ...state,
         countryEconomies: {
           ...state.countryEconomies,
-          [id]: { treasury: c.treasury - cost, queue: [...c.queue, job] },
+          [id]: { ...c, treasury: c.treasury - cost, queue: [...c.queue, job] },
         },
       };
     }
