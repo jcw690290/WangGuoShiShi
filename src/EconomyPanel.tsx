@@ -232,23 +232,23 @@ export function EconomyPanel({ scenario, game, playerId, selectedId, report, bus
                   <th scope="col">商品</th>
                   <th scope="col">周市场供给</th>
                   <th scope="col">周需求</th>
-                  <th scope="col">单价</th>
-                  <th scope="col">供需</th>
+                  <th scope="col">参考价</th>
+                  <th scope="col">成交</th>
+                  <th scope="col">未满足</th>
                 </tr>
               </thead>
               <tbody>
                 {goods.map((good) => {
-                  const { demand, supply, price } = market[good];
-                  const balance = supply - demand;
+                  const { demand, supply, price, traded } = market[good];
+                  const unmet = traded === undefined ? undefined : demand - traded;
                   return (
                     <tr key={good}>
                       <th scope="row">{industries[good].goodName}</th>
                       <td>{count(supply)}</td>
                       <td>{count(demand)}</td>
                       <td>{silver(price)}</td>
-                      <td className={balance < 0 ? "shortage" : undefined}>
-                        {balance === 0 ? "持平" : `${balance < 0 ? "缺" : "余"} ${count(Math.abs(balance))}`}
-                      </td>
+                      <td>{traded === undefined ? "未记录" : count(traded)}</td>
+                      <td className={unmet ? "shortage" : undefined}>{unmet === undefined ? "未记录" : count(unmet)}</td>
                     </tr>
                   );
                 })}

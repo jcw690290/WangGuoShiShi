@@ -51,8 +51,10 @@ const uint = z.int().nonnegative(),
   cash = z.int(),
   fraction = z.number().min(0).max(1);
 const goodsNumbers = z.object(byGood(() => uint));
-const market = z.object({ demand: uint, supply: uint, price: z.int().positive() });
-const industry = z.object({ employed: uint, output: uint, wages: uint });
+const market = z.object({ demand: uint, supply: uint, price: z.int().positive(), traded: uint.optional() })
+  .refine((good) => good.traded === undefined || good.traded <= Math.min(good.supply, good.demand));
+const industry = z.object({ employed: uint, output: uint, wages: uint, sold: uint.optional(), bought: uint.optional() })
+  .refine((good) => good.sold === undefined || good.sold <= good.output);
 const issue = z.object({ demand: uint, delivered: uint }).refine((i) => i.delivered <= i.demand);
 const military = z.object({
   regulars: uint,
