@@ -57,7 +57,8 @@ export interface MilitarySupply {
 }
 export interface SiteReport {
   industries: ByGood<IndustryReport>;
-  populationChange: number;
+  populationChange?: number;
+  foodFulfillment?: number;
   conscripts: number;
   access: number;
   localPrices: ByGood<number>;
@@ -248,7 +249,6 @@ export function projectEconomy(state: GameState, war?: WarPlan): EconomyReport {
     );
     report.states[id] = {
       industries: activity,
-      populationChange: 0,
       regulars,
       builders,
       armourers,
@@ -311,8 +311,7 @@ export function projectEconomy(state: GameState, war?: WarPlan): EconomyReport {
       capacity = 0;
     for (const id of ids) {
       const s = report.states[id],
-        site = state.societies[id],
-        local = state.stateEconomies[id];
+        site = state.societies[id];
       const fulfilled = byGood((g) => {
         const m = c.market[g],
           production = s.industries[g],
@@ -339,10 +338,7 @@ export function projectEconomy(state: GameState, war?: WarPlan): EconomyReport {
         s.dividends += profit - contribution;
         return fulfillment(production.bought, demands[id][g]);
       });
-      const standard = site.pops.reduce((n, p) => n + p.wealth * p.people, 0) / local.population;
-      s.populationChange = Math.round(
-        local.population * 0.0003 * (2 * fulfilled.grain - 1) * Math.min(2, 0.8 + standard / 30),
-      );
+      s.foodFulfillment = fulfilled.grain;
       c.investment += s.investment;
       // Each staffed department buys a weekly grain/cloth basket; shortages constrain the work done.
       capacity +=
@@ -441,13 +437,11 @@ export function settleEconomy(state: GameState, war?: WarPlan): GameState & { la
   // Orders worked this week pay for their labour and inputs even when the last job finishes.
   const production = projectEconomy({ ...state, stateEconomies, societies }, war);
   for (const [id, s] of Object.entries(production.states)) {
-    const local = stateEconomies[id],
-      owner = state.ownerByStateId[id];
+    const owner = state.ownerByStateId[id];
     societies[id] = evolvePops(
       societies[id],
       owner,
       nations[owner],
-      s.populationChange,
       s.localPrices.grain,
       s.industries.grain.wages,
       s.industries.cloth.wages,
@@ -455,7 +449,6 @@ export function settleEconomy(state: GameState, war?: WarPlan): GameState & { la
       s.industries.cloth.employed,
       tuning,
     );
-    stateEconomies[id] = { ...local, population: local.population + s.populationChange };
   }
   const budgets = weeklyBudgets(nations, production);
   for (const [id, c] of Object.entries(production.countries)) {
@@ -471,40 +464,6 @@ export function settleEconomy(state: GameState, war?: WarPlan): GameState & { la
       : Math.min(100, nations[id].morale + 8);
     nations[id] = { ...nations[id], morale, investment: nations[id].investment + c.investment };
     c.capacity = before.countries[id].capacity;
-  }
-  // Graduate migration within a customs market. Move existing people, keeping their
-  // identities and accumulated wealth. Arrivals only migrate once per settlement.
-  const destinations = new Map<string, string>();
-  for (const [site, owner] of Object.entries(state.ownerByStateId)) {
-    const n = nations[owner];
-    if (n.laws.includes("平等公民权") && n.laws.includes("信仰自由")) {
-      const market = marketOf(state, owner),
-        old = destinations.get(market);
-      if (!old || societies[site].university > societies[old].university) destinations.set(market, site);
-    }
-  }
-  for (const [site, owner] of Object.entries(state.ownerByStateId)) {
-    const target = destinations.get(marketOf(state, owner));
-    if (!target || state.ownerByStateId[target] === owner) continue;
-    for (const pop of societies[site].pops) {
-      if (pop.occupation !== "工程师" || accepted(pop, owner, nations[owner])) continue;
-      const people = Math.min(pop.people, Math.ceil(pop.people * 0.005));
-      if (!people) continue;
-      const to = societies[target].pops;
-      const cohort = to.find(
-        (p) => p.occupation === pop.occupation && p.culture === pop.culture && p.religion === pop.religion,
-      );
-      if (cohort) {
-        for (const k of ["wealth", "literacy", "radicals"] as const)
-          cohort[k] = (cohort[k] * cohort.people + pop[k] * people) / (cohort.people + people);
-        cohort.people += people;
-      } else to.push({ ...pop, people });
-      pop.people -= people;
-      stateEconomies[site].population -= people;
-      stateEconomies[target].population += people;
-      production.states[site].populationChange -= people;
-      production.states[target].populationChange += people;
-    }
   }
   return { ...state, stateEconomies, countryEconomies, societies, nations, lastEconomy: production };
 }

@@ -117,12 +117,20 @@ test("同盟成员共享市场并能退出，傀儡交贡金，吞并恶名四�
 test("同盟内技术人口迁往接纳其身份的国家，迁入与迁出人数相等", () => {
   let g = send(start(), { type: "joinUnion", countryId: b, leaderId: a });
   g.nations[a].laws.push("平等公民权", "信仰自由");
-  const moved = week(g);
-  const arrivals = Object.entries(moved.societies)
-    .filter(([id]) => moved.ownerByStateId[id] === a)
-    .flatMap(([, s]) => s.pops)
-    .filter((p) => p.culture === "地方文化-Tonkin" && p.occupation === "工程师");
-  assert.ok(arrivals.reduce((sum, p) => sum + p.people, 0) > 0);
+  const countEngineers = (state: GameState, country: string) => Object.entries(state.societies)
+    .filter(([id]) => state.ownerByStateId[id] === country)
+    .flatMap(([, site]) => site.pops)
+    .filter((p) => p.culture === "地方文化-Tonkin" && p.occupation === "工程师")
+    .reduce((sum, p) => sum + p.people, 0);
+  while (g.elapsedDays < 30) g = send(g, { type: "advanceDay" });
+  assert.equal(countEngineers(g, a), 0);
+  const closed = structuredClone(g);
+  closed.nations[a].laws = closed.nations[a].laws.filter((law) => law !== "信仰自由");
+  const baseline = send(closed, { type: "advanceDay" });
+  const moved = send(g, { type: "advanceDay" });
+  const arrivals = countEngineers(moved, a);
+  assert.ok(arrivals > 0);
+  assert.equal(countEngineers(baseline, b) - countEngineers(moved, b), arrivals);
   assert.deepEqual(load(moved), moved);
 });
 test("战争进度到达和约门槛后移交州，结束占领及征兵", () => {

@@ -2,7 +2,7 @@ import { openDB } from "idb";
 import type { DBSchema } from "idb";
 import { z } from "zod";
 import { disputeSchema, participants } from "./diplomacy.ts";
-import { DAY_MS, elapsedTicks, TICKS_PER_DAY } from "./engine.ts";
+import { DAY_MS, elapsedTicks, isPopulationMonth, TICKS_PER_DAY } from "./engine.ts";
 import type { GameState } from "./engine.ts";
 import { byGood, goods } from "./industry.ts";
 import { projects } from "./economy.ts";
@@ -13,7 +13,7 @@ import type { Scenario } from "../scenario/scenario.ts";
 import { initialSettings, settingsSchema, validDifficultyHistory } from "./settings.ts";
 const storeName = "saves";
 const slot = "local";
-export const saveVersion = 7;
+export const saveVersion = 8;
 
 interface SaveDatabase extends DBSchema {
   saves: { key: typeof slot; value: unknown };
@@ -80,7 +80,8 @@ const countryReport = z.object({
 });
 const siteReport = z.object({
   industries: z.object(byGood(() => industry)),
-  populationChange: cash,
+  populationChange: cash.optional(),
+  foodFulfillment: fraction.optional(),
   conscripts: uint,
   regulars: uint,
   builders: uint,
@@ -105,6 +106,7 @@ export function parseSave(scenario: Scenario, save: unknown): GameState {
   // A valid map ID is optional until claimed; enum-keyed records require every ID.
   const activeSite = z.string().refine((id) => Object.hasOwn(scenario.states, id));
   const project = z.object({ stateId: sites, good: z.enum(projectTypes), weeksLeft: z.number().positive() });
+  const lastPopulation = z.object({ day: uint.positive(), changes: z.record(activeSite, cash) }).nullable();
   const stateSchema = z.object({
     elapsedDays: uint.max(Math.floor((8.64e15 - Date.parse(scenario.startDate)) / DAY_MS)),
     playerCountryId: countries,
@@ -121,30 +123,42 @@ export function parseSave(scenario: Scenario, save: unknown): GameState {
     lastEconomy: z
       .object({ states: z.record(activeSite, siteReport), countries: z.record(countries, countryReport) })
       .nullable(),
+    lastPopulation: lastPopulation.optional(),
   });
   const scenarioId = z.literal(scenario.id);
   const timedStateSchema = stateSchema.extend({ tickInDay: uint.max(TICKS_PER_DAY - 1) });
+  const settingsStateSchema = timedStateSchema.extend({ settings: settingsSchema });
   const schema = z
     .discriminatedUnion("version", [
       z.object({ version: z.literal(5), scenarioId, state: stateSchema }),
       z.object({ version: z.literal(6), scenarioId, state: timedStateSchema }),
+      z.object({ version: z.literal(7), scenarioId, state: settingsStateSchema }),
       z.object({
         version: z.literal(saveVersion),
         scenarioId,
-        state: timedStateSchema.extend({ settings: settingsSchema }),
+        state: settingsStateSchema.extend({ lastPopulation }),
       }),
     ])
     .safeParse(save);
   if (!schema.success) throw new Error("存档数据无效或版本不兼容", { cause: schema.error });
   const data = schema.data;
-  const state = data.version === 5 ? { ...data.state, tickInDay: 0, settings: initialSettings("standard") }
-    : data.version === 6 ? { ...data.state, settings: initialSettings("standard") }
-    : data.state;
+  const state: GameState = data.version === saveVersion ? data.state : {
+    ...data.state,
+    tickInDay: data.version === 5 ? 0 : data.state.tickInDay,
+    settings: data.version === 7 ? data.state.settings : initialSettings("standard"),
+    lastPopulation: data.state.lastPopulation ?? null,
+  };
   if (!validDifficultyHistory(state.settings, elapsedTicks(state))) throw new Error("存档难度记录无效");
   function invalid(): never {
     throw new Error("存档中的人口、工程、外交或归属数据无效");
   }
   const owned = Object.keys(state.ownerByStateId);
+  const population = state.lastPopulation;
+  if (population && (
+    population.day > state.elapsedDays ||
+    !isPopulationMonth(scenario, { ...state, elapsedDays: population.day, tickInDay: 0 }) ||
+    Object.keys(population.changes).some((id) => !Object.hasOwn(state.ownerByStateId, id))
+  )) invalid();
   const sameSites = (record: object) =>
     Object.keys(record).length === owned.length && owned.every((id) => Object.hasOwn(record, id));
   if (

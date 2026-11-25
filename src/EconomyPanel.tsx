@@ -29,9 +29,10 @@ function StateIndustry({
   const site = scenario.states[stateId];
   const local = game.stateEconomies[stateId];
   const { industries: activity, populationChange, conscripts } = report.states[stateId];
+  const monthlyChange = game.lastPopulation?.changes[stateId];
   const employed = goods.reduce((sum, good) => sum + activity[good].employed, 0);
   const workforce =
-    workForce(game.lastEconomy ? local.population - populationChange : local.population) -
+    workForce(local.population) -
     conscripts -
     report.states[stateId].builders -
     report.states[stateId].regulars -
@@ -51,7 +52,10 @@ function StateIndustry({
           <dt>人口</dt>
           <dd>
             {count(local.population)} 人
-            {game.lastEconomy && populationChange !== 0 && (
+            {monthlyChange !== undefined && (
+              <small>（上次月结 {monthlyChange > 0 ? "+" : ""}{count(monthlyChange)}）</small>
+            )}
+            {monthlyChange === undefined && populationChange !== undefined && populationChange !== 0 && (
               <small>
                 （{populationChange > 0 ? "+" : ""}
                 {count(populationChange)}）
