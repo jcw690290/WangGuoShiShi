@@ -1,6 +1,6 @@
 import { useMemo } from "react";
 import { facilityNames, facilityTypes, livingStandardOf, socialTags, accepted } from "./game/society.ts";
-import { projects, privateShareOf, weeklyBudgets } from "./game/economy.ts";
+import { privateShareOf, projectDeposit, projectPoints, remainingProjectPoints, weeklyBudgets } from "./game/economy.ts";
 import { count, silver } from "./format.ts";
 import { buildingCapacity, constructionError, workForce } from "./game/economy.ts";
 import type { EconomyReport } from "./game/economy.ts";
@@ -158,7 +158,7 @@ function StateIndustry({
                   onClick={() => send({ type: "queueConstruction", countryId: playerId, stateId, good })}
                 >
                   建设{industry.name}
-                  <small>{problem ?? `${silver(industry.cost)} · ${industry.weeks} 建造点`}</small>
+                  <small>{problem ?? `预留周转金 ${silver(projectDeposit(good))} · ${projectPoints(good)} 施工点`}</small>
                 </button>
               )}
             </li>
@@ -202,7 +202,7 @@ function StateIndustry({
             >
               {facilityNames[g]} {society[g]} 级 · 扩建
               <small>
-                {silver(projects[g].cost)} · {projects[g].weeks} 建造点
+                按周实付 · {projectPoints(g)} 施工点
               </small>
             </button>
           ))}
@@ -469,11 +469,15 @@ export function EconomyPanel({ scenario, game, playerId, selectedId, report, bus
                 </h4>
                 {queue.length ? (
                   <ol>
-                    {queue.map(({ stateId, good, weeksLeft, levels }, i) => (
+                    {queue.map((job, i) => (
                       <li key={i}>
-                        {scenario.states[stateId].name} ·{" "}
-                        {isGood(good) ? industries[good].name : facilityNames[good]}{levels && ` × ${levels}`} ·
-                        余 {weeksLeft.toFixed(2)} 点
+                        {scenario.states[job.stateId].name} ·{" "}
+                        {isGood(job.good) ? industries[job.good].name : facilityNames[job.good]}{job.levels && ` × ${job.levels}`} ·
+                        余 {remainingProjectPoints(job).toFixed(2)} 点
+                        {marketId === playerId && <button disabled={busy} onClick={() => send({
+                          type: "cancelConstruction", countryId: playerId, index: i, stateId: job.stateId, good: job.good,
+                          privateBuild: kind === "私人",
+                        })}>取消</button>}
                       </li>
                     ))}
                   </ol>
@@ -488,6 +492,15 @@ export function EconomyPanel({ scenario, game, playerId, selectedId, report, bus
           本周可用建造力 {report.countries[marketId].capacity.toFixed(2)} 点 · 私人份额{" "}
           {100 * privateShareOf(game.nations[marketId])}%
         </p>
+        {report.countries[marketId].construction && <dl className="economy-stats">
+          {(["public", "private"] as const).map((sector) => {
+            const bill = report.countries[marketId].construction![sector];
+            return <div key={sector}>
+              <dt>{sector === "public" ? "政府施工" : "私人施工"}</dt>
+              <dd>工资 {silver(bill.wages)} · 建材 {silver(bill.materials)} · {bill.points.toFixed(2)} 点</dd>
+            </div>;
+          })}
+        </dl>}
       </section>
     </section>
   );

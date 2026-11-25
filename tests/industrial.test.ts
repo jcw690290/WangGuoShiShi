@@ -1,6 +1,6 @@
 import assert from "node:assert/strict";
 import { test } from "node:test";
-import { projectEconomy, projects } from "../src/game/economy.ts";
+import { projectDeposit, projectEconomy } from "../src/game/economy.ts";
 import { createGame, dispatch } from "../src/game/engine.ts";
 import { byIndustrialGood, industrialGoods } from "../src/game/industry.ts";
 import { workingCapitalPerLevel } from "../src/game/industrial.ts";
@@ -57,11 +57,14 @@ test("新工具厂的周转金来自项目费用，实际采购后余额可对�
   } } };
   const initial = start(map);
   let game = dispatch(map, initial, { type: "queueConstruction", countryId, stateId, good: "tools" });
-  assert.equal(initial.countryEconomies[countryId].treasury - game.countryEconomies[countryId].treasury, projects.tools.cost);
+  assert.equal(initial.countryEconomies[countryId].treasury - game.countryEconomies[countryId].treasury, projectDeposit("tools"));
   assert.equal(game.stateEconomies[stateId].industrial, undefined);
-  for (let i = 0; i < 16 && game.countryEconomies[countryId].queue.length; i++)
+  for (let i = 0; i < 40 && game.countryEconomies[countryId].queue.length; i++)
     game = dispatch(map, game, { type: "advanceWeek" });
   assert.equal(game.stateEconomies[stateId].buildings.tools, 1);
+  assert.equal(game.stateEconomies[stateId].industrial!.capital, workingCapitalPerLevel("tools"));
+  assert.equal(game.lastEconomy!.states[stateId].industries.tools.output, 0);
+  game = dispatch(map, game, { type: "advanceWeek" });
   const record = game.lastEconomy!.states[stateId].industrial!;
   assert.equal(game.stateEconomies[stateId].industrial!.capital, workingCapitalPerLevel("tools") - record.spent);
   assert.deepEqual(game.stateEconomies[stateId].industrial!.stocks, record.bought);

@@ -6,6 +6,7 @@ import { byGood, commercialLevels, industries, isIndustrialGood, originalGoods }
 import { migrateCommercialProduction } from "./commercialMigration.ts";
 import { initialIndustrialAccount } from "./industrial.ts";
 import { openingBasicBudget } from "./households.ts";
+import { unusedPrepaidConstruction } from "./economy.ts";
 
 // Input boundary for published versions 1–4 of the regional demo.
 export function importRegionalSave(region: Scenario, world: Scenario, save: unknown): GameState {
@@ -222,5 +223,8 @@ export function importRegionalSave(region: Scenario, world: Scenario, save: unkn
     };
   }
   migrateCommercialProduction(base);
+  for (const account of Object.values(base.countryEconomies)) {
+    account.treasury += account.queue.reduce((sum, project) => sum + unusedPrepaidConstruction(project), 0);
+  }
   return base;
 }
