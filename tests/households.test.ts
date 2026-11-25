@@ -2,7 +2,7 @@ import assert from "node:assert/strict";
 import { test } from "node:test";
 import { privateShareOf, projectEconomy } from "../src/game/economy.ts";
 import { createGame, dispatch } from "../src/game/engine.ts";
-import { basicEquivalentSupply, livingStandardTarget, planBasicBasket, updateLivingStandard } from "../src/game/households.ts";
+import { basicEquivalentSupply, livingStandardTarget, openingBasicBudget, planBasicBasket, updateLivingStandard } from "../src/game/households.ts";
 import { byGood, goods, industries } from "../src/game/industry.ts";
 import { parseSave, saveVersion } from "../src/game/storage.ts";
 import { borderScenario as scenario } from "../src/scenario/scenario.ts";
@@ -90,4 +90,40 @@ test("周结用实际副食品和煤满足基本需求，与可选消费、工�
   const legacy = structuredClone(settled);
   delete legacy.lastEconomy!.states[stateId].householdSubstituteOrders;
   assert.deepEqual(parseSave(map, { version: saveVersion, scenarioId: map.id, state: legacy }), legacy);
+});
+
+test("家庭现款限制基本采购，实际工资补充下一周预算，旧档获得单次开局资金", () => {
+  const game = start();
+  const stateId = "Yunnan";
+  const local = game.stateEconomies[stateId];
+  local.basicBudget = 0;
+  local.discretionaryBudget = 0;
+  const initial = structuredClone(game);
+  const projected = projectEconomy(game).states[stateId];
+  assert.deepEqual(game, initial);
+  assert.ok(projected.industries.grain.output > 0);
+  assert.equal(projected.householdConsumption!.grain, 0);
+  assert.deepEqual(projected.householdBasicPurchases, { budget: 0, spending: 0 });
+
+  const savedCash = structuredClone(game);
+  savedCash.stateEconomies[stateId].discretionaryBudget = 25_000;
+  const redirected = projectEconomy(savedCash).states[stateId];
+  assert.equal(redirected.householdExtras!.budget, 0);
+  assert.equal(redirected.householdBasicPurchases!.budget, 25_000);
+  assert.ok(redirected.householdBasicPurchases!.spending > 0);
+
+  const next = dispatch(scenario, game, { type: "advanceWeek" });
+  assert.ok(next.stateEconomies[stateId].basicBudget > 0);
+  const report = projectEconomy(next).states[stateId];
+  assert.ok(report.householdConsumption!.grain > 0);
+  const basic = report.householdBasicPurchases!, extra = report.householdExtras!;
+  assert.ok(basic.spending <= basic.budget);
+  assert.equal(basic.budget + extra.budget, next.stateEconomies[stateId].basicBudget + next.stateEconomies[stateId].discretionaryBudget!);
+  assert.deepEqual(parseSave(scenario, { version: saveVersion, scenarioId: scenario.id, state: next }), next);
+
+  const { basicBudget: _unused, ...oldLocal } = local;
+  const old = { ...game, stateEconomies: { ...game.stateEconomies, [stateId]: oldLocal } };
+  const loaded = parseSave(scenario, { version: 10, scenarioId: scenario.id, state: old });
+  assert.equal(loaded.stateEconomies[stateId].basicBudget, openingBasicBudget(local.population));
+  assert.throws(() => parseSave(scenario, { version: saveVersion, scenarioId: scenario.id, state: old }), /存档数据无效/);
 });

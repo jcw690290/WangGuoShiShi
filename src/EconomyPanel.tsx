@@ -112,6 +112,8 @@ function StateIndustry({
             木材 {count(snapshot.householdConsumption.wood)} · 煤 {count(snapshot.householdConsumption.coal)} · 服务 {count(snapshot.householdConsumption.services)}</dd>
           <small>基本食品满足 {Math.round(snapshot.foodFulfillment! * 100)}%
             {fuelNeed !== undefined && basicSupply && ` · 基本燃料满足 ${Math.round((fuelNeed > 0 ? basicSupply.wood / fuelNeed : 1) * 100)}%`}</small>
+          {snapshot.householdBasicPurchases && <small>基本消费实付 {silver(snapshot.householdBasicPurchases.spending)} ·
+            周初预算 {silver(snapshot.householdBasicPurchases.budget)}</small>}
         </div>}
         <div>
           <dt>常备军 / 建筑 / 军工</dt>

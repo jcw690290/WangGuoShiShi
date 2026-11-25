@@ -18,7 +18,13 @@ export const extrasReportSchema = z.object({
 export type ExtrasReport = z.infer<typeof extrasReportSchema>;
 
 export const essentialGoods = ["grain", "cloth", "wood", "services"] as const;
+const basicMarketGoods = ["grain", "food", "cloth", "wood", "coal", "services"] as const;
 const grainPerFood = 2;
+export const basicPurchasesSchema = z.object({
+  budget: z.int().nonnegative(),
+  spending: z.int().nonnegative(),
+}).refine(({ budget, spending }) => spending <= budget);
+export type BasicPurchases = z.infer<typeof basicPurchasesSchema>;
 export const substituteOrdersSchema = z.object({ food: z.int().nonnegative(), coal: z.int().nonnegative() });
 export type SubstituteOrders = z.infer<typeof substituteOrdersSchema>;
 
@@ -30,6 +36,33 @@ export function planBasicBasket(
   const coal = supply.wood < needs.wood || prices.coal <= prices.wood
     ? Math.min(Math.max(0, supply.coal - coalForIndustry), Math.floor(needs.wood / 2)) : 0;
   return { ...needs, grain: needs.grain - grainPerFood * food, wood: needs.wood - coal, food, coal };
+}
+
+export function openingBasicBudget(population: number) {
+  return essentialGoods.reduce((total, good) => total + Math.round(population * industries[good].demandPerPerson) *
+    Math.ceil(industries[good].basePrice * 1.75), 0);
+}
+
+export function fundBasicBasket(
+  orders: ByGood<number>, ceilings: ByGood<number>, basicBudget: number, discretionaryBudget: number,
+) {
+  const required = basicMarketGoods.reduce((sum, good) => sum + orders[good] * ceilings[good], 0);
+  const redirected = Math.min(discretionaryBudget, Math.max(0, required - basicBudget));
+  const budget = basicBudget + redirected;
+  const funds = { basicBudget: budget, discretionaryBudget: discretionaryBudget - redirected };
+  if (required <= budget) return { orders, ...funds };
+  const funded = { ...orders };
+  let remaining = budget;
+  for (const good of basicMarketGoods) {
+    funded[good] = Math.floor(orders[good] * budget / required);
+    remaining -= funded[good] * ceilings[good];
+  }
+  for (const good of basicMarketGoods) {
+    const extra = Math.min(orders[good] - funded[good], Math.floor(remaining / ceilings[good]));
+    funded[good] += extra;
+    remaining -= extra * ceilings[good];
+  }
+  return { orders: funded, ...funds };
 }
 
 export function basicEquivalentSupply(delivered: ByGood<number>, extra?: ExtrasReport["delivered"]) {
@@ -61,17 +94,21 @@ export function extrasOrders(people: number, budget: number) {
 }
 
 type IncomeOccupation = "农民" | "劳工" | "工程师" | "资本家" | "贵族";
-export function discretionaryIncome(
+export function allocateHouseholdIncome(
   pops: readonly Pop[], basicCost: number, income: Record<IncomeOccupation, number>, ruralEssentials: number,
 ) {
   const people: Record<IncomeOccupation, number> = { 农民: 0, 劳工: 0, 工程师: 0, 资本家: 0, 贵族: 0 };
   for (const { occupation, people: size } of pops) if (Object.hasOwn(people, occupation))
     people[occupation as IncomeOccupation] += size;
-  const available = (Object.keys(people) as IncomeOccupation[]).reduce((sum, job) => {
+  let basic = 0, discretionary = 0;
+  for (const job of Object.keys(people) as IncomeOccupation[]) {
+    if (people[job] === 0) continue;
     const required = Math.max(0, basicCost * people[job] - (job === "农民" ? ruralEssentials : 0));
-    return people[job] > 0 ? sum + Math.max(0, income[job] - required) : sum;
-  }, 0);
-  return Math.floor(available);
+    const reserved = Math.min(required, income[job]);
+    basic += reserved;
+    discretionary += income[job] - reserved;
+  }
+  return { basic: Math.floor(basic), discretionary: Math.floor(discretionary) };
 }
 
 export function livingStandardTarget(consumptionIndex: number, foodFulfillment: number) {

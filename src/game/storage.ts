@@ -7,7 +7,7 @@ import type { GameState } from "./engine.ts";
 import { byIndustrialGood, commercialLevels, goods, industries, isGood, isIndustrialGood } from "./industry.ts";
 import { initialIndustrialAccount, industrialAccountSchema, industrialReportSchema } from "./industrial.ts";
 import { officeReportSchema } from "./administration.ts";
-import { extrasReportSchema, substituteOrdersSchema } from "./households.ts";
+import { basicPurchasesSchema, extrasReportSchema, openingBasicBudget, substituteOrdersSchema } from "./households.ts";
 import { reservedCropland, subsistenceReportSchema } from "./subsistence.ts";
 import { migrateCommercialProduction } from "./commercialMigration.ts";
 import { openingMetrics } from "./campaignMetrics.ts";
@@ -30,7 +30,7 @@ const storeName = "saves";
 const indexName = "saveIndex";
 const archiveName = "endings";
 const achievementArchiveName = "achievements";
-export const saveVersion = 10;
+export const saveVersion = 11;
 export const manualSaveSlots = ["local", "manual-2", "manual-3", "manual-4", "manual-5"] as const;
 export const autoSaveSlots = ["auto-1", "auto-2", "auto-3"] as const;
 export const saveSlotSchema = z.enum([...manualSaveSlots, ...autoSaveSlots]);
@@ -241,6 +241,7 @@ const siteReport = z.object({
   populationChange: cash.optional(),
   foodFulfillment: fraction.optional(),
   householdConsumption: goodsNumbers.optional(),
+  householdBasicPurchases: basicPurchasesSchema.optional(),
   householdBasicOrders: goodsNumbers.optional(),
   householdSubstituteOrders: substituteOrdersSchema.optional(),
   subsistence: subsistenceReportSchema.optional(),
@@ -278,18 +279,18 @@ export function parseSave(scenario: Scenario, save: unknown): GameState {
   const activeSite = z.string().refine((id) => Object.hasOwn(scenario.states, id));
   const project = z.object({ stateId: sites, good: z.enum(projectTypes), weeksLeft: z.number().positive(), levels: uint.positive().optional() });
   const lastPopulation = z.object({ day: uint.positive(), changes: z.record(activeSite, cash) }).nullable();
+  const stateEconomy = z.object({ population: z.int().positive(), buildings: goodsNumbers, localQuotes: quotes.optional(),
+    industrial: industrialAccountSchema.optional(), basicBudget: uint, discretionaryBudget: uint.optional(), cropland: uint.optional(),
+    commercialRecipes: z.literal(true).optional(),
+    inheritedArmamentCapacity: z.object({ arms: uint.optional(), ammo: uint.optional() }).optional() });
+  const legacyBudgets = z.record(activeSite, stateEconomy.extend({ basicBudget: uint.optional() })
+    .transform((local) => ({ ...local, basicBudget: local.basicBudget ?? openingBasicBudget(local.population) })));
   const stateSchema = z.object({
     elapsedDays: uint.max(Math.floor((8.64e15 - Date.parse(scenario.startDate)) / DAY_MS)),
     playerCountryId: countries,
     rng: uint.max(0xffffffff),
     ownerByStateId: z.record(activeSite, countries),
-    stateEconomies: z.record(
-      activeSite,
-      z.object({ population: z.int().positive(), buildings: goodsNumbers, localQuotes: quotes.optional(),
-        industrial: industrialAccountSchema.optional(), discretionaryBudget: uint.optional(), cropland: uint.optional(),
-        commercialRecipes: z.literal(true).optional(),
-        inheritedArmamentCapacity: z.object({ arms: uint.optional(), ammo: uint.optional() }).optional() }),
-    ),
+    stateEconomies: z.record(activeSite, stateEconomy),
     countryEconomies: z.record(countries, z.object({
       treasury: cash, queue: z.array(project), referenceQuotes: quotes.optional(), fiscal: fiscalAccountSchema.optional(),
     })),
@@ -315,6 +316,7 @@ export function parseSave(scenario: Scenario, save: unknown): GameState {
   const legacyProject = project.extend({ good: z.enum([...projectTypes, "arsenal", "ammunition"])
     .transform((good) => good === "arsenal" ? "arms" as const : good === "ammunition" ? "ammo" as const : good) });
   const legacyFields = {
+    stateEconomies: legacyBudgets,
     societies: z.record(activeSite, siteSocialSchema.extend({ arsenal: uint.optional(), ammunition: uint.optional() })),
     countryEconomies: z.record(countries, stateSchema.shape.countryEconomies.valueType.extend({ queue: z.array(legacyProject) })),
   };
@@ -325,6 +327,7 @@ export function parseSave(scenario: Scenario, save: unknown): GameState {
       z.object({ version: z.literal(7), scenarioId, state: settingsStateSchema.extend(legacyFields) }),
       z.object({ version: z.literal(8), scenarioId, state: campaignStateSchema.extend(legacyFields) }),
       z.object({ version: z.literal(9), scenarioId, state: campaignStateSchema.extend(legacyFields) }),
+      z.object({ version: z.literal(10), scenarioId, state: campaignStateSchema.extend({ stateEconomies: legacyBudgets }) }),
       z.object({
         version: z.literal(saveVersion),
         scenarioId,
@@ -334,12 +337,12 @@ export function parseSave(scenario: Scenario, save: unknown): GameState {
     .safeParse(save);
   if (!schema.success) throw new Error("存档数据无效或版本不兼容", { cause: schema.error });
   const data = schema.data;
-  const state: GameState = data.version === saveVersion || data.version === 9 || data.version === 8 ? data.state : {
+  const state: GameState = data.version === 5 || data.version === 6 || data.version === 7 ? {
     ...data.state,
     tickInDay: data.version === 5 ? 0 : data.state.tickInDay,
     settings: data.version === 7 ? data.state.settings : initialSettings("standard"),
     lastPopulation: data.state.lastPopulation ?? null,
-  };
+  } : data.state;
   if (!validDifficultyHistory(state.settings, elapsedTicks(state))) throw new Error("存档难度记录无效");
   function invalid(): never {
     throw new Error("存档中的人口、工程、外交或归属数据无效");
@@ -380,10 +383,9 @@ export function parseSave(scenario: Scenario, save: unknown): GameState {
     (state.lastEconomy !== null && !sameSites(state.lastEconomy.states)) ||
     Object.values(scenario.states).some((s) => s.ownerId !== null && !Object.hasOwn(state.ownerByStateId, s.id))
   ) invalid();
-  if ((data.version === saveVersion || data.version === 9) &&
-      owned.some((id) => state.stateEconomies[id].commercialRecipes !== true)) invalid();
+  if (data.version >= 9 && owned.some((id) => state.stateEconomies[id].commercialRecipes !== true)) invalid();
   let migratedArmaments = false;
-  if (data.version !== saveVersion) for (const [id, site] of Object.entries(data.state.societies)) {
+  if (data.version !== saveVersion && data.version !== 10) for (const [id, site] of Object.entries(data.state.societies)) {
     if (site.arsenal === undefined && site.ammunition === undefined) continue;
     const local = state.stateEconomies[id];
     const inherited = { arms: site.arsenal ?? 0, ammo: site.ammunition ?? 0 };

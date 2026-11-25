@@ -5,6 +5,7 @@ import type { GameState } from "./engine.ts";
 import { byGood, commercialLevels, industries, isIndustrialGood, originalGoods } from "./industry.ts";
 import { migrateCommercialProduction } from "./commercialMigration.ts";
 import { initialIndustrialAccount } from "./industrial.ts";
+import { openingBasicBudget } from "./households.ts";
 
 // Input boundary for published versions 1–4 of the regional demo.
 export function importRegionalSave(region: Scenario, world: Scenario, save: unknown): GameState {
@@ -166,6 +167,7 @@ export function importRegionalSave(region: Scenario, world: Scenario, save: unkn
         ...(cropland === undefined ? {} : { cropland }),
         ...(industrial === undefined ? {} : { industrial }),
         population: local.population,
+        basicBudget: openingBasicBudget(local.population),
         buildings: { ...byGood((good) => isIndustrialGood(good) ? 0 : local.buildings[good]), steel, arms, ammo },
       };
       const site = base.societies[id],
