@@ -94,7 +94,7 @@ export function applyPolitics(state: GameState, command: PoliticsCommand): GameS
     nations: { ...state.nations, [command.countryId]: { ...state.nations[command.countryId], ...change } },
   };
 }
-export function advancePolitics(state: GameState, report: EconomyReport, year: number): GameState {
+export function advancePolitics(state: GameState, report: EconomyReport, year: number, yearFraction: number): GameState {
   const known = techs.filter((t) => Object.values(state.nations).some((n) => n.knowledge[t] === 100));
   const nations: Record<string, Nation> = {};
   const locals: Record<string, SiteSocial[]> = Object.fromEntries(
@@ -144,7 +144,7 @@ export function advancePolitics(state: GameState, report: EconomyReport, year: n
         }
       }
     }
-    nation.infamy = Math.max(0, nation.infamy - 0.1);
+    nation.infamy = Math.max(0, nation.infamy - 2 * yearFraction);
     nations[id] = nation;
   }
   return { ...state, nations };

@@ -3,7 +3,7 @@ import { test } from "node:test";
 import { createGame, dispatch } from "../src/game/engine.ts";
 import type { GameState, GameCommand } from "../src/game/engine.ts";
 import { projectEconomy } from "../src/game/economy.ts";
-import { planWar } from "../src/game/diplomacy.ts";
+import { infamyLevel, planWar, swayCost } from "../src/game/diplomacy.ts";
 import { parseSave, saveVersion } from "../src/game/storage.ts";
 import { borderScenario as scenario } from "../src/scenario/scenario.ts";
 const a = "country_01",
@@ -16,7 +16,7 @@ const demand = (s: GameState) =>
 const week = (s: GameState) => send(s, { type: "advanceWeek" });
 const load = (s: GameState) =>
   parseSave(scenario, { version: saveVersion, scenarioId: scenario.id, state: structuredClone(s) });
-test("接壤利益校验、三阶段时限、追加要求与和平让步移交州及队列", () => {
+test("接壤利益校验、三阶段时限与和平让步仅执行核心要求", () => {
   let g = start();
   assert.throws(
     () => send(g, { type: "demandBorder", countryId: a, targetStateId: "Annam", goal: "cession" }),
@@ -35,12 +35,22 @@ test("接壤利益校验、三阶段时限、追加要求与和平让步移交�
   assert.equal(signed.ownerByStateId.Tonkin, a);
   assert.equal(signed.borderDispute!.outcome, "victory");
   assert.ok(signed.countryEconomies[b].queue.every((p) => p.stateId !== targetStateId));
-  assert.ok(signed.countryEconomies[b].treasury < paid);
+  assert.equal(signed.countryEconomies[b].treasury, paid);
+  assert.deepEqual(signed.borderDispute!.goals, ["cession"]);
+  assert.deepEqual(signed.borderDispute!.unacceptedGoals, ["reparations"]);
   assert.deepEqual(signed.stateEconomies.Tonkin, g.stateEconomies.Tonkin);
   assert.equal(signed.lastEconomy, null);
   assert.deepEqual(week(load(signed)), week(signed));
   assert.equal(projectEconomy(signed).states.Tonkin.conscripts, 0);
   assert.throws(() => load({ ...signed, ownerByStateId: g.ownerByStateId }), /无效/);
+});
+test("恶名分段提高合作成本，并以日历一年 2 点衰减", () => {
+  assert.deepEqual([24, 25, 50, 75, 125].map(infamyLevel),
+    ["常规警惕", "合作受阻", "联合风险", "遏制风险", "遏制风险"]);
+  assert.deepEqual([24, 25, 50, 75, 125].map(swayCost), [1, 2, 2, 3, 3]);
+  const game = start();
+  game.nations[a].infamy = 125;
+  assert.equal(week(game).nations[a].infamy, 125 - 2 * (7 / 366));
 });
 test("常备军和平支薪，征兵占用产业工人；战线受命令和补给约束", () => {
   let g = demand(start());
