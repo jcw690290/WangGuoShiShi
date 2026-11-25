@@ -10,7 +10,8 @@ import type { Scenario } from "./scenario/scenario.ts";
 import { affinityLevel, culturalAffinityOf } from "./game/culture.ts";
 import { governanceModes, governanceOf, governanceRules, integrationDuration, integrationStaffNeeded } from "./game/governance.ts";
 import type { GovernanceMode } from "./game/governance.ts";
-import { LandTradePanel } from "./LandTradePanel.tsx";
+import { TradePanel } from "./TradePanel.tsx";
+import { convoyCargoCapacity } from "./game/transport.ts";
 
 function cultureName(scenario: Scenario, id: string) {
   const separator = id.indexOf("-");
@@ -258,7 +259,7 @@ function StateIndustry({
             </>
           )}
         </details>
-        <LandTradePanel key={stateId} {...{ scenario, game, stateId, playerId, busy, send }} />
+        <TradePanel key={stateId} {...{ scenario, game, stateId, playerId, busy, send }} />
       </div>
     </section>
   );
@@ -316,6 +317,11 @@ export function EconomyPanel({ scenario, game, playerId, selectedId, report, bus
             {(report.countries[marketId].tradeTariff ?? 0) > 0 && <div>
               <dt>实收进口关税</dt>
               <dd>{silver(report.countries[marketId].tradeTariff!)}</dd>
+            </div>}
+            {report.countries[marketId].tradeSeaCargo !== undefined && <div>
+              <dt>船队总运力</dt>
+              <dd>{count(game.nations[marketId].convoys * convoyCargoCapacity)}</dd>
+              <small>商用 {count(report.countries[marketId].tradeSeaCargo!)} · 军需 {count(report.countries[marketId].military.seaCargoUsed ?? 0)}</small>
             </div>}
             <div>
               <dt>贡金收入 / 上缴</dt>
