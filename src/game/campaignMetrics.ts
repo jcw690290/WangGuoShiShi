@@ -99,18 +99,20 @@ export function measureCampaign(
       state.ownerByStateId[from] === countryId || state.ownerByStateId[to] === countryId
         ? sum + quantity * industries[good].basePrice : sum, 0) / total;
   }
-  let labour = 0, employed = 0, food = 0;
+  let labour = 0, employed = 0, food = 0, governance = 0;
   for (const id of held) {
     const site = report.states[id];
     const population = state.stateEconomies[id].population;
     labour += workForce(population);
     employed += goods.reduce((sum, good) => sum + site.industries[good].employed, 0) +
       site.builders + site.armourers + site.regulars + site.conscripts +
-      (site.universityStaff ?? 0) + (site.administrationStaff ?? 0);
+      (site.universityStaff ?? 0) + (site.administrationStaff ?? 0) + (site.office?.staff ?? 0);
     food += population * (site.foodFulfillment ?? 0);
+    governance += population * (site.office?.coverage ?? 0);
   }
   if (labour > 0) metrics.U = 1 - Math.min(1, employed / labour);
   if (held.every((id) => report.states[id].foodFulfillment !== undefined)) metrics.FOOD = food / people;
+  if (held.every((id) => report.states[id].office !== undefined)) metrics.GOV = governance / people;
   if (held.every((id) => report.states[id].householdBasicOrders !== undefined &&
       report.states[id].householdConsumption !== undefined)) {
     metrics.BASIC_CONSUMPTION = Math.min(...goods.filter((good) => industries[good].demandPerPerson > 0).map((good) => {

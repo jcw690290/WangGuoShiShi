@@ -6,6 +6,7 @@ import { DAY_MS, elapsedTicks, getGameDate, isPopulationMonth, TICKS_PER_DAY } f
 import type { GameState } from "./engine.ts";
 import { byIndustrialGood, goods, industrialGoods, industries } from "./industry.ts";
 import { industrialAccountSchema, industrialReportSchema } from "./industrial.ts";
+import { officeReportSchema } from "./administration.ts";
 import { projects } from "./economy.ts";
 import { nationSchema, siteSocialSchema, projectTypes } from "./society.ts";
 import { importRegionalSave } from "./legacySave.ts";
@@ -225,9 +226,10 @@ const countryReport = z.object({
   interestPaid: uint.optional(),
   universityWages: uint.optional(),
   administrationWages: uint.optional(),
+  officeUpkeep: uint.optional(),
   tradeTariff: uint.optional(),
   tradeSeaCargo: uint.optional(),
-});
+}).refine((country) => country.officeUpkeep === undefined || country.officeUpkeep <= country.upkeep);
 const siteReport = z.object({
   industries: z.object({ grain: industry, cloth: industry, ...byIndustrialGood(() =>
     industry.default({ employed: 0, output: 0, wages: 0 })) }),
@@ -237,6 +239,7 @@ const siteReport = z.object({
   householdBasicOrders: goodsNumbers.optional(),
   constructionGoods: goodsNumbers.optional(),
   industrial: industrialReportSchema.optional(),
+  office: officeReportSchema.optional(),
   consumptionIndex: z.number().nonnegative().optional(),
   conscripts: uint,
   regulars: uint,

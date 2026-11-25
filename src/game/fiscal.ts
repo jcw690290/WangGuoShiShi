@@ -39,14 +39,17 @@ interface BudgetInput {
   tax: number;
   receipts: number;
   upkeep: number;
+  prepaidUpkeep?: number;
   difficulty: Difficulty;
   fractionOfYear: number;
   fiscal?: FiscalAccount;
 }
 
 export function settleFiscal(input: BudgetInput): { treasury: number; fiscal: FiscalAccount } {
-  const { day, treasury, tax, receipts, upkeep, difficulty, fractionOfYear, fiscal } = input;
+  const { day, treasury, tax, receipts, upkeep, prepaidUpkeep = 0, difficulty, fractionOfYear, fiscal } = input;
   if (fiscal && fiscal.week.day >= day) throw new Error("财政周结算已记账");
+  if (prepaidUpkeep > Math.max(0, treasury) || prepaidUpkeep > upkeep)
+    throw new Error("行政预付超过本周现款或预算");
   const taxHistory = [...(fiscal?.taxHistory.slice(1 - maxSamples) ?? []), tax];
   const averageTax = taxHistory.reduce((sum, value) => sum + value, 0) / taxHistory.length;
   const creditLimit = Math.floor(averageTax * 104);
@@ -60,10 +63,11 @@ export function settleFiscal(input: BudgetInput): { treasury: number; fiscal: Fi
     Math.max(0, creditLimit - openingDebt),
     Math.max(0, interestDue + upkeep - openingCash),
   );
-  const available = openingCash + borrowed;
+  const available = openingCash + borrowed - prepaidUpkeep;
   const interestPaid = Math.min(available, interestDue);
-  const upkeepPaid = Math.min(available - interestPaid, upkeep);
-  const remaining = available - interestPaid - upkeepPaid;
+  const pendingUpkeepPaid = Math.min(available - interestPaid, upkeep - prepaidUpkeep);
+  const upkeepPaid = prepaidUpkeep + pendingUpkeepPaid;
+  const remaining = available - interestPaid - pendingUpkeepPaid;
   const repaid = Math.min(openingDebt, Math.max(0, remaining - 2 * upkeep));
   const closingCash = remaining - repaid;
   const debt = openingDebt + borrowed - repaid;

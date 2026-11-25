@@ -54,7 +54,8 @@ function StateIndustry({
     report.states[stateId].regulars -
     report.states[stateId].armourers -
     Math.ceil(report.states[stateId].universityStaff ?? 0) -
-    Math.ceil(report.states[stateId].administrationStaff ?? 0);
+    Math.ceil(report.states[stateId].administrationStaff ?? 0) -
+    (report.states[stateId].office?.staff ?? 0);
   const isOwnState = game.ownerByStateId[stateId] === playerId;
 
   const owner = game.ownerByStateId[stateId],
@@ -242,6 +243,11 @@ function StateIndustry({
         <details>
           <summary>地方治理 · {rule.name}</summary>
           <p>{governance.integrated ? "已整合" : "未整合"} · 中央税权 {rule.centralTax}% · 驻军与征兵额度 {Math.round(rule.militaryShare * 100)}%</p>
+          {snapshot.office && <>
+            <p>行政署 {society.bureaucracy} 级 · 治理覆盖 {Math.round(snapshot.office.coverage * 100)}% · 实付岗位 {count(snapshot.office.staff)} / {count(Math.ceil(snapshot.office.need))}</p>
+            <p>周到货 纸张 {count(snapshot.office.paper)} / {count(snapshot.office.paperDemand)} · 服务 {count(snapshot.office.services)} / {count(snapshot.office.serviceDemand)}</p>
+            <p>周工资 {silver(snapshot.office.wages)} · 采购支出 {silver(snapshot.office.purchases)}</p>
+          </>}
           {stability && <p>地方动乱 {stability.unrest.toFixed(1)} / 100</p>}
           {incident && <>
             <p>{incidentNames[incident.cause]} · 已持续 {count(game.elapsedDays - incident.since)} 天{incident.negotiated && " · 已达成减税协议"}</p>
@@ -297,7 +303,7 @@ function StateIndustry({
 export function EconomyPanel({ scenario, game, playerId, selectedId, report, busy, send, onPopulationOpen }: Props) {
   const marketId = selectedId === null ? playerId : game.ownerByStateId[selectedId];
   const country = scenario.countries[marketId];
-  const { market, tax, wageTaxRate, upkeep, tribute } = report.countries[marketId];
+  const { market, tax, wageTaxRate, upkeep, tribute, officeUpkeep } = report.countries[marketId];
   const { tributeReceived, balance } = weeklyBudgets(game.nations, report)[marketId];
   const countryLiving = useMemo(() => livingStandardOf(Object.entries(game.societies)
     .filter(([stateId]) => game.ownerByStateId[stateId] === marketId).flatMap(([, site]) => site.pops)),
@@ -338,6 +344,7 @@ export function EconomyPanel({ scenario, game, playerId, selectedId, report, bus
             <div>
               <dt>周公共支出（军费与大学工资）</dt>
               <dd>{silver(upkeep)}</dd>
+              {officeUpkeep !== undefined && <small>其中行政署 {silver(officeUpkeep)}</small>}
             </div>
             {report.countries[marketId].universityWages !== undefined && <div>
               <dt>大学实付工资</dt>
