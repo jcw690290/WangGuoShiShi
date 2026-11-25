@@ -21,6 +21,8 @@ import type { DiplomaticTie } from "./diplomatic-ties.ts";
 import { applyGovernanceCommand, chooseIntegration } from "./governance.ts";
 import type { GovernanceCommand } from "./governance.ts";
 import { DAY_MS, elapsedTicks, TICKS_PER_DAY } from "./time.ts";
+import { applyTradeCommand } from "./trade.ts";
+import type { TradeCommand, TradeRoute } from "./trade.ts";
 export { DAY_MS, elapsedTicks, TICKS_PER_DAY } from "./time.ts";
 
 export interface GameState {
@@ -40,6 +42,7 @@ export interface GameState {
   campaign?: Campaign;
   borderDispute: BorderDispute | null;
   diplomaticTies?: DiplomaticTie[];
+  tradeRoutes?: TradeRoute[];
   occupation?: Occupation;
 }
 export type Span = "day" | "week" | "halfYear";
@@ -53,6 +56,7 @@ export type GameCommand =
   | { type: "advanceTick" | "advanceWeek" | "advanceDay" | "advanceHalfYear" }
   | PoliticsCommand
   | GovernanceCommand
+  | TradeCommand
   | BorderCommand;
 
 export function createGame(scenario: Scenario, seed = 1820, difficulty: Difficulty = "standard", campaign?: CampaignSetup): GameState {
@@ -232,6 +236,10 @@ function applyCommand(
     case "startIntegration":
     case "cancelIntegration":
       return applyGovernanceCommand(state, cmd);
+    case "openTradeRoute":
+    case "setTradeRoute":
+    case "removeTradeRoute":
+      return applyTradeCommand(scenario, state, cmd);
     case "queueConstruction": {
       const { countryId: id, stateId, good, privateBuild } = cmd;
       const error = constructionError(scenario, state, id, stateId, good, privateBuild);

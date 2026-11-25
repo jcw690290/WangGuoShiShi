@@ -1,3 +1,9 @@
+import type { GameState } from "./engine.ts";
+
+export function marketOf(state: GameState, id: string) {
+  return state.nations[id].marketLeader ?? id;
+}
+
 interface Order {
   supply: number;
   demand: number;
