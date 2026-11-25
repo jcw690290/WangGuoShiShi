@@ -179,6 +179,8 @@ export function EconomyPanel({ scenario, game, playerId, selectedId, report, bus
   const country = scenario.countries[marketId];
   const { market, tax, wageTaxRate, upkeep, tribute } = report.countries[marketId];
   const { tributeReceived, balance } = weeklyBudgets(game.nations, report)[marketId];
+  const fiscal = game.countryEconomies[marketId].fiscal;
+  const riskNames = { stable: "稳定", warning: "信用预警", restricted: "限制新工程", defaulted: "违约" };
 
   return (
     <section className="economy" aria-labelledby="economy-title">
@@ -219,7 +221,7 @@ export function EconomyPanel({ scenario, game, playerId, selectedId, report, bus
               <dd>{silver(tributeReceived)} / {silver(tribute)}</dd>
             </div>
             <div>
-              <dt>周经常收支（建设、和约另计）</dt>
+              <dt>周经常收支（含利息）</dt>
               <dd>{silver(balance)}</dd>
             </div>
             <div>
@@ -231,6 +233,13 @@ export function EconomyPanel({ scenario, game, playerId, selectedId, report, bus
               <dd>{silver(tax)}</dd>
             </div>
           </dl>
+          {fiscal && <details className="control-block">
+            <summary>财政信用 · {riskNames[fiscal.week.risk]} · 债务 {silver(fiscal.debt)}</summary>
+            <p>信用上限 {silver(fiscal.week.creditLimit)} · 年利率 {(fiscal.week.annualRate * 100).toFixed(2)}%</p>
+            <p>本周借款 {silver(fiscal.week.borrowed)} · 偿还本金 {silver(fiscal.week.repaid)}</p>
+            <p>支付利息 {silver(fiscal.week.interestPaid)} · 未付利息 {silver(fiscal.arrears)}</p>
+            <p>必要支出实付 {silver(fiscal.week.upkeepPaid)} ／ 应付 {silver(fiscal.week.upkeepDue)}</p>
+          </details>}
           <div className="economy-table">
             <table aria-label={`${country.name}商品供需`}>
               <thead>

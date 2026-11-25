@@ -15,6 +15,7 @@ import { settlePopulationMonth } from "./demographics.ts";
 import type { PopulationMonth } from "./demographics.ts";
 import { finalizeCampaign, startCampaign } from "./campaign.ts";
 import type { Campaign, CampaignSetup } from "./campaign.ts";
+import { fiscalWeekFraction } from "./fiscal.ts";
 
 export interface GameState {
   elapsedDays: number;
@@ -135,7 +136,7 @@ export function advanceTick(
     const result = monthly ? settlePopulationMonth(next, date) : next;
     return finalizeCampaign(result, date, result.ownerByStateId !== state.ownerByStateId);
   }
-  const weekly = settleEconomy(next, planWar(scenario, next));
+  const weekly = settleEconomy(next, planWar(scenario, next), fiscalWeekFraction(date));
   const settled = monthly ? settlePopulationMonth(weekly, date) : weekly;
   let result = advancePolitics(advanceFront(scenario, settled, settled.lastEconomy), settled.lastEconomy);
   result.rng = (Math.imul(result.rng, 1664525) + 1013904223) >>> 0;

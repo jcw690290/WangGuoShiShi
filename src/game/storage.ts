@@ -13,6 +13,7 @@ import type { Scenario } from "../scenario/scenario.ts";
 import { initialSettings, settingsSchema, validDifficultyHistory } from "./settings.ts";
 import { campaignSchema, endingSchema } from "./campaign.ts";
 import type { EndingRecord } from "./campaign.ts";
+import { fiscalAccountSchema } from "./fiscal.ts";
 const storeName = "saves";
 const indexName = "saveIndex";
 const archiveName = "endings";
@@ -178,6 +179,7 @@ const countryReport = z.object({
   capacity: z.number().nonnegative(),
   tribute: uint,
   upkeep: uint,
+  interestPaid: uint.optional(),
 });
 const siteReport = z.object({
   industries: z.object(byGood(() => industry)),
@@ -218,7 +220,7 @@ export function parseSave(scenario: Scenario, save: unknown): GameState {
       z.object({ population: z.int().positive(), buildings: goodsNumbers, localQuotes: quotes.optional() }),
     ),
     countryEconomies: z.record(countries, z.object({
-      treasury: cash, queue: z.array(project), referenceQuotes: quotes.optional(),
+      treasury: cash, queue: z.array(project), referenceQuotes: quotes.optional(), fiscal: fiscalAccountSchema.optional(),
     })),
     societies: z.record(activeSite, siteSocialSchema),
     nations: z.record(countries, nationSchema),
@@ -280,6 +282,8 @@ export function parseSave(scenario: Scenario, save: unknown): GameState {
     Object.values(scenario.states).some((s) => s.ownerId !== null && !Object.hasOwn(state.ownerByStateId, s.id))
   ) invalid();
   for (const [id, n] of Object.entries(state.nations)) {
+    const fiscal = state.countryEconomies[id].fiscal;
+    if (fiscal && fiscal.week.day > state.elapsedDays) invalid();
     if (
       (n.marketLeader &&
         (!state.nations[n.marketLeader] ||
