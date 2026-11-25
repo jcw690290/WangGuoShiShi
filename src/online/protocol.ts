@@ -4,6 +4,7 @@ import { dispatch } from "../game/engine.ts";
 import type { GameState } from "../game/engine.ts";
 import { GameRuleError } from "../game/rules.ts";
 import { groups, laws, projectTypes, techs } from "../game/society.ts";
+import { governanceModes } from "../game/governance.ts";
 import { parseSave } from "../game/storage.ts";
 import type { Scenario } from "../scenario/scenario.ts";
 
@@ -14,6 +15,8 @@ const id = z.string().regex(/^[\w-]{1,64}$/);
 const seq = z.int().nonnegative();
 const commandSchema = z.discriminatedUnion("type", [
   z.strictObject({ type: z.literal("claimState"), stateId: id }),
+  z.strictObject({ type: z.literal("setLocalGovernance"), countryId: id, stateId: id, mode: z.enum(governanceModes) }),
+  z.strictObject({ type: z.literal(["startIntegration", "cancelIntegration"]), countryId: id, stateId: id }),
   z.strictObject({ type: z.literal("queueConstruction"), countryId: id, stateId: id, good: z.enum(projectTypes), privateBuild: z.boolean().optional() }),
   z.strictObject({ type: z.literal("setGovernment"), countryId: id, government: z.array(z.enum(groups)).max(groups.length) }),
   z.strictObject({ type: z.literal("proposeLaw"), countryId: id, law: z.enum(laws) }),

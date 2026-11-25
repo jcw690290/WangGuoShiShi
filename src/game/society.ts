@@ -3,6 +3,7 @@ import type { Scenario } from "../scenario/scenario.ts";
 import type { RuleTuning } from "./settings.ts";
 import { startingLivingStandard, updateLivingStandard } from "./households.ts";
 import { initialCulturalAffinity } from "./culture.ts";
+import { localGovernanceSchema } from "./governance.ts";
 
 export const occupations = ["农民", "劳工", "工程师", "军官", "教士", "店主", "资本家", "贵族"] as const;
 export type Occupation = (typeof occupations)[number];
@@ -50,6 +51,7 @@ export type Pop = z.infer<typeof popSchema>;
 export const siteSocialSchema = z.object({
   pops: z.array(popSchema).min(1),
   culturalAffinity: z.record(z.string(), percent).optional(),
+  governance: localGovernanceSchema.optional(),
   infrastructure: z.int().positive(),
   university: z.int().nonnegative(),
   construction: z.int().positive(),
@@ -272,12 +274,12 @@ export function evolvePops(
   id: string,
   nation: Nation,
   week: {
-    grainPrice: number; grainWages: number; clothWages: number; universityWages: number;
+    grainPrice: number; grainWages: number; clothWages: number; specialistWages: number;
     dividends: number; textileJobs: number; standardTarget: number;
   },
   tuning: RuleTuning,
 ) {
-  const { grainPrice, grainWages, clothWages, universityWages, dividends, textileJobs, standardTarget } = week;
+  const { grainPrice, grainWages, clothWages, specialistWages, dividends, textileJobs, standardTarget } = week;
   const totals = Object.fromEntries(
     occupations.map((o) => [o, site.pops.reduce((s, p) => s + (p.occupation === o ? p.people : 0), 0)]),
   ) as Record<Occupation, number>;
@@ -290,7 +292,7 @@ export function evolvePops(
           ? clothWages
           : socialTags[p.occupation][0] === "上层"
             ? dividends / 2
-            : totals[p.occupation] * 4 + (p.occupation === "工程师" ? universityWages : 0);
+            : totals[p.occupation] * 4 + (p.occupation === "工程师" ? specialistWages : 0);
     const living = Math.max(
       0.5,
       (((income / Math.max(1, totals[p.occupation])) * 0.3) / (grainPrice / 100)) * (isAccepted ? 1 : 0.65),

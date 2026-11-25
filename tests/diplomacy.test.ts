@@ -1,4 +1,5 @@
 import assert from "node:assert/strict";
+import { administrationWage, governanceOf, integrationStaffNeeded } from "../src/game/governance.ts";
 import { test } from "node:test";
 import { createGame, dispatch } from "../src/game/engine.ts";
 import type { GameState, GameCommand } from "../src/game/engine.ts";
@@ -221,4 +222,46 @@ test("军需缺口压低士气；保护国与封臣的贡金按类型结算", ()
     assert.equal(r.tribute, Math.floor(r.tax * rate));
     assert.equal(load(s).nations[b].subjectType, goal);
   }
+});
+
+test("新割让州保留产业和居民，治理方式只改变中央税权和军事额度", () => {
+  const opening = start();
+  const frontier = send(demand(opening), { type: "backDown", countryId: b });
+  assert.equal(governanceOf(frontier.societies[targetStateId]).mode, "FRONTIER");
+  assert.equal(governanceOf(frontier.societies[targetStateId]).integrated, false);
+  assert.equal(frontier.stateEconomies[targetStateId], opening.stateEconomies[targetStateId]);
+  assert.equal(frontier.societies[targetStateId].pops, opening.societies[targetStateId].pops);
+  const mode = { type: "setLocalGovernance", countryId: a, stateId: targetStateId } as const;
+  assert.throws(() => send(frontier, { ...mode, countryId: b, mode: "INDIRECT" }), /只能管理本国领土/);
+  assert.throws(() => send(frontier, { ...mode, mode: "PROVINCE" }), /先完成整合/);
+  const indirect = send(frontier, { ...mode, mode: "INDIRECT" });
+  const before = projectEconomy(frontier), after = projectEconomy(indirect);
+  assert.equal(after.states[targetStateId].regulars, Math.floor(before.states[targetStateId].regulars * 0.25));
+  assert.ok(after.countries[a].tax < before.countries[a].tax);
+  assert.deepEqual(load(indirect), indirect);
+});
+
+test("行政整合按实付岗位和开工时间增长，整合后可选择设为正式州", () => {
+  let game = send(demand(start()), { type: "backDown", countryId: b });
+  for (let i = 0; i < 6; i++) game = send(game, { type: "advanceDay" });
+  const started = send(game, { type: "startIntegration", countryId: a, stateId: targetStateId });
+  const required = integrationStaffNeeded(started.stateEconomies[targetStateId].population, started.settings.difficulty);
+  const settled = send(started, { type: "advanceDay" });
+  const paid = Math.floor(required * administrationWage / 7);
+  assert.equal(settled.lastEconomy!.countries[a].administrationWages, paid);
+  assert.equal(settled.lastEconomy!.states[targetStateId].administrationStaff, paid / administrationWage);
+  const progress = governanceOf(settled.societies[targetStateId]).integration!.months;
+  assert.ok(progress > 0 && progress < 0.05);
+  assert.deepEqual(load(settled), settled);
+  const cancelled = send(settled, { type: "cancelIntegration", countryId: a, stateId: targetStateId });
+  assert.equal(week(cancelled).lastEconomy!.countries[a].administrationWages, 0);
+  const next = week(settled);
+  assert.equal(next.lastEconomy!.countries[a].administrationWages, required * administrationWage);
+  assert.ok(governanceOf(next.societies[targetStateId]).integration!.months > progress);
+  next.societies[targetStateId].governance!.integration!.months = 59.99;
+  const integrated = week(next);
+  assert.equal(governanceOf(integrated.societies[targetStateId]).integrated, true);
+  assert.equal(governanceOf(integrated.societies[targetStateId]).mode, "FRONTIER");
+  const province = send(integrated, { type: "setLocalGovernance", countryId: a, stateId: targetStateId, mode: "PROVINCE" });
+  assert.equal(governanceOf(province.societies[targetStateId]).mode, "PROVINCE");
 });
