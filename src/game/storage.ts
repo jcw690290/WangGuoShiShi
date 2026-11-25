@@ -2,7 +2,7 @@ import { openDB } from "idb";
 import type { DBSchema } from "idb";
 import { z } from "zod";
 import { disputeSchema, participants } from "./diplomacy.ts";
-import { DAY_MS } from "./engine.ts";
+import { DAY_MS, TICKS_PER_DAY } from "./engine.ts";
 import type { GameState } from "./engine.ts";
 import { byGood, goods } from "./industry.ts";
 import { projects } from "./economy.ts";
@@ -12,7 +12,7 @@ import { borderScenario } from "../scenario/scenario.ts";
 import type { Scenario } from "../scenario/scenario.ts";
 const storeName = "saves";
 const slot = "local";
-export const saveVersion = 5;
+export const saveVersion = 6;
 
 interface SaveDatabase extends DBSchema {
   saves: { key: typeof slot; value: unknown };
@@ -102,31 +102,36 @@ export function parseSave(scenario: Scenario, save: unknown): GameState {
   // A valid map ID is optional until claimed; enum-keyed records require every ID.
   const activeSite = z.string().refine((id) => Object.hasOwn(scenario.states, id));
   const project = z.object({ stateId: sites, good: z.enum(projectTypes), weeksLeft: z.number().positive() });
+  const stateSchema = z.object({
+    elapsedDays: uint.max(Math.floor((8.64e15 - Date.parse(scenario.startDate)) / DAY_MS)),
+    playerCountryId: countries,
+    rng: uint.max(0xffffffff),
+    ownerByStateId: z.record(activeSite, countries),
+    stateEconomies: z.record(
+      activeSite,
+      z.object({ population: z.int().positive(), buildings: goodsNumbers }),
+    ),
+    countryEconomies: z.record(countries, z.object({ treasury: cash, queue: z.array(project) })),
+    societies: z.record(activeSite, siteSocialSchema),
+    nations: z.record(countries, nationSchema),
+    borderDispute: disputeSchema.nullable(),
+    lastEconomy: z
+      .object({ states: z.record(activeSite, siteReport), countries: z.record(countries, countryReport) })
+      .nullable(),
+  });
+  const scenarioId = z.literal(scenario.id);
   const schema = z
-    .object({
-      version: z.literal(saveVersion),
-      scenarioId: z.literal(scenario.id),
-      state: z.object({
-        elapsedDays: uint.max(Math.floor((8.64e15 - Date.parse(scenario.startDate)) / DAY_MS)),
-        playerCountryId: countries,
-        rng: uint.max(0xffffffff),
-        ownerByStateId: z.record(activeSite, countries),
-        stateEconomies: z.record(
-          activeSite,
-          z.object({ population: z.int().positive(), buildings: goodsNumbers }),
-        ),
-        countryEconomies: z.record(countries, z.object({ treasury: cash, queue: z.array(project) })),
-        societies: z.record(activeSite, siteSocialSchema),
-        nations: z.record(countries, nationSchema),
-        borderDispute: disputeSchema.nullable(),
-        lastEconomy: z
-          .object({ states: z.record(activeSite, siteReport), countries: z.record(countries, countryReport) })
-          .nullable(),
+    .discriminatedUnion("version", [
+      z.object({ version: z.literal(5), scenarioId, state: stateSchema }),
+      z.object({
+        version: z.literal(saveVersion),
+        scenarioId,
+        state: stateSchema.extend({ tickInDay: uint.max(TICKS_PER_DAY - 1) }),
       }),
-    })
+    ])
     .safeParse(save);
   if (!schema.success) throw new Error("存档数据无效或版本不兼容", { cause: schema.error });
-  const state = schema.data.state;
+  const state = schema.data.version === 5 ? { ...schema.data.state, tickInDay: 0 } : schema.data.state;
   function invalid(): never {
     throw new Error("存档中的人口、工程、外交或归属数据无效");
   }

@@ -12,6 +12,7 @@ import { applyClaim } from "./territory.ts";
 
 export interface GameState {
   elapsedDays: number;
+  tickInDay: number;
   playerCountryId: string | null;
   rng: number;
   // Only sovereign/claimed states have keys; unclaimed map states are absent.
@@ -28,7 +29,7 @@ export type GameCommand =
   | { type: "selectCountry"; countryId: string }
   | { type: "claimState"; stateId: string }
   | { type: "queueConstruction"; countryId: string; stateId: string; good: Building; privateBuild?: boolean }
-  | { type: "advanceWeek" | "advanceDay" | "advanceHalfYear" }
+  | { type: "advanceTick" | "advanceWeek" | "advanceDay" | "advanceHalfYear" }
   | PoliticsCommand
   | BorderCommand;
 
@@ -43,6 +44,7 @@ export function createGame(scenario: Scenario, seed = 1820): GameState {
     });
   return {
     elapsedDays: 0,
+    tickInDay: 0,
     playerCountryId: null,
     rng: seed >>> 0,
     ...social,
@@ -59,6 +61,11 @@ export function createGame(scenario: Scenario, seed = 1820): GameState {
   };
 }
 export const DAY_MS = 86400000;
+export const TICKS_PER_DAY = 4;
+export function elapsedTicks(state: GameState) {
+  return state.elapsedDays * TICKS_PER_DAY + state.tickInDay;
+}
+
 export function getGameDate(scenario: Scenario, state: GameState) {
   return new Date(Date.parse(scenario.startDate) + DAY_MS * state.elapsedDays);
 }
@@ -83,8 +90,19 @@ export function advanceDay(
   state: GameState,
   humanCountries: ReadonlySet<string | null> = new Set([state.playerCountryId]),
 ): GameState {
+  for (let i = 0; i < TICKS_PER_DAY; i++) state = advanceTick(scenario, state, humanCountries);
+  return state;
+}
+
+export function advanceTick(
+  scenario: Scenario,
+  state: GameState,
+  humanCountries: ReadonlySet<string | null> = new Set([state.playerCountryId]),
+): GameState {
   if (isScenarioFinished(scenario, state)) return state;
-  const next = tickDiplomacy(scenario, { ...state, elapsedDays: state.elapsedDays + 1 });
+  const tickInDay = state.tickInDay + 1;
+  if (tickInDay < TICKS_PER_DAY) return { ...state, tickInDay };
+  const next = tickDiplomacy(scenario, { ...state, elapsedDays: state.elapsedDays + 1, tickInDay: 0 });
   if (next.elapsedDays % 7 !== 0) return next;
   const settled = settleEconomy(next, planWar(scenario, next));
   let result = advancePolitics(advanceFront(scenario, settled, settled.lastEconomy), settled.lastEconomy);
@@ -122,6 +140,9 @@ export function advanceDay(
 }
 export function dispatch(scenario: Scenario, state: GameState, cmd: GameCommand): GameState {
   switch (cmd.type) {
+    case "advanceTick":
+      if (!state.playerCountryId) throw new GameRuleError("请先选择国家");
+      return advanceTick(scenario, state);
     case "advanceDay":
     case "advanceWeek":
     case "advanceHalfYear": {
@@ -142,7 +163,7 @@ export function dispatch(scenario: Scenario, state: GameState, cmd: GameCommand)
 function applyCommand(
   scenario: Scenario,
   state: GameState,
-  cmd: Exclude<GameCommand, { type: "advanceWeek" | "advanceDay" | "advanceHalfYear" }>,
+  cmd: Exclude<GameCommand, { type: "advanceTick" | "advanceWeek" | "advanceDay" | "advanceHalfYear" }>,
 ): GameState {
   if (cmd.type === "selectCountry") {
     if (state.playerCountryId !== null || !Object.hasOwn(scenario.countries, cmd.countryId))

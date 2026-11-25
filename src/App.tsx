@@ -4,7 +4,7 @@ import { EconomyPanel } from "./EconomyPanel.tsx";
 import { PoliticsPanel } from "./PoliticsPanel.tsx";
 import { count, silver } from "./format.ts";
 import { projectEconomy } from "./game/economy.ts";
-import { createGame, dispatch, getGameDate, isScenarioFinished, spanDays } from "./game/engine.ts";
+import { createGame, dispatch, elapsedTicks, getGameDate, isScenarioFinished, spanDays, TICKS_PER_DAY } from "./game/engine.ts";
 import type { GameCommand, Span } from "./game/engine.ts";
 import { planWar } from "./game/diplomacy.ts";
 import { loadGame, saveGame } from "./game/storage.ts";
@@ -19,6 +19,8 @@ import { atlas } from "./scenario/scenario.ts";
 import type { Scenario } from "./scenario/scenario.ts";
 
 const dateFormat = new Intl.DateTimeFormat("zh-CN", { dateStyle: "long", timeZone: "UTC" });
+const tickRates = [1, 2, 4, 8, 32];
+const periods = ["00:00", "06:00", "12:00", "18:00"];
 export function App({ scenario, geometry }: { scenario: Scenario; geometry: StateGeometry }) {
   const [soloGame, setGame] = useState(() => createGame(scenario)),
     [selected, setSelected] = useState<string | null>(null);
@@ -26,8 +28,9 @@ export function App({ scenario, geometry }: { scenario: Scenario; geometry: Stat
     [notice, setNotice] = useState("");
   const countries = Object.values(scenario.countries),
     [choice, setChoice] = useState(countries[0].id);
-  const [span, setSpan] = useState<Span>("week"),
+  const [span, setSpan] = useState<Span | "continuous">("continuous"),
     [until, setUntil] = useState<number | null>(null);
+  const [speed, setSpeed] = useState(2);
   const menu = useRef<HTMLDialogElement>(null);
   const roomDialog = useRef<HTMLDialogElement>(null);
   const online = useOnlineRoom(scenario, () => {
@@ -51,7 +54,7 @@ export function App({ scenario, geometry }: { scenario: Scenario; geometry: Stat
   const finished = (!connection || onlinePlaying) && isScenarioFinished(scenario, game),
     running = !finished && (onlinePlaying
       ? view.room.hostOnline && view.room.speed > 0
-      : !connection && until !== null && game.elapsedDays < until),
+      : !connection && until !== null && elapsedTicks(game) < until),
     locked = connection
       ? online.busy || commandId !== null || !view?.room.hostOnline || Boolean(view.error)
       : busy || running,
@@ -64,7 +67,8 @@ export function App({ scenario, geometry }: { scenario: Scenario; geometry: Stat
   const owner = site ? game.ownerByStateId[site] : null;
   const report = useMemo(
     () => game.lastEconomy ?? projectEconomy(game, planWar(scenario, game)),
-    [game, scenario],
+    [game.lastEconomy, game.ownerByStateId, game.countryEconomies, game.stateEconomies,
+      game.nations, game.societies, game.borderDispute, scenario],
   );
   const matches = useMemo(
     () =>
@@ -106,20 +110,22 @@ export function App({ scenario, geometry }: { scenario: Scenario; geometry: Stat
     }
   }, [connection]);
   useEffect(() => {
-    if (!running || connection) return;
-    const timer = setTimeout(
-      () => {
-        setGame((previous) => {
-          let result = previous;
-          const days = Math.min(span === "halfYear" ? 7 : 1, until! - previous.elapsedDays);
-          for (let i = 0; i < days; i++) result = dispatch(scenario, result, { type: "advanceDay" });
-          return result;
-        });
-      },
-      span === "halfYear" ? 35 : 65,
-    );
-    return () => clearTimeout(timer);
-  }, [running, until, span, game.elapsedDays, scenario, connection]);
+    if (connection || !running || until === null) return;
+    const timer = setInterval(() => {
+      if (document.hidden) return;
+      setGame((previous) => elapsedTicks(previous) < until
+        ? dispatch(scenario, previous, { type: "advanceTick" })
+        : previous);
+    }, 1000 / speed);
+    return () => clearInterval(timer);
+  }, [running, until, speed, scenario, connection]);
+  useEffect(() => {
+    function pauseHiddenGame() {
+      if (document.hidden) setUntil(null);
+    }
+    document.addEventListener("visibilitychange", pauseHiddenGame);
+    return () => document.removeEventListener("visibilitychange", pauseHiddenGame);
+  }, []);
   useEffect(() => {
     if (finished && !menu.current!.open) menu.current!.showModal();
   }, [finished]);
@@ -180,13 +186,18 @@ export function App({ scenario, geometry }: { scenario: Scenario; geometry: Stat
               </>
             ) : <>
             <span className="paused">{running ? "推进中" : "已暂停"}</span>
-            <time dateTime={dateISO}>{dateFormat.format(date)}</time>
+            <time dateTime={dateISO + "T" + periods[game.tickInDay]}>{dateFormat.format(date)} {periods[game.tickInDay]}</time>
+            <select aria-label="单机推进速度" value={speed} disabled={finished}
+              onChange={(event) => setSpeed(Number(event.target.value))}>
+              {tickRates.map((rate) => <option key={rate} value={rate}>{rate} tick／秒</option>)}
+            </select>
             <select
               aria-label="推进跨度"
               value={span}
               disabled={locked || finished}
-              onChange={(e) => setSpan(e.target.value as Span)}
+              onChange={(e) => setSpan(e.target.value as Span | "continuous")}
             >
+              <option value="continuous">持续推进</option>
               <option value="day">一天</option>
               <option value="week">一周</option>
               <option value="halfYear">半年</option>
@@ -194,9 +205,11 @@ export function App({ scenario, geometry }: { scenario: Scenario; geometry: Stat
             <button
               className="advance"
               disabled={!player || busy || finished}
-              onClick={() => setUntil(running ? null : game.elapsedDays + spanDays(scenario, game, span))}
+              onClick={() => setUntil(running ? null : span === "continuous"
+                ? Infinity
+                : elapsedTicks(game) + TICKS_PER_DAY * spanDays(scenario, game, span))}
             >
-              {running ? "暂停" : "推进"}
+              {running ? "暂停" : "继续"}
             </button>
             </>}
           </div>
