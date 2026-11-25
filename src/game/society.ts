@@ -73,6 +73,8 @@ export const laws = [
   "干预主义",
   "自由放任",
   "出版自由",
+  "地主租佃",
+  "小农自耕",
 ] as const;
 export type Law = (typeof laws)[number];
 export const techs = ["纺织工艺", "野战后勤", "公共教育", "机械织造", "运输调度", "高等教育"] as const;
@@ -245,6 +247,8 @@ export const supporters: Record<Law, Group[]> = {
   干预主义: ["乡民", "小市民"],
   自由放任: ["实业家", "小市民"],
   出版自由: ["知识分子", "实业家"],
+  地主租佃: ["地主"],
+  小农自耕: ["乡民", "小市民"],
 };
 export function approval(nation: Nation, g: Group) {
   return (
@@ -287,11 +291,11 @@ export function evolvePops(
   nation: Nation,
   week: {
     grainPrice: number; grainWages: number; laborWages: number; specialistWages: number;
-    dividends: number; textileJobs: number; standardTarget: number;
+    dividends: number; ruralResources: number; landRent: number; textileJobs: number; standardTarget: number;
   },
   tuning: RuleTuning,
 ) {
-  const { grainPrice, grainWages, laborWages, specialistWages, dividends, textileJobs, standardTarget } = week;
+  const { grainPrice, grainWages, laborWages, specialistWages, dividends, ruralResources, landRent, textileJobs, standardTarget } = week;
   const totals = Object.fromEntries(
     occupations.map((o) => [o, site.pops.reduce((s, p) => s + (p.occupation === o ? p.people : 0), 0)]),
   ) as Record<Occupation, number>;
@@ -299,11 +303,11 @@ export function evolvePops(
     const isAccepted = accepted(p, id, nation);
     const income =
       p.occupation === "农民"
-        ? grainWages
+        ? grainWages + ruralResources
         : p.occupation === "劳工"
           ? laborWages
           : socialTags[p.occupation][0] === "上层"
-            ? dividends / 2
+            ? dividends / 2 + (p.occupation === "贵族" ? landRent : 0)
             : totals[p.occupation] * 4 + (p.occupation === "工程师" ? specialistWages : 0);
     const living = Math.max(
       0.5,

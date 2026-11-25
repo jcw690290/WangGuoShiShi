@@ -41,7 +41,8 @@ test("世界各共同市场的成交、州的销量与用量逐项一致，历�
     for (const good of goods) {
       const market = country.market[good];
       assert.ok(market.traded! <= Math.min(market.supply, market.demand));
-      assert.equal(sites.reduce((n, [, site]) => n + site.industries[good].sold!, 0), market.traded);
+      assert.equal(sites.reduce((n, [, site]) => n + site.industries[good].sold! +
+        (good === "grain" || good === "wood" ? site.subsistence?.sold[good] ?? 0 : 0), 0), market.traded);
       assert.equal(sites.reduce((n, [, site]) => n + site.industries[good].bought!, 0), market.traded);
       assert.ok(sites.every(([, site]) => site.industries[good].sold! <= site.industries[good].output));
       if (!isIndustrialGood(good))

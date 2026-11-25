@@ -61,12 +61,16 @@ export function extrasOrders(people: number, budget: number) {
 }
 
 type IncomeOccupation = "农民" | "劳工" | "工程师" | "资本家" | "贵族";
-export function discretionaryIncome(pops: readonly Pop[], basicCost: number, income: Record<IncomeOccupation, number>) {
+export function discretionaryIncome(
+  pops: readonly Pop[], basicCost: number, income: Record<IncomeOccupation, number>, ruralEssentials: number,
+) {
   const people: Record<IncomeOccupation, number> = { 农民: 0, 劳工: 0, 工程师: 0, 资本家: 0, 贵族: 0 };
   for (const { occupation, people: size } of pops) if (Object.hasOwn(people, occupation))
     people[occupation as IncomeOccupation] += size;
-  const available = (Object.keys(people) as IncomeOccupation[]).reduce((sum, job) =>
-    people[job] > 0 ? sum + Math.max(0, income[job] - basicCost * people[job]) : sum, 0);
+  const available = (Object.keys(people) as IncomeOccupation[]).reduce((sum, job) => {
+    const required = Math.max(0, basicCost * people[job] - (job === "农民" ? ruralEssentials : 0));
+    return people[job] > 0 ? sum + Math.max(0, income[job] - required) : sum;
+  }, 0);
   return Math.floor(available);
 }
 

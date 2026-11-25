@@ -47,7 +47,7 @@ function StateIndustry({
   const local = game.stateEconomies[stateId];
   const { industries: activity, populationChange, conscripts } = report.states[stateId];
   const monthlyChange = game.lastPopulation?.changes[stateId];
-  const employed = goods.reduce((sum, good) => sum + activity[good].employed, 0);
+  const employed = goods.reduce((sum, good) => sum + activity[good].employed, report.states[stateId].subsistence?.employed ?? 0);
   const workforce =
     workForce(local.population) -
     conscripts -
@@ -165,6 +165,12 @@ function StateIndustry({
         })}
       </ul>
       <div className="control-block">
+        {snapshot.subsistence && <details>
+          <summary>自给农业 · {snapshot.subsistence.rentRate > 0 ? "地主租佃" : "小农自耕"}</summary>
+          <p>耕地 {count(snapshot.subsistence.cropland)} · 商品农业占用 {count(snapshot.subsistence.occupied)} · 自给就业 {count(snapshot.subsistence.employed)} 人</p>
+          <p>留存 粮食 {count(snapshot.subsistence.retained.grain)} · 木材 {count(snapshot.subsistence.retained.wood)}</p>
+          <p>余粮和木材成交后，农户所得 {silver(snapshot.subsistence.householdIncome)} · 地租 {silver(snapshot.subsistence.landRent)}</p>
+        </details>}
         {snapshot.householdExtras && <details>
           <summary>家庭可选消费</summary>
           <p>可用资金 {silver(snapshot.householdExtras.budget)} · 实付 {silver(snapshot.householdExtras.spending)}</p>

@@ -48,6 +48,8 @@ export const lawEffect: Record<Law, string> = {
   信仰自由: "接纳所有信仰",
   普选制: "扩大基层参与，上／中／下层权重为 1.5／1.2／1",
   出版自由: "解除科技扩散的审查折减",
+  地主租佃: "自给农业出售余粮和木材所得的 20% 归土地所有者",
+  小农自耕: "自给农业出售余粮和木材所得全部归农户",
 };
 export type PoliticsCommand =
   | { type: "setGovernment"; countryId: string; government: Group[] }
@@ -136,7 +138,8 @@ export function advancePolitics(state: GameState, report: EconomyReport, year: n
           const reform = nation.reform;
           const retained = nation.laws.filter(
             (l) =>
-              !(reform === "自由放任" && l === "干预主义") && !(reform === "干预主义" && l === "自由放任"),
+              !(reform === "自由放任" && l === "干预主义") && !(reform === "干预主义" && l === "自由放任") &&
+              !(reform === "小农自耕" && l === "地主租佃") && !(reform === "地主租佃" && l === "小农自耕"),
           );
           nation.laws = [...retained, reform];
           nation.reform = null;
