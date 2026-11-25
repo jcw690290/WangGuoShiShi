@@ -7,6 +7,14 @@ import type { EconomyReport } from "./game/economy.ts";
 import type { GameCommand, GameState } from "./game/engine.ts";
 import { goods, industries } from "./game/industry.ts";
 import type { Scenario } from "./scenario/scenario.ts";
+import { affinityLevel, culturalAffinityOf } from "./game/culture.ts";
+
+function cultureName(scenario: Scenario, id: string) {
+  const separator = id.indexOf("-");
+  if (separator === -1 || id.startsWith("country_")) return scenario.countries[id]?.name ?? id;
+  const state = scenario.states[id.slice(separator + 1)];
+  return state ? state.name + "地方文化" : id;
+}
 
 interface Props {
   scenario: Scenario;
@@ -165,12 +173,12 @@ function StateIndustry({
               </thead>
               <tbody>
                 {society.pops.map((p) => (
-                  <tr key={p.occupation + p.culture}>
+                  <tr key={JSON.stringify([p.occupation, p.culture, p.religion])}>
                     <td>
                       {p.occupation} / {socialTags[p.occupation][0]}
                     </td>
                     <td>
-                      {scenario.countries[p.culture]?.name ?? "地方文化"} /{" "}
+                      {cultureName(scenario, p.culture)} /{" "}
                       {scenario.countries[p.religion] ? "国教" : "地方信仰"} ·{" "}
                       {accepted(p, owner, game.nations[owner]) ? "接纳" : "受歧视"}
                     </td>
@@ -179,6 +187,23 @@ function StateIndustry({
                     <td>{p.livingStandard.toFixed(1)}</td>
                     <td>{p.literacy.toFixed(1)}%</td>
                     <td>{p.radicals.toFixed(1)}%</td>
+                  </tr>
+                ))}
+              </tbody>
+            </table>
+          </div>
+        </details>
+        <details>
+          <summary>文化亲近度</summary>
+          <div className="economy-table">
+            <table>
+              <thead><tr><th scope="col">文化</th><th scope="col">亲近度</th><th scope="col">接触阶段</th></tr></thead>
+              <tbody>
+                {Object.entries(culturalAffinityOf(society)).sort(([, left], [, right]) => right - left).map(([culture, value]) => (
+                  <tr key={culture}>
+                    <td>{cultureName(scenario, culture)}</td>
+                    <td>{Math.floor(value)} / 100</td>
+                    <td>{affinityLevel(value)}</td>
                   </tr>
                 ))}
               </tbody>
