@@ -145,7 +145,22 @@ test("补足粮食后推进到和约门槛，移交州并结束征兵", () => {
   for (let i = 0; i < 60 && g.borderDispute!.progress < scenario.borderDispute.cessionProgress; i++)
     g = week(g);
   assert.ok(g.borderDispute!.progress >= scenario.borderDispute.cessionProgress);
+  assert.deepEqual(g.occupation, { stateId: targetStateId, controllerId: a });
+  assert.equal(g.ownerByStateId[targetStateId], b);
+  assert.deepEqual(load(g), g);
+  const { occupation, ...legacy } = g;
+  assert.deepEqual(load(legacy), g);
+  assert.throws(() => load({ ...g, occupation: { ...occupation!, controllerId: b } }), /数据无效/);
+  const priorTax = projectEconomy(legacy, planWar(scenario, legacy));
+  const occupiedTax = projectEconomy(g, planWar(scenario, g));
+  assert.ok(occupiedTax.countries[b].tax < priorTax.countries[b].tax);
+  assert.equal(occupiedTax.countries[a].tax, priorTax.countries[a].tax);
+  assert.throws(() => send(g, { type: "queueConstruction", countryId: b, stateId: targetStateId, good: "infrastructure" }), /军事占领/);
+  const armistice = send(load(g), { type: "armistice", countryId: a });
+  assert.equal(armistice.occupation, undefined);
+  assert.equal(armistice.ownerByStateId[targetStateId], b);
   const signed = send(load(g), { type: "signTreaty", countryId: a });
+  assert.equal(signed.occupation, undefined);
   assert.equal(signed.ownerByStateId.Tonkin, a);
   assert.equal(signed.lastEconomy, null);
   assert.deepEqual(week(load(signed)), week(signed));

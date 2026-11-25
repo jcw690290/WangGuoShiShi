@@ -14,6 +14,7 @@ import { initialSettings, settingsSchema, validDifficultyHistory } from "./setti
 import { campaignSchema, endingSchema } from "./campaign.ts";
 import type { EndingRecord } from "./campaign.ts";
 import { fiscalAccountSchema } from "./fiscal.ts";
+import { syncOccupation } from "./occupation.ts";
 const storeName = "saves";
 const indexName = "saveIndex";
 const archiveName = "endings";
@@ -208,7 +209,7 @@ export function parseSave(scenario: Scenario, save: unknown): GameState {
       header.data.scenarioId === borderScenario.id && scenario.id === "world-1820"
         ? borderScenario
         : scenario;
-    return importRegionalSave(source, scenario, save);
+    return syncOccupation(scenario, importRegionalSave(source, scenario, save));
   }
   const sites = z.enum(Object.keys(scenario.states)),
     countries = z.enum(Object.keys(scenario.countries));
@@ -231,6 +232,7 @@ export function parseSave(scenario: Scenario, save: unknown): GameState {
     societies: z.record(activeSite, siteSocialSchema),
     nations: z.record(countries, nationSchema),
     borderDispute: disputeSchema.nullable(),
+    occupation: z.object({ stateId: sites, controllerId: countries }).optional(),
     lastEconomy: z
       .object({ states: z.record(activeSite, siteReport), countries: z.record(countries, countryReport) })
       .nullable(),
@@ -343,5 +345,7 @@ export function parseSave(scenario: Scenario, save: unknown): GameState {
     const transferred = d.outcome === "victory" && (d.goals.includes("cession") || d.goals.includes("annex"));
     if (state.ownerByStateId[d.targetStateId] !== (transferred ? d.claimantId : d.defenderId)) invalid();
   }
-  return state;
+  const controlled = syncOccupation(scenario, state);
+  if (state.occupation && controlled !== state) invalid();
+  return controlled;
 }
