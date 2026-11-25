@@ -15,6 +15,7 @@ import { campaignSchema, endingSchema } from "./campaign.ts";
 import type { EndingRecord } from "./campaign.ts";
 import { fiscalAccountSchema } from "./fiscal.ts";
 import { syncOccupation } from "./occupation.ts";
+import { diplomaticTieSchema } from "./diplomatic-ties.ts";
 const storeName = "saves";
 const indexName = "saveIndex";
 const archiveName = "endings";
@@ -232,6 +233,7 @@ export function parseSave(scenario: Scenario, save: unknown): GameState {
     societies: z.record(activeSite, siteSocialSchema),
     nations: z.record(countries, nationSchema),
     borderDispute: disputeSchema.nullable(),
+    diplomaticTies: z.array(diplomaticTieSchema.extend({ senior: countries, partner: countries })).optional(),
     occupation: z.object({ stateId: sites, controllerId: countries }).optional(),
     lastEconomy: z
       .object({ states: z.record(activeSite, siteReport), countries: z.record(countries, countryReport) })
@@ -289,6 +291,15 @@ export function parseSave(scenario: Scenario, save: unknown): GameState {
     (state.lastEconomy !== null && !sameSites(state.lastEconomy.states)) ||
     Object.values(scenario.states).some((s) => s.ownerId !== null && !Object.hasOwn(state.ownerByStateId, s.id))
   ) invalid();
+  if (state.diplomaticTies) {
+    const live = new Set(Object.values(state.ownerByStateId));
+    const pairs = new Set<string>();
+    for (const { senior, partner } of state.diplomaticTies) {
+      const pair = [senior, partner].sort().join("/");
+      if (senior === partner || pairs.has(pair) || !live.has(senior) || !live.has(partner)) invalid();
+      pairs.add(pair);
+    }
+  }
   for (const [id, n] of Object.entries(state.nations)) {
     const fiscal = state.countryEconomies[id].fiscal;
     if (fiscal && fiscal.week.day > state.elapsedDays) invalid();

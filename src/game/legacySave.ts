@@ -148,6 +148,7 @@ export function importRegionalSave(region: Scenario, world: Scenario, save: unkn
 
   const original = parsed.data.state;
   const base = createGame(world);
+  delete base.diplomaticTies;
   base.elapsedDays = original.elapsedDays;
   base.playerCountryId = original.playerCountryId;
   Object.assign(base.ownerByStateId, original.ownerByStateId);
