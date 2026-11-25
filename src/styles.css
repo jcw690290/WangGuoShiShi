@@ -804,6 +804,9 @@ input:not([type="checkbox"]) {
 .ending-gallery dd { margin: 4px 0 12px; }
 .ending-records { padding-inline-start: 20px; }
 .ending-records p { margin: 4px 0; }
+.map-layers { position: absolute; left: 12px; bottom: 12px; display: flex; gap: 4px; }
+.map-layers button { min-height: 44px; }
+.map-layers button[aria-pressed="true"] { background: #e2bf83; color: #332519; }
 .developer-dialog form, .developer-dialog form > div, .difficulty-control { display: grid; gap: 8px; }
 .developer-dialog form + form { margin-top: 16px; }
 .developer-dialog label, .difficulty-control label { display: flex; align-items: center; justify-content: space-between; gap: 8px; }

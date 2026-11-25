@@ -219,7 +219,8 @@ function projectSettlement(state: GameState, war?: WarPlan, activeSites = state.
       front = route?.recruitmentStates.has(id);
     const regulars = Math.min(site.barracks * 100, Math.floor(local.population * 0.03));
     const builders =
-      state.countryEconomies[owner].queue.length || nation.privateQueue.length
+      state.countryEconomies[owner].queue.some((project) => project.stateId !== state.occupation?.stateId) ||
+      nation.privateQueue.some((project) => project.stateId !== state.occupation?.stateId)
         ? Math.min(site.construction * 50, Math.floor(local.population * 0.01))
         : 0;
     const armourers = Math.min((site.arsenal + site.ammunition) * 30, Math.floor(local.population * 0.03));
@@ -368,7 +369,7 @@ function projectSettlement(state: GameState, war?: WarPlan, activeSites = state.
             workers.reduce((n, p) => n + p.people, 0),
           );
         production.wages = Math.round(revenue * 0.45 * paidShare);
-        wages += production.wages;
+        if (id !== state.occupation?.stateId) wages += production.wages;
         const profit = Math.floor((revenue - production.wages) * 0.25);
         const contribution = Math.floor(profit * rate);
         s.investment += contribution;
@@ -393,7 +394,7 @@ function projectSettlement(state: GameState, war?: WarPlan, activeSites = state.
     c.capacity = Math.floor(capacity * 100) / 100;
     c.tax =
       Math.floor((wages * c.wageTaxRate) / 100) +
-      Math.floor(ids.reduce((n, id) => n + report.states[id].dividends, 0) * 0.05);
+      Math.floor(ids.reduce((n, id) => n + (id === state.occupation?.stateId ? 0 : report.states[id].dividends), 0) * 0.05);
     c.wageTaxGain = Math.floor((wages * c.wageTaxRate) / 100) - Math.floor(wages * 0.1);
     if (nation.subjectType) c.tribute = Math.floor(c.tax * tributeRate[nation.subjectType]);
   }
@@ -410,6 +411,7 @@ export function constructionError(
   if (state.playerCountryId === null) return "请先选择国家";
   if (state.ownerByStateId[stateId] !== countryId || !Object.hasOwn(state.stateEconomies, stateId))
     return "只能在本国州内建设";
+  if (state.occupation?.stateId === stateId) return "该州处于军事占领中";
   const country = state.countryEconomies[countryId],
     nation = state.nations[countryId];
   const fiscalRisk = country.fiscal?.week.risk;
@@ -474,9 +476,13 @@ export function settleEconomy(state: GameState, war?: WarPlan, fractionOfYear = 
     const capacity = before.countries[id].capacity,
       privateShare = privateShareOf(nation);
     function work(queue: Project[], points: number) {
-      while (points > 0 && queue.length) {
-        const job = queue[0],
-          cost = Math.min(points, job.weeksLeft);
+      for (let index = 0; points > 0 && index < queue.length;) {
+        const job = queue[index];
+        if (job.stateId === state.occupation?.stateId) {
+          index++;
+          continue;
+        }
+        const cost = Math.min(points, job.weeksLeft);
         points -= cost;
         job.weeksLeft = Math.round((job.weeksLeft - cost) * 1e6) / 1e6;
         if (job.weeksLeft > 0) break;
@@ -488,7 +494,7 @@ export function settleEconomy(state: GameState, war?: WarPlan, fractionOfYear = 
             buildings: { ...local.buildings, [good]: local.buildings[good] + 1 },
           };
         } else societies[stateId] = { ...societies[stateId], [good]: societies[stateId][good] + 1 };
-        queue.shift();
+        queue.splice(index, 1);
       }
       return points;
     }
