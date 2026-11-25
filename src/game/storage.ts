@@ -1,8 +1,8 @@
 import { openDB } from "idb";
-import type { DBSchema } from "idb";
+import type { DBSchema, IDBPDatabase } from "idb";
 import { z } from "zod";
 import { disputeSchema, participants } from "./diplomacy.ts";
-import { DAY_MS, elapsedTicks, isPopulationMonth, TICKS_PER_DAY } from "./engine.ts";
+import { DAY_MS, elapsedTicks, getGameDate, isPopulationMonth, TICKS_PER_DAY } from "./engine.ts";
 import type { GameState } from "./engine.ts";
 import { byGood, goods } from "./industry.ts";
 import { projects } from "./economy.ts";
@@ -11,37 +11,135 @@ import { importRegionalSave } from "./legacySave.ts";
 import { borderScenario } from "../scenario/scenario.ts";
 import type { Scenario } from "../scenario/scenario.ts";
 import { initialSettings, settingsSchema, validDifficultyHistory } from "./settings.ts";
+import { campaignSchema, endingSchema } from "./campaign.ts";
+import type { EndingRecord } from "./campaign.ts";
 const storeName = "saves";
-const slot = "local";
+const indexName = "saveIndex";
+const archiveName = "endings";
 export const saveVersion = 8;
+export const manualSaveSlots = ["local", "manual-2", "manual-3", "manual-4", "manual-5"] as const;
+export const autoSaveSlots = ["auto-1", "auto-2", "auto-3"] as const;
+export const saveSlotSchema = z.enum([...manualSaveSlots, ...autoSaveSlots]);
+export type SaveSlot = z.infer<typeof saveSlotSchema>;
+const summarySchema = z.object({
+  slot: saveSlotSchema,
+  savedAt: z.int().nonnegative(),
+  countryId: z.string().nullable(),
+  date: z.iso.date().nullable(),
+});
+export type SaveSummary = z.infer<typeof summarySchema>;
 
 interface SaveDatabase extends DBSchema {
-  saves: { key: typeof slot; value: unknown };
+  saves: { key: SaveSlot; value: unknown };
+  saveIndex: { key: SaveSlot; value: unknown };
+  endings: { key: string; value: unknown };
 }
 
 function openSaves() {
-  return openDB<SaveDatabase>("wang-guo-shi-shi", 1, {
-    upgrade(db) {
-      db.createObjectStore(storeName);
+  return openDB<SaveDatabase>("wang-guo-shi-shi", 3, {
+    upgrade(db, previous) {
+      if (previous === 0) db.createObjectStore(storeName);
+      if (previous < 2) db.createObjectStore(indexName);
+      db.createObjectStore(archiveName);
     },
   });
 }
 
-export async function saveGame(scenario: Scenario, state: GameState): Promise<void> {
+async function readSaveIndex(db: IDBPDatabase<SaveDatabase>): Promise<SaveSummary[]> {
+  const tx = db.transaction([storeName, indexName]);
+  const [rows, legacy] = await Promise.all([
+    tx.objectStore(indexName).getAll(),
+    tx.objectStore(storeName).getKey("local"),
+  ]);
+  const entries = rows.map((row) => summarySchema.parse(row));
+  if (legacy !== undefined && !entries.some(({ slot }) => slot === "local"))
+    entries.push({ slot: "local", savedAt: 0, countryId: null, date: null });
+  return entries.sort((a, b) => b.savedAt - a.savedAt);
+}
+
+export async function listGameSaves(): Promise<SaveSummary[]> {
   const db = await openSaves();
   try {
-    await db.put(storeName, { version: saveVersion, scenarioId: scenario.id, state }, slot);
+    return await readSaveIndex(db);
   } finally {
     db.close();
   }
 }
 
-export async function loadGame(scenario: Scenario): Promise<GameState | undefined> {
+export function autoSaveSlot(date: Date) {
+  return autoSaveSlots[date.getUTCMonth() % autoSaveSlots.length];
+}
+
+export async function saveGame(scenario: Scenario, state: GameState, slot: SaveSlot, replace: boolean) {
+  if (state.playerCountryId === null) throw new Error("请先选择国家");
+  const summary: SaveSummary = {
+    slot, savedAt: Date.now(), countryId: state.playerCountryId,
+    date: getGameDate(scenario, state).toISOString().slice(0, 10),
+  };
+  const db = await openSaves();
+  try {
+    const tx = db.transaction([storeName, indexName], "readwrite");
+    if (!replace && await tx.objectStore(storeName).getKey(slot) !== undefined) {
+      await tx.done;
+      throw new Error("该存档槽已有存档。请刷新列表并确认覆盖。");
+    }
+    await Promise.all([
+      tx.objectStore(storeName).put({ version: saveVersion, scenarioId: scenario.id, state }, slot),
+      tx.objectStore(indexName).put(summary, slot),
+      tx.done,
+    ]);
+    return summary;
+  } finally {
+    db.close();
+  }
+}
+
+export async function loadGame(scenario: Scenario, slot: SaveSlot): Promise<GameState | undefined> {
   const db = await openSaves();
   try {
     const save = await db.get(storeName, slot);
     if (save === undefined) return;
     return parseSave(scenario, save);
+  } finally {
+    db.close();
+  }
+}
+
+export async function loadRecentGame(scenario: Scenario) {
+  const db = await openSaves();
+  try {
+    let lastError: unknown;
+    let skipped = 0;
+    for (const { slot } of await readSaveIndex(db)) {
+      const saved = await db.get(storeName, slot);
+      if (saved === undefined) continue;
+      try {
+        return { state: parseSave(scenario, saved), slot, skipped };
+      } catch (error) {
+        lastError = error;
+        skipped++;
+      }
+    }
+    if (skipped > 0) throw new Error("没有可读取的存档", { cause: lastError });
+  } finally {
+    db.close();
+  }
+}
+
+export async function archiveEnding(ending: EndingRecord) {
+  const db = await openSaves();
+  try {
+    await db.put(archiveName, ending, ending.campaignId);
+  } finally {
+    db.close();
+  }
+}
+
+export async function listEndings() {
+  const db = await openSaves();
+  try {
+    return (await db.getAll(archiveName)).map((entry) => endingSchema.parse(entry))
+      .sort((a, b) => b.date.localeCompare(a.date));
   } finally {
     db.close();
   }
@@ -141,7 +239,7 @@ export function parseSave(scenario: Scenario, save: unknown): GameState {
       z.object({
         version: z.literal(saveVersion),
         scenarioId,
-        state: settingsStateSchema.extend({ lastPopulation }),
+        state: settingsStateSchema.extend({ lastPopulation, campaign: campaignSchema.optional() }),
       }),
     ])
     .safeParse(save);
@@ -158,6 +256,15 @@ export function parseSave(scenario: Scenario, save: unknown): GameState {
     throw new Error("存档中的人口、工程、外交或归属数据无效");
   }
   const owned = Object.keys(state.ownerByStateId);
+  const campaign = state.campaign;
+  if (campaign) {
+    const ending = campaign.ending;
+    if (
+      Date.UTC(campaign.endYear, 0, 1) <= Date.parse(scenario.startDate) ||
+      (ending !== null && (ending.campaignId !== campaign.id || ending.countryId !== state.playerCountryId ||
+        Date.parse(ending.date) > getGameDate(scenario, state).getTime()))
+    ) invalid();
+  }
   const population = state.lastPopulation;
   if (population && (
     population.day > state.elapsedDays ||

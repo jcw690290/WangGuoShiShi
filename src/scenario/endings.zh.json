@@ -1,0 +1,340 @@
+{
+  "country_01": {
+    "name": "清帝国",
+    "victory": {
+      "title": "海晏河清",
+      "conditions": "G≥1.8，SOL≥15，LIT≥50，TUR≤15，CORE≥0.90。",
+      "story": "旧疆与新业得到重新组织，庞大的国家终于能够共同运转。"
+    },
+    "defeat": {
+      "title": "山河失序",
+      "conditions": "CORE<0.50且TUR>55，或FISCAL_RUIN且LEG<25。",
+      "story": "中央仍保留名号，却已无法维持土地、财政与社会的联系。"
+    }
+  },
+  "country_02": {
+    "name": "英国",
+    "victory": {
+      "title": "四海通商",
+      "conditions": "G≥1.8，SOL≥17，TRADE≥0.50，SEA≥0.95。",
+      "story": "航路、工业与公共生活共同支撑了繁荣，而不只是海外账簿。"
+    },
+    "defeat": {
+      "title": "帝国失衡",
+      "conditions": "FISCAL_RUIN且TUR>45。",
+      "story": "远方的承诺不断增加，国内却失去了承担它们的能力。"
+    }
+  },
+  "country_03": {
+    "name": "奥斯曼帝国",
+    "victory": {
+      "title": "帝国常青",
+      "conditions": "CORE≥0.90，GOV≥0.85，SOL≥14，LIT≥45，SUP≥0.90。",
+      "story": "不同地区在新的治理安排中找到了继续共处的位置。"
+    },
+    "defeat": {
+      "title": "苏丹的黄昏",
+      "conditions": "GOV<0.45，LEG<25，TUR>50。",
+      "story": "命令仍从中央发出，却越来越少能够落实。"
+    }
+  },
+  "country_04": {
+    "name": "法国",
+    "victory": {
+      "title": "荣光新时代",
+      "conditions": "G≥2.0，SOL≥17，LIT≥65，LEG≥60。",
+      "story": "国家不再只靠往昔的战争证明自身，而以制度与生活建立新的荣光。"
+    },
+    "defeat": {
+      "title": "折翼的荣光",
+      "conditions": "TUR>60且LEG<25。",
+      "story": "互相争夺的政治承诺，最终耗尽了国家共同前进的能力。"
+    }
+  },
+  "country_05": {
+    "name": "西班牙王国",
+    "victory": {
+      "title": "伊比利亚复兴",
+      "conditions": "G≥1.8，SOL≥15，GOV≥0.85，TUR≤20。",
+      "story": "财政、产业与地方治理重新接上了曾经断裂的链条。"
+    },
+    "defeat": {
+      "title": "旧帝国的困局",
+      "conditions": "FISCAL_RUIN且G<0.80。",
+      "story": "庞大的责任没有带来同等的治理能力，危机终于成为常态。"
+    }
+  },
+  "country_06": {
+    "name": "葡萄牙联合王国",
+    "victory": {
+      "title": "大西洋共荣",
+      "conditions": "G≥1.8，SOL≥15，TRADE≥0.35，GOV≥0.80。",
+      "story": "跨海联系不再只是汲取财富，也成为各地共同发展的通道。"
+    },
+    "defeat": {
+      "title": "航路尽头",
+      "conditions": "FISCAL_RUIN且SEA<0.60。",
+      "story": "贸易无法填补财政的裂口，远隔重洋的责任日益沉重。"
+    }
+  },
+  "country_07": {
+    "name": "尼德兰王国",
+    "victory": {
+      "title": "商工并进",
+      "conditions": "G≥1.8，SOL≥17，TRADE≥0.50，IND≥0.25。",
+      "story": "港口与工场相互支撑，商业繁荣进入了居民生活。"
+    },
+    "defeat": {
+      "title": "运河沉寂",
+      "conditions": "G<0.65且U>0.25。",
+      "story": "曾经繁忙的交易停了下来，失业和衰退侵蚀着城市。"
+    }
+  },
+  "country_08": {
+    "name": "美利坚合众国",
+    "victory": {
+      "title": "自由与繁荣",
+      "conditions": "SOL≥17，LIT≥70，IND≥0.25，废除奴隶制，TUR≤20。",
+      "story": "国家的增长终于不再依赖一部分人的不自由。"
+    },
+    "defeat": {
+      "title": "破碎的契约",
+      "conditions": "CORE<0.60，或TUR>60且LEG<25。",
+      "story": "共同制度未能继续协调地区与社会，政治信任走向崩溃。"
+    }
+  },
+  "country_09": {
+    "name": "俄罗斯帝国",
+    "victory": {
+      "title": "大陆复兴",
+      "conditions": "G≥2.0，SOL≥15，LIT≥55，废除农奴制。",
+      "story": "辽阔土地上的人口与资源，开始通过新的制度释放潜力。"
+    },
+    "defeat": {
+      "title": "漫长寒冬",
+      "conditions": "SOL<7，GOV<0.40，TUR>50。",
+      "story": "庞大的体量无法代替有效治理，困苦成为越来越多人的日常。"
+    }
+  },
+  "country_10": {
+    "name": "普鲁士王国",
+    "victory": {
+      "title": "钢铁与秩序",
+      "conditions": "IND≥0.35，LIT≥70，SOL≥16，军队训练完成率≥80%。",
+      "story": "组织、教育与工业共同建立了超出国土体量的力量。"
+    },
+    "defeat": {
+      "title": "失落的雄鹰",
+      "conditions": "ARM<0.30且CORE<0.60。",
+      "story": "国家赖以自信的组织力量，在连续危机中失去了支撑。"
+    }
+  },
+  "country_11": {
+    "name": "奥地利帝国",
+    "victory": {
+      "title": "万邦共荣",
+      "conditions": "SOL≥15，LIT≥55，CORE≥0.90，TUR≤15，受到系统性文化或宗教歧视的人口比例≤10%。",
+      "story": "不同语言和传统没有消失，却能够在同一国家内共同发展。"
+    },
+    "defeat": {
+      "title": "冠冕下的裂痕",
+      "conditions": "TUR>60且LEG<25。",
+      "story": "帝国仍在，维持共处的政治安排却已难以令人信服。"
+    }
+  },
+  "country_12": {
+    "name": "瑞士邦联",
+    "victory": {
+      "title": "山间长治",
+      "conditions": "SOL≥18，LIT≥80，TUR≤10，非PUP，连续20年未发动侵略战争。",
+      "story": "有限的国土承载了稳定、富足与持续协商的制度。"
+    },
+    "defeat": {
+      "title": "中立终结",
+      "conditions": "PUP，或CORE<0.50。",
+      "story": "中立不再能够保障自主，国家失去了决定自身道路的空间。"
+    }
+  },
+  "country_13": {
+    "name": "巴伐利亚王国",
+    "victory": {
+      "title": "自强之邦",
+      "conditions": "G≥2.0，SOL≥16，LIT≥65，债务/信用上限<0.60。",
+      "story": "这个中等国家没有成为旁观者，而以建设赢得了自己的位置。"
+    },
+    "defeat": {
+      "title": "凋敝的王国",
+      "conditions": "G<0.65且TUR>50。",
+      "story": "地方生计与国家承诺同时衰弱，王国的未来变得黯淡。"
+    }
+  },
+  "country_14": {
+    "name": "汉诺威王国",
+    "victory": {
+      "title": "北德商路",
+      "conditions": "SOL≥16，LIT≥65，TRADE≥0.40，非PUP。",
+      "story": "外交联系和国内建设，使王国不必依附他人的力量生存。"
+    },
+    "defeat": {
+      "title": "被吞没的王冠",
+      "conditions": "PUP，或CORE<0.50且LEG<30。",
+      "story": "国家名义得以保留，真正的决定权却已不在自己手中。"
+    }
+  },
+  "country_15": {
+    "name": "丹麦—挪威联合王国",
+    "victory": {
+      "title": "北海共荣",
+      "conditions": "SOL≥16，GOV≥0.85，SEA≥0.95，TUR≤15。",
+      "story": "海峡、港口与不同地区的合作，支撑了一个共同繁荣的联合国家。"
+    },
+    "defeat": {
+      "title": "联合失序",
+      "conditions": "FISCAL_RUIN且TUR>55。",
+      "story": "共同承担的责任不断增加，合作与财政却同时衰退。"
+    }
+  },
+  "country_16": {
+    "name": "瑞典王国",
+    "victory": {
+      "title": "北方新生",
+      "conditions": "G≥2.0，SOL≥17，LIT≥70。",
+      "story": "资源、教育和产业让北方国家获得了新的发展空间。"
+    },
+    "defeat": {
+      "title": "冻土上的债务",
+      "conditions": "FISCAL_RUIN且G<0.80。",
+      "story": "发展的承诺没有兑现，债务逐渐替代了真实的增长。"
+    }
+  },
+  "country_18": {
+    "name": "撒丁王国",
+    "victory": {
+      "title": "山海振兴",
+      "conditions": "G≥2.0，SOL≥16，IND≥0.30，LEG≥60。",
+      "story": "大陆与海上的联系，将改革与产业变成了国家实力。"
+    },
+    "defeat": {
+      "title": "折戟的理想",
+      "conditions": "CORE<0.50，或FISCAL_RUIN且LEG<25。",
+      "story": "政治抱负超过了承受能力，国家在挫折中失去基础。"
+    }
+  },
+  "country_19": {
+    "name": "两西西里王国",
+    "victory": {
+      "title": "南方繁荣",
+      "conditions": "G≥2.0，SOL≥15，LIT≥55，GOV≥0.85。",
+      "story": "大陆与岛屿的差异得到协调，地方生活开始共享发展的成果。"
+    },
+    "defeat": {
+      "title": "双岸失序",
+      "conditions": "TUR>60且GOV<0.45。",
+      "story": "中央与地方逐渐脱节，海峡两岸都难以维持稳定生计。"
+    }
+  },
+  "country_20": {
+    "name": "教皇国",
+    "victory": {
+      "title": "罗马新生",
+      "conditions": "SOL≥16，LIT≥60，LEG≥65，NEWCUL≥3。",
+      "story": "无论国家采用何种制度，行政、教育与交流都为这片土地带来新生。"
+    },
+    "defeat": {
+      "title": "圣城衰微",
+      "conditions": "FISCAL_RUIN，或CORE<0.50。",
+      "story": "声望无法代替财政与治理，国家在现实危机中失去支撑。"
+    }
+  },
+  "country_21": {
+    "name": "希腊王国",
+    "victory": {
+      "title": "爱琴海繁荣",
+      "conditions": "SOL≥16，LIT≥65，TRADE≥0.35，非PUP。",
+      "story": "港口、教育和国家机构，使有限土地拥有了稳固未来。"
+    },
+    "defeat": {
+      "title": "爱琴阴霾",
+      "conditions": "PUP，或FISCAL_RUIN。",
+      "story": "自主的愿望仍在，维持自主的能力却已消耗殆尽。"
+    }
+  },
+  "country_22": {
+    "name": "伊朗",
+    "victory": {
+      "title": "高原复兴",
+      "conditions": "G≥2.0，SOL≥15，LIT≥55，GOV≥0.85。",
+      "story": "地方、市场与中央重新建立联系，改革成为能够落实的现实。"
+    },
+    "defeat": {
+      "title": "高原失序",
+      "conditions": "FISCAL_RUIN且TUR>50。",
+      "story": "地方负担与中央危机相互加深，秩序只剩下名义。"
+    }
+  },
+  "country_24": {
+    "name": "缅甸",
+    "victory": {
+      "title": "伊洛瓦底新生",
+      "conditions": "G≥1.8，SOL≥15，LIT≥55，受到强制役属制度限制的人口比例≤10%。",
+      "story": "河流连接的不只是征发与命令，也成为教育和繁荣的通路。"
+    },
+    "defeat": {
+      "title": "王都暮色",
+      "conditions": "CORE<0.50，或食品满足率<0.65且TUR>50。",
+      "story": "战争或治理失败耗尽了地方生计，王廷越来越难以支撑国家。"
+    }
+  },
+  "country_25": {
+    "name": "暹罗",
+    "victory": {
+      "title": "湄南繁荣",
+      "conditions": "G≥2.0，SOL≥16，LIT≥60，受到强制役属制度限制的人口比例≤10%。",
+      "story": "农业、商业与制度调整，为国家赢得了自主发展的空间。"
+    },
+    "defeat": {
+      "title": "湄南失序",
+      "conditions": "GOV<0.40且TUR>60。",
+      "story": "贸易与王权都未能修复地方治理，国家逐步失去协调能力。"
+    }
+  },
+  "country_26": {
+    "name": "越南",
+    "victory": {
+      "title": "山河安定",
+      "conditions": "G≥1.8，SOL≥15，LIT≥55，GOV≥0.85。",
+      "story": "地方得到有效治理，人口与产业在稳定的制度中共同成长。"
+    },
+    "defeat": {
+      "title": "山河蒙尘",
+      "conditions": "PUP，或CORE<0.50。 宗藩关系不算 PUP。",
+      "story": "国家保留了历史记忆，却失去了自主决定未来的现实基础。"
+    }
+  },
+  "country_28": {
+    "name": "朝鲜",
+    "victory": {
+      "title": "海东新政",
+      "conditions": "SOL≥16，LIT≥65，GOV≥0.85，U≤0.08。",
+      "story": "教育、财政与地方改革，使旧有国家获得了新的生机。"
+    },
+    "defeat": {
+      "title": "海东长夜",
+      "conditions": "SOL<7且TUR>60，或PUP。 宗藩关系不算 PUP。",
+      "story": "居民困苦与政治失序相互积累，改革的机会被不断错过。"
+    }
+  },
+  "country_29": {
+    "name": "日本",
+    "victory": {
+      "title": "东海新生",
+      "conditions": "SOL≥17，LIT≥75，IND≥0.35，强制身份役属制度显著解除。",
+      "story": "无论由谁执政，教育、产业与新的组织方式都支撑了国家转型。"
+    },
+    "defeat": {
+      "title": "列岛失序",
+      "conditions": "FISCAL_RUIN且TUR>55，或CORE<0.50。",
+      "story": "财政与地方权力的矛盾失去控制，国家难以继续共同运转。"
+    }
+  }
+}

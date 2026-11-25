@@ -13,6 +13,8 @@ import type { Nation, SiteSocial } from "./society.ts";
 import { applyClaim } from "./territory.ts";
 import { settlePopulationMonth } from "./demographics.ts";
 import type { PopulationMonth } from "./demographics.ts";
+import { finalizeCampaign, startCampaign } from "./campaign.ts";
+import type { Campaign, CampaignSetup } from "./campaign.ts";
 
 export interface GameState {
   elapsedDays: number;
@@ -28,6 +30,7 @@ export interface GameState {
   societies: Record<string, SiteSocial>;
   lastEconomy: EconomyReport | null;
   lastPopulation: PopulationMonth | null;
+  campaign?: Campaign;
   borderDispute: BorderDispute | null;
 }
 export type Span = "day" | "week" | "halfYear";
@@ -35,13 +38,14 @@ export type GameCommand =
   | { type: "selectCountry"; countryId: string }
   | { type: "setDifficulty"; difficulty: Difficulty }
   | { type: "setRuleTuning"; tuning: RuleTuning | null }
+  | { type: "continueSandbox" }
   | { type: "claimState"; stateId: string }
   | { type: "queueConstruction"; countryId: string; stateId: string; good: Building; privateBuild?: boolean }
   | { type: "advanceTick" | "advanceWeek" | "advanceDay" | "advanceHalfYear" }
   | PoliticsCommand
   | BorderCommand;
 
-export function createGame(scenario: Scenario, seed = 1820, difficulty: Difficulty = "standard"): GameState {
+export function createGame(scenario: Scenario, seed = 1820, difficulty: Difficulty = "standard", campaign?: CampaignSetup): GameState {
   const social = initSociety(scenario),
     countries = Object.values(scenario.countries),
     owned = Object.values(scenario.states).filter((s) => s.ownerId !== null);
@@ -59,6 +63,7 @@ export function createGame(scenario: Scenario, seed = 1820, difficulty: Difficul
     ...social,
     lastEconomy: null,
     lastPopulation: null,
+    ...(campaign ? { campaign: startCampaign(campaign) } : {}),
     borderDispute: null,
     ownerByStateId: Object.fromEntries(owned.map((s) => [s.id, s.ownerId!])),
     stateEconomies: Object.fromEntries(
@@ -85,8 +90,14 @@ export function isPopulationMonth(scenario: Scenario, state: GameState) {
   return state.tickInDay === 0 && state.elapsedDays > 0 && getGameDate(scenario, state).getUTCDate() === 1;
 }
 function remainingDays(scenario: Scenario, state: GameState) {
-  if (scenario.endDate === undefined) return Infinity;
-  return Math.max(0, (Date.parse(scenario.endDate) - getGameDate(scenario, state).getTime()) / DAY_MS);
+  if (state.campaign?.sandbox) return Infinity;
+  if (state.campaign?.ending) return 0;
+  const deadline = campaignEndDate(scenario, state);
+  if (deadline === undefined) return Infinity;
+  return Math.max(0, (Date.parse(deadline) - getGameDate(scenario, state).getTime()) / DAY_MS);
+}
+export function campaignEndDate(scenario: Scenario, state: GameState) {
+  return state.campaign ? `${state.campaign.endYear}-01-01` : scenario.endDate;
 }
 export function isScenarioFinished(scenario: Scenario, state: GameState) {
   return remainingDays(scenario, state) === 0;
@@ -118,10 +129,14 @@ export function advanceTick(
   const tickInDay = state.tickInDay + 1;
   if (tickInDay < TICKS_PER_DAY) return { ...state, tickInDay };
   const next = tickDiplomacy(scenario, { ...state, elapsedDays: state.elapsedDays + 1, tickInDay: 0 });
+  const date = getGameDate(scenario, next);
   const monthly = isPopulationMonth(scenario, next);
-  if (next.elapsedDays % 7 !== 0) return monthly ? settlePopulationMonth(next, getGameDate(scenario, next)) : next;
+  if (next.elapsedDays % 7 !== 0) {
+    const result = monthly ? settlePopulationMonth(next, date) : next;
+    return finalizeCampaign(result, date, result.ownerByStateId !== state.ownerByStateId);
+  }
   const weekly = settleEconomy(next, planWar(scenario, next));
-  const settled = monthly ? settlePopulationMonth(weekly, getGameDate(scenario, weekly)) : weekly;
+  const settled = monthly ? settlePopulationMonth(weekly, date) : weekly;
   let result = advancePolitics(advanceFront(scenario, settled, settled.lastEconomy), settled.lastEconomy);
   result.rng = (Math.imul(result.rng, 1664525) + 1013904223) >>> 0;
   const owners = new Set(Object.values(result.ownerByStateId));
@@ -153,10 +168,14 @@ export function advanceTick(
       });
   }
   for (const cmd of aiDiplomacy(scenario, result, humanCountries)) result = applyCommand(scenario, result, cmd);
-  return result;
+  return finalizeCampaign(result, date, result.ownerByStateId !== state.ownerByStateId);
 }
 export function dispatch(scenario: Scenario, state: GameState, cmd: GameCommand): GameState {
   switch (cmd.type) {
+    case "continueSandbox":
+      if (state.campaign?.ending?.kind !== "neutral" || state.campaign.sandbox)
+        throw new GameRuleError("当前无法继续沙盒");
+      return { ...state, campaign: { ...state.campaign, sandbox: true } };
     case "advanceTick":
       if (!state.playerCountryId) throw new GameRuleError("请先选择国家");
       return advanceTick(scenario, state);
@@ -174,13 +193,14 @@ export function dispatch(scenario: Scenario, state: GameState, cmd: GameCommand)
     }
     default:
       if (isScenarioFinished(scenario, state)) throw new GameRuleError("剧本已结束");
-      return applyCommand(scenario, state, cmd);
+      const next = applyCommand(scenario, state, cmd);
+      return next.ownerByStateId === state.ownerByStateId ? next : finalizeCampaign(next, getGameDate(scenario, next), true);
   }
 }
 function applyCommand(
   scenario: Scenario,
   state: GameState,
-  cmd: Exclude<GameCommand, { type: "advanceTick" | "advanceWeek" | "advanceDay" | "advanceHalfYear" }>,
+  cmd: Exclude<GameCommand, { type: "advanceTick" | "advanceWeek" | "advanceDay" | "advanceHalfYear" | "continueSandbox" }>,
 ): GameState {
   if (cmd.type === "selectCountry") {
     if (state.playerCountryId !== null || !Object.hasOwn(scenario.countries, cmd.countryId) ||
