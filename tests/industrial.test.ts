@@ -17,7 +17,8 @@ const scenario = {
       buildings: { ...original.buildings, wood: 1, iron: 1, coal: 1, tools: 1 } },
   },
 };
-const start = (map = scenario) => dispatch(map, createGame(map), { type: "selectCountry", countryId });
+const start = (map: typeof borderScenario = scenario) =>
+  dispatch(map, createGame(map), { type: "selectCountry", countryId });
 
 test("工商业按真实员工、库存和已落实资金生产并结算，预估无副作用", () => {
   const initial = start();
