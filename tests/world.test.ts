@@ -2,11 +2,58 @@ import assert from "node:assert/strict";
 import { readFileSync } from "node:fs";
 import { test } from "node:test";
 import { scenario, atlas, borderScenario } from "../src/scenario/scenario.ts";
-import { createGame, dispatch } from "../src/game/engine.ts";
+import { advanceDay, createGame, dispatch } from "../src/game/engine.ts";
+import { diplomaticTie } from "../src/game/diplomatic-ties.ts";
+import { applyPlayerCommand, decodeSnapshot, encodeSnapshot } from "../src/online/protocol.ts";
 import { landBorder } from "../src/game/diplomacy.ts";
 import { settleEconomy, weeklyBudgets } from "../src/game/economy.ts";
 import { parseSave, saveVersion } from "../src/game/storage.ts";
 import source from "../resources/1820_game_data.json" with { type: "json" };
+test("1820 年开局宗藩、朝贡贸易和共主关系保有独立主权与财政", async () => {
+  const qing = "country_01", vietnam = "country_26", korea = "country_28", siam = "country_25";
+  const britain = "country_02", hanover = "country_14";
+  const initial = dispatch(scenario, createGame(scenario), { type: "selectCountry", countryId: qing });
+  assert.deepEqual(
+    [diplomaticTie(initial, qing, vietnam)?.kind, diplomaticTie(initial, korea, qing)?.kind,
+      diplomaticTie(initial, qing, siam)?.kind, diplomaticTie(initial, britain, hanover)?.kind],
+    ["investiture", "investiture", "tributeTrade", "personalUnion"],
+  );
+  const settled = settleEconomy(initial);
+  const entries = settled.lastEconomy.countries;
+  for (const id of [vietnam, korea, siam, hanover]) {
+    assert.equal(initial.nations[id].overlord, null);
+    assert.equal(initial.nations[id].marketLeader, null);
+    assert.ok(Object.values(initial.ownerByStateId).includes(id));
+    assert.equal(entries[id].tribute, 0);
+    assert.equal(settled.countryEconomies[id].treasury - initial.countryEconomies[id].treasury,
+      entries[id].tax - entries[id].upkeep);
+  }
+  const command = { type: "endDiplomaticTie", countryId: hanover, partnerId: britain } as const;
+  assert.throws(() => applyPlayerCommand(scenario, initial, qing, command), /只能操作自己控制的国家/);
+  const independent = applyPlayerCommand(scenario, initial, hanover, command);
+  assert.equal(diplomaticTie(independent, britain, hanover), undefined);
+  assert.strictEqual(independent.ownerByStateId, initial.ownerByStateId);
+  assert.strictEqual(independent.countryEconomies, initial.countryEconomies);
+  assert.throws(() => dispatch(scenario, independent, command), /无可解除/);
+  assert.deepEqual(await decodeSnapshot(scenario, await encodeSnapshot(scenario, independent)), independent);
+  const duplicate = { ...initial, diplomaticTies: [...initial.diplomaticTies!, initial.diplomaticTies![0]] };
+  assert.throws(() => parseSave(scenario, { version: saveVersion, scenarioId: scenario.id, state: duplicate }), /无效/);
+});
+
+test("宗藩关系不随争端自动解散，双方进入战争时解除", () => {
+  const qing = "country_01", vietnam = "country_26";
+  let game = dispatch(scenario, createGame(scenario), { type: "selectCountry", countryId: qing });
+  game = dispatch(scenario, game, { type: "demandBorder", countryId: qing, targetStateId: "Tonkin", goal: "cession" });
+  const humans = new Set([qing, vietnam]);
+  while (game.elapsedDays < 27) game = advanceDay(scenario, game, humans);
+  assert.equal(game.borderDispute?.phase, "countdown");
+  assert.ok(diplomaticTie(game, qing, vietnam));
+  game = advanceDay(scenario, game, humans);
+  assert.equal(game.borderDispute?.phase, "war");
+  assert.equal(diplomaticTie(game, qing, vietnam), undefined);
+  assert.equal(game.diplomaticTies!.length, 3);
+});
+
 test("两个附属国的贡金分别扣款，宗主国面板的经常收支等于国库周结算", () => {
   const qing = "country_01", vietnam = "country_26", korea = "country_28";
   let game = dispatch(scenario, createGame(scenario), { type: "selectCountry", countryId: qing });
@@ -71,6 +118,7 @@ test("清越旧档迁入世界后保留队列、改革、战争进度并可再�
     borderDispute: { phase: "war", claimantId: a, defenderId: b, progress: 0, lastChange: null },
   };
   const g = parseSave(scenario, { version: 4, scenarioId: borderScenario.id, state: old });
+  assert.equal(g.diplomaticTies, undefined);
   assert.equal(Object.keys(g.stateEconomies).length, 544);
   assert.equal(g.elapsedDays, 21);
   assert.equal(g.playerCountryId, b);

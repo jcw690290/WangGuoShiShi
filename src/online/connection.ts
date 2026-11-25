@@ -263,8 +263,9 @@ export class RoomConnection {
       await this.setSpeed(0);
       return;
     }
-    // Daily deltas carry the date and diplomatic phase. Economy and population use full snapshots.
-    const checkpoint = next.elapsedDays % 7 === 0 || isPopulationMonth(this.scenario, next);
+    // Daily deltas carry the date and diplomatic phase; relationship changes use a full snapshot.
+    const checkpoint = next.elapsedDays % 7 === 0 || isPopulationMonth(this.scenario, next) ||
+      next.diplomaticTies !== game.diplomaticTies;
     const update = checkpoint
       ? { snapshot: await encodeSnapshot(this.scenario, next) }
       : { day: { elapsedDays: next.elapsedDays, borderDispute: next.borderDispute } };
