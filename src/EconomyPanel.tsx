@@ -1,4 +1,5 @@
-import { facilityNames, facilityTypes, socialTags, accepted } from "./game/society.ts";
+import { useMemo } from "react";
+import { facilityNames, facilityTypes, livingStandardOf, socialTags, accepted } from "./game/society.ts";
 import { projects, privateShareOf, weeklyBudgets } from "./game/economy.ts";
 import { count, silver } from "./format.ts";
 import { constructionError, workForce } from "./game/economy.ts";
@@ -76,6 +77,15 @@ function StateIndustry({
           <dd>{Math.round(snapshot.access * 100)}%</dd>
         </div>
         <div>
+          <dt>生活水平</dt>
+          <dd>{livingStandardOf(society.pops).toFixed(1)}</dd>
+        </div>
+        {snapshot.householdConsumption && <div>
+          <dt>家庭到货</dt>
+          <dd>粮食 {count(snapshot.householdConsumption.grain)} · 布匹 {count(snapshot.householdConsumption.cloth)}</dd>
+          <small>粮食满足 {Math.round(snapshot.foodFulfillment! * 100)}%</small>
+        </div>}
+        <div>
           <dt>常备军 / 建筑 / 军工工人</dt>
           <dd>
             {snapshot.regulars} / {snapshot.builders} / {snapshot.armourers}
@@ -143,7 +153,7 @@ function StateIndustry({
             <table>
               <thead>
                 <tr>
-                  {["职业 / 阶层", "文化 / 信仰", "人口", "财富", "识字率", "激进比例"].map((h) => (
+                  {["职业 / 阶层", "文化 / 信仰", "人口", "财富", "生活水平", "识字率", "激进比例"].map((h) => (
                     <th key={h}>{h}</th>
                   ))}
                 </tr>
@@ -161,6 +171,7 @@ function StateIndustry({
                     </td>
                     <td>{count(p.people)}</td>
                     <td>{p.wealth.toFixed(1)}</td>
+                    <td>{p.livingStandard.toFixed(1)}</td>
                     <td>{p.literacy.toFixed(1)}%</td>
                     <td>{p.radicals.toFixed(1)}%</td>
                   </tr>
@@ -179,6 +190,9 @@ export function EconomyPanel({ scenario, game, playerId, selectedId, report, bus
   const country = scenario.countries[marketId];
   const { market, tax, wageTaxRate, upkeep, tribute } = report.countries[marketId];
   const { tributeReceived, balance } = weeklyBudgets(game.nations, report)[marketId];
+  const countryLiving = useMemo(() => livingStandardOf(Object.entries(game.societies)
+    .filter(([stateId]) => game.ownerByStateId[stateId] === marketId).flatMap(([, site]) => site.pops)),
+  [game.societies, game.ownerByStateId, marketId]);
   const fiscal = game.countryEconomies[marketId].fiscal;
   const riskNames = { stable: "稳定", warning: "信用预警", restricted: "限制新工程", defaulted: "违约" };
 
@@ -227,6 +241,10 @@ export function EconomyPanel({ scenario, game, playerId, selectedId, report, bus
             <div>
               <dt>国库</dt>
               <dd>{silver(game.countryEconomies[marketId].treasury)}</dd>
+            </div>
+            <div>
+              <dt>平均生活水平</dt>
+              <dd>{countryLiving > 0 ? countryLiving.toFixed(1) : "—"}</dd>
             </div>
             <div>
               <dt>周税收（工资税 {wageTaxRate}%）</dt>
