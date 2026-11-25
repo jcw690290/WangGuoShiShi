@@ -8,7 +8,8 @@ import { projectEconomy } from "./game/economy.ts";
 import { createGame, dispatch, elapsedTicks, getGameDate, isScenarioFinished, spanDays, TICKS_PER_DAY } from "./game/engine.ts";
 import type { GameCommand, Span } from "./game/engine.ts";
 import { planWar } from "./game/diplomacy.ts";
-import { loadGame, saveGame } from "./game/storage.ts";
+import { autoSaveSlot, autoSaveSlots, listGameSaves, loadGame, loadRecentGame, manualSaveSlots, saveGame, saveSlotSchema } from "./game/storage.ts";
+import type { SaveSlot, SaveSummary } from "./game/storage.ts";
 import { difficultyLevels, difficultyNames, difficultySchema } from "./game/settings.ts";
 import type { Difficulty } from "./game/settings.ts";
 import { CLAIM_COST, claimError } from "./game/territory.ts";
@@ -32,6 +33,9 @@ export function App({ scenario, geometry }: { scenario: Scenario; geometry: Stat
     [selected, setSelected] = useState<string | null>(null);
   const [busy, setBusy] = useState(false),
     [notice, setNotice] = useState("");
+  const [saves, setSaves] = useState<SaveSummary[] | null>(null);
+  const [activeSlot, setActiveSlot] = useState<SaveSlot>("local");
+  const savedMonth = useRef(0);
   const countries = Object.values(scenario.countries).filter((country) => country.selectable !== false),
     backgroundCountries = Object.values(scenario.countries).filter((country) => country.selectable === false),
     [choice, setChoice] = useState(countries[0].id);
@@ -149,19 +153,48 @@ export function App({ scenario, geometry }: { scenario: Scenario; geometry: Stat
   useEffect(() => {
     if (finished && !menu.current!.open) menu.current!.showModal();
   }, [finished]);
-  async function slot(action: "save" | "load") {
+  useEffect(() => {
+    if (connection) return;
+    let cancelled = false;
+    void listGameSaves().then(
+      (entries) => { if (!cancelled) setSaves(entries); },
+      (error: unknown) => { if (!cancelled) setNotice("无法读取存档列表 · " + String(error)); },
+    );
+    return () => { cancelled = true; };
+  }, [connection]);
+
+  const populationDay = soloGame.lastPopulation?.day ?? 0;
+  useEffect(() => {
+    if (connection || !soloGame.playerCountryId || populationDay <= savedMonth.current) return;
+    savedMonth.current = populationDay;
+    const slot = autoSaveSlot(getGameDate(scenario, { ...soloGame, elapsedDays: populationDay }));
+    void saveGame(scenario, soloGame, slot, true).then(
+      (summary) => setSaves((entries) => [summary, ...(entries ?? []).filter((entry) => entry.slot !== slot)]),
+      (error: unknown) => setNotice("自动存档失败 · " + String(error)),
+    );
+  }, [connection, populationDay, scenario, soloGame]);
+
+  async function slot(action: "save" | "load" | "recent") {
     setBusy(true);
     try {
       if (action === "save") {
-        await saveGame(scenario, game);
+        const entries = await listGameSaves();
+        const existing = entries.find((entry) => entry.slot === activeSlot);
+        if (existing && !window.confirm(`覆盖此手动档（${existing.date ?? "旧存档"}）？`)) return;
+        const summary = await saveGame(scenario, game, activeSlot, existing !== undefined);
+        setSaves([summary, ...entries.filter((entry) => entry.slot !== activeSlot)]);
         setNotice("已存档 · " + dateFormat.format(date));
       } else {
-        const saved = await loadGame(scenario);
-        if (saved) {
-          setGame(saved);
+        const result = action === "recent"
+          ? await loadRecentGame(scenario)
+          : { state: await loadGame(scenario, activeSlot), slot: activeSlot, skipped: 0 };
+        if (result?.state) {
+          savedMonth.current = result.state.lastPopulation?.day ?? 0;
+          setActiveSlot(result.slot);
+          setGame(result.state);
           setUntil(null);
           setSelected(null);
-          setNotice("已读档 · " + dateFormat.format(getGameDate(scenario, saved)));
+          setNotice((result.skipped ? "已跳过损坏存档 · " : "") + "已读档 · " + dateFormat.format(getGameDate(scenario, result.state)));
         } else setNotice("暂无存档");
       }
     } catch (e) {
@@ -171,6 +204,14 @@ export function App({ scenario, geometry }: { scenario: Scenario; geometry: Stat
     } finally {
       setBusy(false);
     }
+  }
+  function saveSlotOptions(slots: readonly SaveSlot[], label: string) {
+    return slots.map((id, index) => {
+      const summary = saves?.find((entry) => entry.slot === id);
+      const nation = summary?.countryId ? scenario.countries[summary.countryId]?.name : undefined;
+      const detail = summary ? [nation, summary.date ?? "旧存档"].filter(Boolean).join(" ") : "空";
+      return <option key={id} value={id}>{label} {index + 1} · {detail}</option>;
+    });
   }
   return (
     <>
@@ -263,6 +304,7 @@ export function App({ scenario, geometry }: { scenario: Scenario; geometry: Stat
               </select>
             </label>
             <button className="advance" disabled={busy} onClick={() => {
+              savedMonth.current = 0;
               setSelected(null);
               setGame(dispatch(scenario, createGame(scenario, undefined, openingDifficulty), { type: "selectCountry", countryId: choice }));
             }}>开始执政</button>
@@ -282,8 +324,15 @@ export function App({ scenario, geometry }: { scenario: Scenario; geometry: Stat
           {tabs.map((title, i) => <button key={title} aria-pressed={tab === i}
             onClick={() => setTab(i)}>{title}</button>)}
           {!connection && <div className="slot-actions" role="group" aria-label="本地存档">
-            <button disabled={!player || locked} onClick={() => void slot("save")}>存档</button>
-            <button disabled={locked} onClick={() => void slot("load")}>读档</button>
+            <select aria-label="存档槽" value={activeSlot} disabled={locked || saves === null}
+              onChange={(event) => setActiveSlot(saveSlotSchema.parse(event.target.value))}>
+              <optgroup label="手动档">{saveSlotOptions(manualSaveSlots, "手动档")}</optgroup>
+              <optgroup label="自动档">{saveSlotOptions(autoSaveSlots, "自动档")}</optgroup>
+            </select>
+            <button disabled={!player || locked || saves === null || !manualSaveSlots.some((id) => id === activeSlot)}
+              onClick={() => void slot("save")}>存档</button>
+            <button disabled={locked || !saves?.some((entry) => entry.slot === activeSlot)} onClick={() => void slot("load")}>读档</button>
+            <button disabled={locked || !saves?.length} onClick={() => void slot("recent")}>最近有效档</button>
           </div>}
           <button className="close-menu" aria-label="关闭菜单" onClick={() => menu.current!.close()}>×</button>
         </header>

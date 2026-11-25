@@ -695,6 +695,7 @@ input:not([type="checkbox"]) {
 .government::backdrop { background: #1b262675; }
 .menu-tabs { display: flex; align-items: center; gap: 6px; padding: 10px; border-bottom: 1px solid var(--line); background: var(--paper); }
 .slot-actions { display: flex; gap: 6px; margin-left: auto; }
+.slot-actions select { min-width: 0; max-width: 100%; }
 .menu-tabs .close-menu, .online-dialog .close-menu { font-size: 18px; }
 .menu-tabs > .close-menu { margin-inline-start: auto; }
 .slot-actions + .close-menu { margin-inline-start: 0; }
@@ -702,6 +703,11 @@ input:not([type="checkbox"]) {
 .menu-body .economy { margin-top: 0; }
 .menu-tools { margin: 16px 0 0; }
 .sr-only { position: absolute; width: 1px; height: 1px; overflow: hidden; clip-path: inset(50%); }
+@media (max-width: 700px) {
+  .menu-tabs { flex-wrap: wrap; }
+  .slot-actions { order: 1; flex: 1 0 100%; margin-left: 0; flex-wrap: wrap; }
+  .slot-actions + .close-menu { margin-inline-start: auto; }
+}
 @media(max-width: 580px) {
   .country-picker { left: 6px; top: 8px; bottom: 8px; width: min(35%,150px); }
   .country-picker h1 { padding: 10px; font-size: 17px; }
