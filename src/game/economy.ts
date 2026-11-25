@@ -10,6 +10,7 @@ import { clearMarket, nextPrice, targetPrice } from "./market.ts";
 import type { MarketFill } from "./market.ts";
 import { settleFiscal } from "./fiscal.ts";
 import type { FiscalAccount } from "./fiscal.ts";
+import { livingStandardTarget } from "./households.ts";
 
 export type Building = Good | (typeof facilityTypes)[number];
 export const projects = {
@@ -65,6 +66,8 @@ export interface SiteReport {
   industries: ByGood<IndustryReport>;
   populationChange?: number;
   foodFulfillment?: number;
+  householdConsumption?: ByGood<number>;
+  consumptionIndex?: number;
   conscripts: number;
   access: number;
   localPrices: ByGood<number>;
@@ -107,8 +110,11 @@ export function weeklyBudgets(nations: GameState["nations"], report: EconomyRepo
 }
 export const workForce = (population: number) => Math.floor(population * 0.4);
 const fulfillment = (bought: number, demand: number) => demand ? bought / demand : 1;
+const basketBaseValue = goods.reduce((total, good) =>
+  total + industries[good].demandPerPerson * industries[good].basePrice, 0,
+);
 export const privateShareOf = (n: GameState["nations"][string]) =>
-  n.laws.includes("自由放任") ? 0.75 : n.laws.includes("干预主义") ? 0.5 : 0.35;
+  n.laws.includes("自由放任") ? 0.75 : n.laws.includes("干预主义") ? 0.5 : 0.20;
 export function marketOf(state: GameState, id: string) {
   return state.nations[id].marketLeader ?? id;
 }
@@ -165,7 +171,8 @@ function projectSettlement(state: GameState, war?: WarPlan) {
   const holdings: Record<string, string[]> = {};
   const marketSites: Record<string, string[]> = {};
   const supplies: Record<string, WeeklySupply> = {},
-    demands: Record<string, ByGood<number>> = {};
+    demands: Record<string, ByGood<number>> = {},
+    householdOrders: Record<string, ByGood<number>> = {};
   for (const [id, nation] of Object.entries(state.nations)) {
     const market = byGood(() => ({ demand: 0, supply: 0, price: 0 }));
     markets[id] = market;
@@ -251,11 +258,9 @@ function projectSettlement(state: GameState, war?: WarPlan) {
       weapons: Math.floor(170 * site.arsenal * staffed),
       ammunition: Math.floor(600 * site.ammunition * staffed),
     };
-    demands[id] = byGood(
-      (g) =>
-        Math.round(local.population * industries[g].demandPerPerson) +
-        (g === "cloth" ? Math.ceil(builders / 2) : builders),
-    );
+    const household = byGood((g) => Math.round(local.population * industries[g].demandPerPerson));
+    householdOrders[id] = household;
+    demands[id] = byGood((g) => household[g] + (g === "cloth" ? Math.ceil(builders / 2) : builders));
     report.states[id] = {
       industries: activity,
       regulars,
@@ -321,7 +326,7 @@ function projectSettlement(state: GameState, war?: WarPlan) {
       nation = state.nations[owner];
     c.market = markets[marketOf(state, owner)];
     const rate =
-      (nation.laws.includes("自由放任") ? 0.48 : nation.laws.includes("干预主义") ? 0.32 : 0.2) +
+      (nation.laws.includes("自由放任") ? 0.40 : nation.laws.includes("干预主义") ? 0.25 : 0.10) +
       (approval(nation, "地主") >= 10 || approval(nation, "实业家") >= 10 ? 0.05 : 0);
     let wages = 0,
       capacity = 0;
@@ -333,7 +338,8 @@ function projectSettlement(state: GameState, war?: WarPlan) {
         const target = targetPrice(base, supplies[id][g], demands[id][g]);
         return nextPrice(state.stateEconomies[id].localQuotes?.[g] ?? base, target);
       });
-      const fulfilled = byGood((g) => {
+      const household = householdOrders[id];
+      const fillsByUse = byGood((g) => {
         const m = c.market[g],
           production = s.industries[g],
           { local: localTrade, poolBought, poolSold } = fills[g][id];
@@ -357,14 +363,22 @@ function projectSettlement(state: GameState, war?: WarPlan) {
         const contribution = Math.floor(profit * rate);
         s.investment += contribution;
         s.dividends += profit - contribution;
-        return fulfillment(production.bought, demands[id][g]);
+        const demand = demands[id][g];
+        const residentGoods = demand ? Math.floor(production.bought * household[g] / demand) : 0;
+        return {
+          residentGoods,
+          constructionFulfillment: fulfillment(production.bought - residentGoods, demand - household[g]),
+        };
       });
-      s.foodFulfillment = fulfilled.grain;
+      s.householdConsumption = byGood((g) => fillsByUse[g].residentGoods);
+      s.foodFulfillment = fulfillment(s.householdConsumption.grain, household.grain);
+      const acquiredValue = goods.reduce((sum, g) => sum + fillsByUse[g].residentGoods * industries[g].basePrice, 0);
+      s.consumptionIndex = acquiredValue / (state.stateEconomies[id].population * basketBaseValue);
       c.investment += s.investment;
       // Each staffed department buys a weekly grain/cloth basket; shortages constrain the work done.
       capacity +=
         (s.builders / 50) *
-        (0.25 + 0.75 * Math.min(fulfilled.cloth, fulfilled.grain));
+        (0.25 + 0.75 * Math.min(fillsByUse.cloth.constructionFulfillment, fillsByUse.grain.constructionFulfillment));
     }
     c.capacity = Math.floor(capacity * 100) / 100;
     c.tax =
@@ -467,11 +481,14 @@ export function settleEconomy(state: GameState, war?: WarPlan, fractionOfYear = 
       societies[id],
       owner,
       nations[owner],
-      s.localPrices.grain,
-      s.industries.grain.wages,
-      s.industries.cloth.wages,
-      s.dividends,
-      s.industries.cloth.employed,
+      {
+        grainPrice: s.localPrices.grain,
+        grainWages: s.industries.grain.wages,
+        clothWages: s.industries.cloth.wages,
+        dividends: s.dividends,
+        textileJobs: s.industries.cloth.employed,
+        standardTarget: livingStandardTarget(s.consumptionIndex!, s.foodFulfillment!),
+      },
       tuning,
     );
   }

@@ -185,6 +185,8 @@ const siteReport = z.object({
   industries: z.object(byGood(() => industry)),
   populationChange: cash.optional(),
   foodFulfillment: fraction.optional(),
+  householdConsumption: goodsNumbers.optional(),
+  consumptionIndex: z.number().nonnegative().optional(),
   conscripts: uint,
   regulars: uint,
   builders: uint,
@@ -193,7 +195,9 @@ const siteReport = z.object({
   localPrices: goodsNumbers,
   dividends: uint,
   investment: uint,
-});
+}).refine((site) => site.householdConsumption === undefined
+  ? site.consumptionIndex === undefined
+  : site.consumptionIndex !== undefined && site.foodFulfillment !== undefined);
 export function parseSave(scenario: Scenario, save: unknown): GameState {
   const header = z.object({ version: z.int(), scenarioId: z.string() }).safeParse(save);
   if (!header.success) throw new Error("存档数据无效");

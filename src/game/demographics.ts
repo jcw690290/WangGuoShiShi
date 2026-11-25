@@ -36,7 +36,8 @@ export function settlePopulationMonth<T extends GameState>(state: T, date: Date)
     stateEconomies[siteId] = { ...economy, population: populationAfter };
 
     // The demo uses the public education unlock and university staffing capacity.
-    const education = state.nations[owner].knowledge["公共教育"] === 100 ? 1 : 0;
+    const { knowledge } = state.nations[owner];
+    const education = knowledge["高等教育"] === 100 ? 2 : knowledge["公共教育"] === 100 ? 1 : 0;
     const coverage = Math.min(1, site.university * 100_000 / population);
     let peopleSoFar = 0;
     let apportioned = 0;
@@ -72,7 +73,7 @@ export function settlePopulationMonth<T extends GameState>(state: T, date: Date)
         candidate.occupation === pop.occupation && candidate.culture === pop.culture && candidate.religion === pop.religion,
       );
       if (cohort) {
-        for (const key of ["wealth", "literacy", "radicals"] as const)
+        for (const key of ["wealth", "literacy", "radicals", "livingStandard"] as const)
           cohort[key] = (cohort[key] * cohort.people + pop[key] * people) / (cohort.people + people);
         cohort.people += people;
       } else societies[target].pops.push({ ...pop, people });

@@ -1,6 +1,7 @@
 import { z } from "zod";
 import type { Scenario } from "../scenario/scenario.ts";
 import type { RuleTuning } from "./settings.ts";
+import { startingLivingStandard, updateLivingStandard } from "./households.ts";
 
 export const occupations = ["农民", "劳工", "工程师", "军官", "教士", "店主", "资本家", "贵族"] as const;
 export type Occupation = (typeof occupations)[number];
@@ -23,6 +24,7 @@ export const popSchema = z.object({
   religion: z.string(),
   people: z.int().nonnegative(),
   wealth: z.number().nonnegative(),
+  livingStandard: z.number().min(1).max(30).default(startingLivingStandard),
   literacy: percent,
   radicals: percent,
 });
@@ -123,6 +125,7 @@ export function initSiteSociety(site: Scenario["states"][string]): SiteSocial {
         culture: foreign ? "地方文化-" + site.id : site.ownerId ?? "本地文化-" + site.id,
         religion: foreign ? "地方信仰-" + site.id : site.ownerId ?? "本地信仰-" + site.id,
         wealth: rank * rank * 4,
+        livingStandard: startingLivingStandard,
         literacy: 12 * rank + (hash(site.id) % 10),
         radicals: 0,
       });
@@ -175,10 +178,12 @@ export function accepted(pop: Pop, id: string, nation: Nation) {
     (nation.laws.includes("信仰自由") || pop.religion === id)
   );
 }
-export function literacyOf(pops: Pop[]) {
+function populationAverage(pops: Pop[], metric: "literacy" | "livingStandard") {
   const people = pops.reduce((n, p) => n + p.people, 0);
-  return people ? pops.reduce((n, p) => n + p.people * p.literacy, 0) / people : 0;
+  return people ? pops.reduce((n, p) => n + p.people * p[metric], 0) / people : 0;
 }
+export const literacyOf = (pops: Pop[]) => populationAverage(pops, "literacy");
+export const livingStandardOf = (pops: Pop[]) => populationAverage(pops, "livingStandard");
 export function influence(locals: SiteSocial[], id: string, nation: Nation) {
   const points = Object.fromEntries(groups.map((g) => [g, 0])) as Record<Group, number>;
   let sum = 0;
@@ -229,13 +234,13 @@ export function evolvePops(
   site: SiteSocial,
   id: string,
   nation: Nation,
-  grainPrice: number,
-  grainWages: number,
-  clothWages: number,
-  dividends: number,
-  textileJobs: number,
+  week: {
+    grainPrice: number; grainWages: number; clothWages: number;
+    dividends: number; textileJobs: number; standardTarget: number;
+  },
   tuning: RuleTuning,
 ) {
+  const { grainPrice, grainWages, clothWages, dividends, textileJobs, standardTarget } = week;
   const totals = Object.fromEntries(
     occupations.map((o) => [o, site.pops.reduce((s, p) => s + (p.occupation === o ? p.people : 0), 0)]),
   ) as Record<Occupation, number>;
@@ -264,7 +269,8 @@ export function evolvePops(
           (isAccepted ? 0 : 0.12 * tuning.radicalGrowth),
       ),
     );
-    return { ...p, wealth, radicals };
+    const livingStandard = updateLivingStandard(p.livingStandard, standardTarget);
+    return { ...p, wealth, radicals, livingStandard };
   });
   // Fill workshop vacancies from rural households of the same identity.
   const targetLabourers = Math.ceil(textileJobs / 0.4);
