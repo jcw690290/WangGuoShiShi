@@ -4,19 +4,23 @@ import {
   ownedSocieties,
   politicsError,
   researchCategory,
+  researchCapacity,
+  researchCost,
   availableTech,
   techEffect,
   lawEffect,
 } from "./game/politics.ts";
 import { distributionName, groups, influence, laws, literacyOf, powerDistribution, reformConditions, reformWork, techs, unrestOf } from "./game/society.ts";
 import type { Law } from "./game/society.ts";
+import { count } from "./format.ts";
 interface Props {
   game: GameState;
   playerId: string;
+  year: number;
   busy: boolean;
   send: (cmd: GameCommand) => void;
 }
-export function PoliticsPanel({ game, playerId: id, busy, send }: Props) {
+export function PoliticsPanel({ game, playerId: id, year, busy, send }: Props) {
   const n = game.nations[id],
     sites = ownedSocieties(game, id),
     people = sites.flatMap((site) => site.pops),
@@ -26,6 +30,12 @@ export function PoliticsPanel({ game, playerId: id, busy, send }: Props) {
     conditions = reformConditions(n, power, law, unrestOf(people));
   const progress = n.reformProgress / reformWork;
   const stage = progress < 1 / 3 ? "组织支持" : progress < 2 / 3 ? "争论修正" : "实施";
+  const literacy = literacyOf(people);
+  const worldReport = game.lastEconomy;
+  const universityStaff = worldReport ? Object.entries(worldReport.states).reduce((sum, [siteId, snapshot]) =>
+    sum + (game.ownerByStateId[siteId] === id ? snapshot.universityStaff ?? 0 : 0), 0,
+  ) : 0;
+  const { innovation, cap } = researchCapacity(universityStaff, literacy);
   const proposal = { type: "proposeLaw", countryId: id, law } as const;
   const reason = politicsError(game, proposal);
   return (
@@ -96,9 +106,10 @@ export function PoliticsPanel({ game, playerId: id, busy, send }: Props) {
         <section className="panel">
           <header className="panel-header">
             <h3>研究与扩散</h3>
-            <span>识字率 {literacyOf(people).toFixed(1)}%</span>
+            <span>识字率 {literacy.toFixed(1)}%</span>
           </header>
           <div className="control-block">
+            <p>周创新 {innovation.toFixed(1)} · 主动研究上限 {cap.toFixed(1)}</p>
             {techs.map((t) => (
               <div key={t} className="research-row">
                 <strong>
@@ -106,7 +117,7 @@ export function PoliticsPanel({ game, playerId: id, busy, send }: Props) {
                 </strong>
                 <progress aria-label={t + "进度"} max={100} value={n.knowledge[t]} />
                 <small>
-                  {n.knowledge[t].toFixed(1)}% · 本周扩散 +{n.diffusion[t].toFixed(1)} · {techEffect[t]}
+                  {n.knowledge[t].toFixed(2)}% · 本周扩散 +{n.diffusion[t].toFixed(2)} · 成本 {count(researchCost(t, year))} 点 · {techEffect[t]}
                 </small>
                 <button
                   className="build"

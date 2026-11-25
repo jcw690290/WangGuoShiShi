@@ -470,7 +470,7 @@ export function App({ scenario, geometry, initialSaves, initialSaveNotice }: {
             {tab === 0 && !connection && guideStep === 6 && game.lastEconomy && <button className="menu-button" onClick={() => markGuide(6)}>
               已核对市场缺口
             </button>}
-            {tab === 1 && <PoliticsPanel game={game} playerId={player} busy={locked || finished} send={send} />}
+            {tab === 1 && <PoliticsPanel game={game} playerId={player} year={date.getUTCFullYear()} busy={locked || finished} send={send} />}
             {tab === 2 && <DiplomacyPanel
               scenario={scenario}
               game={game}
