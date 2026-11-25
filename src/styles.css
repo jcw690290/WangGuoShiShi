@@ -62,6 +62,10 @@ button:focus-visible {
   font: bold 22px var(--serif);
   letter-spacing: 0.12em;
   white-space: nowrap;
+  color: inherit;
+  background: transparent;
+  border: 0;
+  padding: 0;
 }
 
 .seal {
@@ -754,6 +758,13 @@ input:not([type="checkbox"]) {
 .room-members li { padding: 8px 0; border-bottom: 1px solid #b7a78a; }
 .room-members span { font-size: 0.85em; }
 .room-error { color: #8b3024; }
+.developer-dialog form, .developer-dialog form > div, .difficulty-control { display: grid; gap: 8px; }
+.developer-dialog form + form { margin-top: 16px; }
+.developer-dialog label, .difficulty-control label { display: flex; align-items: center; justify-content: space-between; gap: 8px; }
+.developer-dialog input { width: 6rem; }
+.developer-dialog .developer-actions { display: flex; flex-wrap: wrap; gap: 8px; }
+.difficulty-control { margin-bottom: 12px; }
+.country-picker footer { flex-direction: column; align-items: stretch; gap: 6px; }
 @media (max-width: 580px) {
   .header-menus { grid-column: 2; grid-row: 1; }
   .online-time-controls { flex-wrap: wrap; }

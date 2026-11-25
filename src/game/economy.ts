@@ -5,6 +5,7 @@ import { byGood, goods, industries } from "./industry.ts";
 import type { ByGood, Good } from "./industry.ts";
 import { accepted, evolvePops, facilityTypes, approval, tributeRate } from "./society.ts";
 import { getEconomicRules } from "./politics.ts";
+import { ruleTuning } from "./settings.ts";
 
 export type Building = Good | (typeof facilityTypes)[number];
 export const projects = {
@@ -387,6 +388,7 @@ export function chooseConstruction(
 }
 export function settleEconomy(state: GameState, war?: WarPlan): GameState & { lastEconomy: EconomyReport } {
   const before = projectEconomy(state, war);
+  const tuning = ruleTuning(state.settings);
   const stateEconomies = { ...state.stateEconomies },
     societies = { ...state.societies },
     countryEconomies = { ...state.countryEconomies },
@@ -436,6 +438,7 @@ export function settleEconomy(state: GameState, war?: WarPlan): GameState & { la
       s.industries.cloth.wages,
       s.dividends,
       s.industries.cloth.employed,
+      tuning,
     );
     stateEconomies[id] = { ...local, population: local.population + s.populationChange };
   }

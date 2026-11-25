@@ -1,5 +1,6 @@
 import { z } from "zod";
 import type { Scenario } from "../scenario/scenario.ts";
+import type { RuleTuning } from "./settings.ts";
 
 export const occupations = ["农民", "劳工", "工程师", "军官", "教士", "店主", "资本家", "贵族"] as const;
 export type Occupation = (typeof occupations)[number];
@@ -234,6 +235,7 @@ export function evolvePops(
   clothWages: number,
   dividends: number,
   textileJobs: number,
+  tuning: RuleTuning,
 ) {
   const totals = Object.fromEntries(
     occupations.map((o) => [o, site.pops.reduce((s, p) => s + (p.occupation === o ? p.people : 0), 0)]),
@@ -265,13 +267,14 @@ export function evolvePops(
         (nation.knowledge["高等教育"] === 100 ? 0.08 : 0.03) * site.university +
         (nation.knowledge["公共教育"] === 100 ? 0.12 : 0),
     );
+    const suffering = wealth < 4 + p.literacy / 12 + (nation.knowledge["公共教育"] === 100 ? 1 : 0);
     const radicals = Math.max(
       0,
       Math.min(
         100,
         p.radicals +
-          (wealth < 4 + p.literacy / 12 + (nation.knowledge["公共教育"] === 100 ? 1 : 0) ? 0.25 : -0.18) +
-          (isAccepted ? 0 : 0.12),
+          (suffering ? 0.25 * tuning.radicalGrowth : -0.18 * tuning.radicalRelief) +
+          (isAccepted ? 0 : 0.12 * tuning.radicalGrowth),
       ),
     );
     cumulative += birthWeight(p);

@@ -26,7 +26,7 @@ test("两个附属国的贡金分别扣款，宗主国面板的经常收支等�
     assert.equal(settled.countryEconomies[id].treasury - game.countryEconomies[id].treasury, budgets[id].balance);
   }
 });
-test("660 个地图 ID、544 个属州与全体 29 个可选国逐项对齐，未分配州不入国库", () => {
+test("660 个地图 ID、544 个属州、26 个可选国与 3 个背景势力逐项对齐，未分配州不入国库", () => {
   const features = JSON.parse(
     readFileSync(new URL("../resources/victoria3_1820_states.geojson", import.meta.url), "utf8"),
   ).features as { properties: { id: string; countryId: string | null } }[];
@@ -36,13 +36,17 @@ test("660 个地图 ID、544 个属州与全体 29 个可选国逐项对齐，�
   assert.equal(Object.keys(scenario.states).length, 660);
   assert.equal(Object.keys(createGame(scenario).ownerByStateId).length, 544);
   assert.equal(Object.keys(scenario.countries).length, 29);
+  const backgroundIds = Object.values(scenario.countries).filter((c) => c.selectable === false).map((c) => c.id);
+  assert.deepEqual(backgroundIds, ["country_17", "country_23", "country_27"]);
   const g = createGame(scenario);
   for (const {
     properties: { id, countryId },
   } of features)
     assert.equal(g.ownerByStateId[id] ?? null, countryId);
   for (const c of source.countries) {
-    assert.equal(dispatch(scenario, g, { type: "selectCountry", countryId: c.id }).playerCountryId, c.id);
+    const command = { type: "selectCountry", countryId: c.id } as const;
+    if (backgroundIds.includes(c.id)) assert.throws(() => dispatch(scenario, g, command), /无法选择这个国家/);
+    else assert.equal(dispatch(scenario, g, command).playerCountryId, c.id);
     assert.equal(Object.values(g.ownerByStateId).filter((id) => id === c.id).length, c.stateCount);
   }
   assert.ok(atlas.Tonkin.neighbors.includes("Guangxi"));
