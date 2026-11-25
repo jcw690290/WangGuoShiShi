@@ -133,8 +133,11 @@ test("同盟内技术人口迁往接纳其身份的国家，迁入与迁出人�
   assert.equal(countEngineers(baseline, b) - countEngineers(moved, b), arrivals);
   assert.deepEqual(load(moved), moved);
 });
-test("战争进度到达和约门槛后移交州，结束占领及征兵", () => {
-  let g = demand(start());
+test("补足粮食后推进到和约门槛，移交州并结束征兵", () => {
+  let g = send(start(), { type: "queueConstruction", countryId: a, stateId: "Yunnan", good: "grain" });
+  for (let i = 0; i < 7 && g.countryEconomies[a].queue.length; i++) g = week(g);
+  assert.equal(g.stateEconomies.Yunnan.buildings.grain, scenario.states.Yunnan.buildings.grain + 1);
+  g = demand(g);
   for (let i = 0; i < 4; i++) g = week(g);
   g = send(g, { type: "promoteGeneral", countryId: a });
   g = send(g, { type: "mobilize", countryId: a });
