@@ -121,19 +121,20 @@ export const borderScenario: Scenario = {
 const worldCounts = counts.extend({
   wood: z.int().nonnegative(), iron: z.int().nonnegative(), coal: z.int().nonnegative(), tools: z.int().nonnegative(),
 });
-const siteSchema = z.object({
-  name: z.string(),
+const baseSiteSchema = z.object({
   label: z.tuple([z.number(), z.number()]),
   neighbors: z.array(z.string()),
   grainTransport: z.int().positive(),
-  buildings: worldCounts,
-  capacity: worldCounts,
+  buildings: counts,
+  capacity: counts,
   population: z.int().positive(),
   terrain: z.enum(["平原", "森林", "山地"]),
   coastal: z.boolean(),
 });
+const siteSchema = baseSiteSchema.extend({ name: z.string(), buildings: worldCounts, capacity: worldCounts });
+const rawWorld = z.record(z.string(), baseSiteSchema).parse(worldData);
 export const atlas = z.record(z.string(), siteSchema).parse(
-  Object.fromEntries(Object.entries(worldData).map(([id, state]) => {
+  Object.fromEntries(Object.entries(rawWorld).map(([id, state]) => {
     // The available 1820 map has terrain and population but no mineral survey.
     const resource = Math.floor(state.label[0] * 3 + state.label[1] * 7);
     const wood = state.terrain === "森林" ? 10 : 4;
