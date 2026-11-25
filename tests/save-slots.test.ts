@@ -33,7 +33,7 @@ test("IndexedDB 升级保留旧槽，并发时拒绝未确认覆盖，最近有�
   await saveGame(scenario, game, "manual-2", true);
   assert.deepEqual(await loadGame(scenario, "manual-2"), game);
 
-  const db = await openDB("wang-guo-shi-shi", 2);
+  const db = await openDB("wang-guo-shi-shi");
   await db.put("saves", { version: saveVersion, scenarioId: scenario.id, state: { elapsedDays: 0 } }, "manual-2");
   db.close();
   await assert.rejects(loadGame(scenario, "manual-2"), /存档数据无效/);

@@ -15,6 +15,7 @@ interface Props {
   report: EconomyReport;
   busy: boolean;
   send: (command: GameCommand) => void;
+  onPopulationOpen: () => void;
 }
 
 function StateIndustry({
@@ -25,6 +26,7 @@ function StateIndustry({
   report,
   busy,
   send,
+  onPopulationOpen,
 }: Omit<Props, "selectedId"> & { stateId: string }) {
   const site = scenario.states[stateId];
   const local = game.stateEconomies[stateId];
@@ -135,7 +137,7 @@ function StateIndustry({
             </button>
           ))}
         </div>
-        <details>
+        <details onToggle={(event) => { if (event.currentTarget.open) onPopulationOpen(); }}>
           <summary>人口群体 · 职业、文化与生活水平</summary>
           <div className="economy-table">
             <table>
@@ -172,7 +174,7 @@ function StateIndustry({
   );
 }
 
-export function EconomyPanel({ scenario, game, playerId, selectedId, report, busy, send }: Props) {
+export function EconomyPanel({ scenario, game, playerId, selectedId, report, busy, send, onPopulationOpen }: Props) {
   const marketId = selectedId === null ? playerId : game.ownerByStateId[selectedId];
   const country = scenario.countries[marketId];
   const { market, tax, wageTaxRate, upkeep, tribute } = report.countries[marketId];
@@ -265,6 +267,7 @@ export function EconomyPanel({ scenario, game, playerId, selectedId, report, bus
         </section>
         {selectedId !== null && (
           <StateIndustry
+            onPopulationOpen={onPopulationOpen}
             scenario={scenario}
             game={game}
             playerId={playerId}
