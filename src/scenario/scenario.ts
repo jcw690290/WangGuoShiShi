@@ -11,6 +11,7 @@ export interface Country {
   name: string;
   color: string;
   treasury: number;
+  selectable?: false;
 }
 
 interface ScenarioState {
@@ -134,6 +135,7 @@ const countries = z
   .array(countrySchema.extend({ id: z.string(), stateCount: z.int().positive() }))
   .parse(gameData.countries);
 const countryIds = new Set(countries.map((c) => c.id));
+const backgroundIds = new Set(["country_17", "country_23", "country_27"]);
 if (
   countryIds.size !== countries.length ||
   Object.keys(gameData.states).some((id) => !Object.hasOwn(atlas, id)) ||
@@ -160,6 +162,7 @@ export const scenario: Scenario = {
         name,
         color,
         treasury: 600_000 + stateCount * 150_000,
+        ...(backgroundIds.has(id) ? { selectable: false as const } : {}),
       },
     ]),
   ),

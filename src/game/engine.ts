@@ -1,4 +1,6 @@
 import { GameRuleError } from "./rules.ts";
+import { changeDifficulty, initialSettings, openingReserve } from "./settings.ts";
+import type { Difficulty, GameSettings, RuleTuning } from "./settings.ts";
 import type { Scenario } from "../scenario/scenario.ts";
 import { advanceFront, aiDiplomacy, applyBorderCommand, planWar, tickDiplomacy } from "./diplomacy.ts";
 import type { BorderCommand, BorderDispute } from "./diplomacy.ts";
@@ -13,6 +15,7 @@ import { applyClaim } from "./territory.ts";
 export interface GameState {
   elapsedDays: number;
   tickInDay: number;
+  settings: GameSettings;
   playerCountryId: string | null;
   rng: number;
   // Only sovereign/claimed states have keys; unclaimed map states are absent.
@@ -27,13 +30,15 @@ export interface GameState {
 export type Span = "day" | "week" | "halfYear";
 export type GameCommand =
   | { type: "selectCountry"; countryId: string }
+  | { type: "setDifficulty"; difficulty: Difficulty }
+  | { type: "setRuleTuning"; tuning: RuleTuning | null }
   | { type: "claimState"; stateId: string }
   | { type: "queueConstruction"; countryId: string; stateId: string; good: Building; privateBuild?: boolean }
   | { type: "advanceTick" | "advanceWeek" | "advanceDay" | "advanceHalfYear" }
   | PoliticsCommand
   | BorderCommand;
 
-export function createGame(scenario: Scenario, seed = 1820): GameState {
+export function createGame(scenario: Scenario, seed = 1820, difficulty: Difficulty = "standard"): GameState {
   const social = initSociety(scenario),
     countries = Object.values(scenario.countries),
     owned = Object.values(scenario.states).filter((s) => s.ownerId !== null);
@@ -45,6 +50,7 @@ export function createGame(scenario: Scenario, seed = 1820): GameState {
   return {
     elapsedDays: 0,
     tickInDay: 0,
+    settings: initialSettings(difficulty),
     playerCountryId: null,
     rng: seed >>> 0,
     ...social,
@@ -57,7 +63,9 @@ export function createGame(scenario: Scenario, seed = 1820): GameState {
         { population: s.population, buildings: { ...s.buildings } },
       ]),
     ),
-    countryEconomies: Object.fromEntries(countries.map((c) => [c.id, { treasury: c.treasury, queue: [] }])),
+    countryEconomies: Object.fromEntries(
+      countries.map((c) => [c.id, { treasury: openingReserve(c.treasury, difficulty), queue: [] }]),
+    ),
   };
 }
 export const DAY_MS = 86400000;
@@ -166,12 +174,19 @@ function applyCommand(
   cmd: Exclude<GameCommand, { type: "advanceTick" | "advanceWeek" | "advanceDay" | "advanceHalfYear" }>,
 ): GameState {
   if (cmd.type === "selectCountry") {
-    if (state.playerCountryId !== null || !Object.hasOwn(scenario.countries, cmd.countryId))
+    if (state.playerCountryId !== null || !Object.hasOwn(scenario.countries, cmd.countryId) ||
+        scenario.countries[cmd.countryId].selectable === false)
       throw new GameRuleError("无法选择这个国家");
     return { ...state, playerCountryId: cmd.countryId };
   }
   if (!state.playerCountryId) throw new GameRuleError("请先选择国家");
   switch (cmd.type) {
+    case "setDifficulty": {
+      const settings = changeDifficulty(state.settings, cmd.difficulty, elapsedTicks(state));
+      return settings === state.settings ? state : { ...state, settings };
+    }
+    case "setRuleTuning":
+      return { ...state, settings: { ...state.settings, tuning: cmd.tuning } };
     case "claimState":
       return applyClaim(scenario, state, cmd.stateId);
     case "queueConstruction": {

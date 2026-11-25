@@ -3,6 +3,7 @@ import { z } from "zod";
 import type { Scenario } from "../scenario/scenario.ts";
 import type { GameState } from "./engine.ts";
 import type { EconomyReport } from "./economy.ts";
+import { ruleTuning } from "./settings.ts";
 
 export const goals = ["cession", "reparations", "puppet", "vassal", "protectorate", "annex"] as const;
 export type Goal = (typeof goals)[number];
@@ -421,8 +422,10 @@ export function aiDiplomacy(
 ): BorderCommand[] {
   const d = state.borderDispute;
   if (!d || d.phase === "resolved") {
-    // Limit AI plays to one at a time. Give the player a full opening month to make the first demand.
-    if (state.elapsedDays % 56 !== 0) return [];
+    // Limit AI plays to one at a time, with at least four opening weeks for the player.
+    const { aiAggression } = ruleTuning(state.settings);
+    const interval = Math.max(4, Math.round(8 / aiAggression)) * 7;
+    if (state.elapsedDays < 28 || state.elapsedDays % interval !== 0) return [];
     const sites = Object.values(scenario.states).filter((s) => Object.hasOwn(state.ownerByStateId, s.id));
     for (let offset = 0; offset < sites.length; offset++) {
       const site = sites[(state.rng + offset) % sites.length],

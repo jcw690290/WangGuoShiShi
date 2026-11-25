@@ -1,4 +1,5 @@
 import { useEffect, useMemo, useRef, useState } from "react";
+import { defaultMaxTickRate, DeveloperPanel } from "./DeveloperPanel.tsx";
 import { DiplomacyPanel } from "./DiplomacyPanel.tsx";
 import { EconomyPanel } from "./EconomyPanel.tsx";
 import { PoliticsPanel } from "./PoliticsPanel.tsx";
@@ -8,6 +9,8 @@ import { createGame, dispatch, elapsedTicks, getGameDate, isScenarioFinished, sp
 import type { GameCommand, Span } from "./game/engine.ts";
 import { planWar } from "./game/diplomacy.ts";
 import { loadGame, saveGame } from "./game/storage.ts";
+import { difficultyLevels, difficultyNames, difficultySchema } from "./game/settings.ts";
+import type { Difficulty } from "./game/settings.ts";
 import { CLAIM_COST, claimError } from "./game/territory.ts";
 import { StateMap } from "./map/StateMap.tsx";
 import { capitals } from "./map/capitals.ts";
@@ -19,18 +22,26 @@ import { atlas } from "./scenario/scenario.ts";
 import type { Scenario } from "./scenario/scenario.ts";
 
 const dateFormat = new Intl.DateTimeFormat("zh-CN", { dateStyle: "long", timeZone: "UTC" });
-const tickRates = [1, 2, 4, 8, 32];
+const tickRates = [1, 2, 4, 8];
 const periods = ["00:00", "06:00", "12:00", "18:00"];
+function DifficultyOptions() {
+  return difficultyLevels.map((level) => <option key={level} value={level}>{difficultyNames[level]}</option>);
+}
 export function App({ scenario, geometry }: { scenario: Scenario; geometry: StateGeometry }) {
   const [soloGame, setGame] = useState(() => createGame(scenario)),
     [selected, setSelected] = useState<string | null>(null);
   const [busy, setBusy] = useState(false),
     [notice, setNotice] = useState("");
-  const countries = Object.values(scenario.countries),
+  const countries = Object.values(scenario.countries).filter((country) => country.selectable !== false),
+    backgroundCountries = Object.values(scenario.countries).filter((country) => country.selectable === false),
     [choice, setChoice] = useState(countries[0].id);
+  const [openingDifficulty, setOpeningDifficulty] = useState<Difficulty>("relaxed");
   const [span, setSpan] = useState<Span | "continuous">("continuous"),
     [until, setUntil] = useState<number | null>(null);
   const [speed, setSpeed] = useState(2);
+  const [maxTickRate, setMaxTickRate] = useState(defaultMaxTickRate);
+  const [developerOpen, setDeveloperOpen] = useState(false);
+  const logoClicks = useRef({ count: 0, time: -Infinity });
   const menu = useRef<HTMLDialogElement>(null);
   const roomDialog = useRef<HTMLDialogElement>(null);
   const online = useOnlineRoom(scenario, () => {
@@ -81,6 +92,15 @@ export function App({ scenario, geometry }: { scenario: Scenario; geometry: Stat
   );
   const date = getGameDate(scenario, game);
   const dateISO = date.toISOString().slice(0, 10);
+  function clickLogo(time: number) {
+    if (connection) return;
+    const count = time - logoClicks.current.time <= 1200 ? logoClicks.current.count + 1 : 1;
+    logoClicks.current = { count, time };
+    if (count !== 5) return;
+    logoClicks.current = { count: 0, time: -Infinity };
+    setUntil(null);
+    setDeveloperOpen(true);
+  }
   function send(cmd: GameCommand) {
     if (connection) {
       void online.act(async () => {
@@ -116,9 +136,9 @@ export function App({ scenario, geometry }: { scenario: Scenario; geometry: Stat
       setGame((previous) => elapsedTicks(previous) < until
         ? dispatch(scenario, previous, { type: "advanceTick" })
         : previous);
-    }, 1000 / speed);
+    }, 1000 / (speed === 5 ? maxTickRate : speed));
     return () => clearInterval(timer);
-  }, [running, until, speed, scenario, connection]);
+  }, [running, until, speed, maxTickRate, scenario, connection]);
   useEffect(() => {
     function pauseHiddenGame() {
       if (document.hidden) setUntil(null);
@@ -156,7 +176,9 @@ export function App({ scenario, geometry }: { scenario: Scenario; geometry: Stat
     <>
       <header className="masthead">
         <div className="masthead-inner">
-          <div className="brand"><span className="seal" aria-hidden="true">万</span>万国史诗</div>
+          <button type="button" className="brand" onClick={(event) => clickLogo(event.timeStamp)}>
+            <span className="seal" aria-hidden="true">万</span>万国史诗
+          </button>
           <div className={connection ? "time-controls online-time-controls" : "time-controls"}>
             {connection ? (
               <>
@@ -190,6 +212,7 @@ export function App({ scenario, geometry }: { scenario: Scenario; geometry: Stat
             <select aria-label="单机推进速度" value={speed} disabled={finished}
               onChange={(event) => setSpeed(Number(event.target.value))}>
               {tickRates.map((rate) => <option key={rate} value={rate}>{rate} tick／秒</option>)}
+              <option value={5}>{maxTickRate} tick／秒</option>
             </select>
             <select
               aria-label="推进跨度"
@@ -230,9 +253,18 @@ export function App({ scenario, geometry }: { scenario: Scenario; geometry: Stat
               <i className="swatch" style={{ background: countryColor(c) }} />{c.name}
             </button>)}
           </div>
-          <footer><small>首府 · {capitals[choice].name}</small>
+          <footer>
+            <small>首府 · {capitals[choice].name}</small>
+            {backgroundCountries.length > 0 && <small>背景势力（不可选） · {backgroundCountries.map(({ name }) => name).join("、")}</small>}
+            <label>难度
+              <select aria-label="开局难度" value={openingDifficulty}
+                onChange={(event) => setOpeningDifficulty(difficultySchema.parse(event.target.value))}>
+                <DifficultyOptions />
+              </select>
+            </label>
             <button className="advance" disabled={busy} onClick={() => {
-              setSelected(null); send({ type: "selectCountry", countryId: choice });
+              setSelected(null);
+              setGame(dispatch(scenario, createGame(scenario, undefined, openingDifficulty), { type: "selectCountry", countryId: choice }));
             }}>开始执政</button>
           </footer>
         </aside>}
@@ -240,6 +272,10 @@ export function App({ scenario, geometry }: { scenario: Scenario; geometry: Stat
           setTab(0); menu.current!.showModal();
         }}>{atlas[selected].name} · {owner ? scenario.countries[owner].name : "无主领土"} ›</button>}
       </main>
+      {developerOpen && !connection && <DeveloperPanel maxTickRate={maxTickRate}
+        settings={player && !finished ? game.settings : null}
+        setMaxTickRate={setMaxTickRate} setTuning={(tuning) => send({ type: "setRuleTuning", tuning })}
+        onClose={() => setDeveloperOpen(false)} />}
       <RoomDialog scenario={scenario} online={online} dialog={roomDialog} />
       <dialog className="government" ref={menu} aria-label="政务菜单">
         <header className="menu-tabs">
@@ -253,6 +289,15 @@ export function App({ scenario, geometry }: { scenario: Scenario; geometry: Stat
         </header>
         <p role="status" className="save-notice">{online.error || notice}</p>
         <div className="menu-body">
+        {!connection && player && <div className="difficulty-control">
+          <label>游戏难度
+            <select aria-label="游戏难度" value={game.settings.difficulty} disabled={locked || finished}
+              onChange={(event) => send({ type: "setDifficulty", difficulty: difficultySchema.parse(event.target.value) })}>
+              <DifficultyOptions />
+            </select>
+          </label>
+          <small>本局最低难度 · {difficultyNames[game.settings.lowestDifficulty]}</small>
+        </div>}
         {finished && player && (
           <section className="panel scenario-result" aria-labelledby="result-title">
             <header className="panel-header">

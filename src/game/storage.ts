@@ -2,7 +2,7 @@ import { openDB } from "idb";
 import type { DBSchema } from "idb";
 import { z } from "zod";
 import { disputeSchema, participants } from "./diplomacy.ts";
-import { DAY_MS, TICKS_PER_DAY } from "./engine.ts";
+import { DAY_MS, elapsedTicks, TICKS_PER_DAY } from "./engine.ts";
 import type { GameState } from "./engine.ts";
 import { byGood, goods } from "./industry.ts";
 import { projects } from "./economy.ts";
@@ -10,9 +10,10 @@ import { nationSchema, siteSocialSchema, projectTypes } from "./society.ts";
 import { importRegionalSave } from "./legacySave.ts";
 import { borderScenario } from "../scenario/scenario.ts";
 import type { Scenario } from "../scenario/scenario.ts";
+import { initialSettings, settingsSchema, validDifficultyHistory } from "./settings.ts";
 const storeName = "saves";
 const slot = "local";
-export const saveVersion = 6;
+export const saveVersion = 7;
 
 interface SaveDatabase extends DBSchema {
   saves: { key: typeof slot; value: unknown };
@@ -120,18 +121,24 @@ export function parseSave(scenario: Scenario, save: unknown): GameState {
       .nullable(),
   });
   const scenarioId = z.literal(scenario.id);
+  const timedStateSchema = stateSchema.extend({ tickInDay: uint.max(TICKS_PER_DAY - 1) });
   const schema = z
     .discriminatedUnion("version", [
       z.object({ version: z.literal(5), scenarioId, state: stateSchema }),
+      z.object({ version: z.literal(6), scenarioId, state: timedStateSchema }),
       z.object({
         version: z.literal(saveVersion),
         scenarioId,
-        state: stateSchema.extend({ tickInDay: uint.max(TICKS_PER_DAY - 1) }),
+        state: timedStateSchema.extend({ settings: settingsSchema }),
       }),
     ])
     .safeParse(save);
   if (!schema.success) throw new Error("存档数据无效或版本不兼容", { cause: schema.error });
-  const state = schema.data.version === 5 ? { ...schema.data.state, tickInDay: 0 } : schema.data.state;
+  const data = schema.data;
+  const state = data.version === 5 ? { ...data.state, tickInDay: 0, settings: initialSettings("standard") }
+    : data.version === 6 ? { ...data.state, settings: initialSettings("standard") }
+    : data.state;
+  if (!validDifficultyHistory(state.settings, elapsedTicks(state))) throw new Error("存档难度记录无效");
   function invalid(): never {
     throw new Error("存档中的人口、工程、外交或归属数据无效");
   }
