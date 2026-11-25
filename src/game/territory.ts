@@ -3,6 +3,7 @@ import type { Scenario } from "../scenario/scenario.ts";
 import { isScenarioFinished } from "./engine.ts";
 import type { GameState } from "./engine.ts";
 import { initSiteSociety } from "./society.ts";
+import { newFrontier } from "./governance.ts";
 
 // Demo balance parameter, in the same internal silver units as construction.
 export const CLAIM_COST = 50_000;
@@ -40,7 +41,7 @@ export function applyClaim(
         buildings: { ...site.buildings },
       },
     },
-    societies: { ...state.societies, [stateId]: initSiteSociety(site) },
+    societies: { ...state.societies, [stateId]: { ...initSiteSociety(site), governance: { ...newFrontier } } },
     countryEconomies: {
       ...state.countryEconomies,
       [id]: { ...country, treasury: country.treasury - CLAIM_COST },
