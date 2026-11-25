@@ -14,7 +14,7 @@ import type { FiscalAccount } from "./fiscal.ts";
 import { livingStandardTarget } from "./households.ts";
 import { administrationWage, advanceIntegration, governanceOf, governanceRules,
   integrationStaffNeeded, integrationWeekShare } from "./governance.ts";
-import { settleLandTrade } from "./trade.ts";
+import { expectedTrade, settleTrade } from "./trade.ts";
 import type { TradeDelivery } from "./trade.ts";
 
 export { marketOf } from "./market.ts";
@@ -69,6 +69,7 @@ export interface MilitarySupply {
   grainDemand: number;
   grainDrawn: number;
   grainTransport: number;
+  seaCargoUsed?: number;
   equipment: Record<"weapons" | "ammunition" | "uniforms", { demand: number; delivered: number }>;
   readiness: number;
 }
@@ -106,6 +107,7 @@ export interface CountryReport {
   universityWages?: number;
   administrationWages?: number;
   tradeTariff?: number;
+  tradeSeaCargo?: number;
 }
 export interface EconomyReport {
   states: Record<string, SiteReport>;
@@ -137,7 +139,7 @@ type WeeklySupply = ByGood<number> & { weapons: number; ammunition: number };
 // Add this force's issues to the national report, returning its own fulfilment for combat.
 function issueSupplies(
   military: MilitarySupply, stocks: Record<string, WeeklySupply>, sources: string[],
-  regulars: number, fieldStrength: number, campaignGrain: number, transport: number, grainShare: number,
+  regulars: number, fieldStrength: number, campaignGrain: number, transport: number, grainShare: number, overseas = false,
 ) {
   const demand = regulars + campaignGrain;
   const grain = sources.reduce((total, id) => total + stocks[id].grain, 0);
@@ -158,10 +160,11 @@ function issueSupplies(
     ammunition: Math.ceil(regulars / 10 + fieldStrength),
     uniforms: Math.ceil(regulars / 15 + fieldStrength / 8),
   };
+  let seaCargo = delivered;
   for (const kind of ["weapons", "ammunition", "uniforms"] as const) {
     const good = kind === "uniforms" ? "cloth" : kind;
     let issued = 0;
-    const limit = Math.min(transport, needs[kind]);
+    const limit = Math.min(overseas ? transport - seaCargo : transport, needs[kind]);
     for (const id of sources) {
       const take = Math.min(limit - issued, stocks[id][good]);
       stocks[id][good] -= take;
@@ -170,8 +173,10 @@ function issueSupplies(
     }
     military.equipment[kind].demand += needs[kind];
     military.equipment[kind].delivered += issued;
+    seaCargo += issued;
     if (needs[kind]) readiness = Math.min(readiness, issued / needs[kind]);
   }
+  if (overseas) military.seaCargoUsed = seaCargo;
   return readiness;
 }
 
@@ -205,6 +210,7 @@ function projectSettlement(state: GameState, war?: WarPlan, activeSites = state.
       universityWages: 0,
       administrationWages: 0,
       tradeTariff: 0,
+      tradeSeaCargo: 0,
       military: {
         regulars: 0,
         conscripts: 0,
@@ -306,6 +312,8 @@ function projectSettlement(state: GameState, war?: WarPlan, activeSites = state.
       investment: 0,
     };
   }
+  const militaryCargo = new Map<string, number>();
+  const blockadedPorts = new Set<string>();
   for (const [owner, ids] of Object.entries(holdings)) {
     const c = report.countries[owner],
       route = war?.routes[owner];
@@ -319,8 +327,10 @@ function projectSettlement(state: GameState, war?: WarPlan, activeSites = state.
       const fieldStrength = deployed + m.conscripts;
       m.readiness = issueSupplies(
         m, supplies, ids.filter((id) => route.connectedStates.has(id)),
-        deployed, fieldStrength, fieldStrength * war!.grainPerRecruit, route.grainTransport, war!.supplyPercent / 100,
+        deployed, fieldStrength, fieldStrength * war!.grainPerRecruit, route.grainTransport, war!.supplyPercent / 100, route.overseas,
       );
+      if (route.overseas) militaryCargo.set(owner, m.seaCargoUsed!);
+      if (route.raided) for (const stateId of route.recruitmentStates) blockadedPorts.add(stateId);
       // Rear garrisons draw from the remaining domestic output, outside the front's transport limit.
       if (rearRegulars > 0) issueSupplies(m, supplies, rear, rearRegulars, 0, 0, Infinity, 1);
     } else {
@@ -337,12 +347,14 @@ function projectSettlement(state: GameState, war?: WarPlan, activeSites = state.
   const fills = byGood((): Record<string, MarketFill> => ({}));
   const referenceQuotes: Record<string, ByGood<number>> = {};
   const localQuotes: Record<string, ByGood<number>> = {};
+  const expected = expectedTrade(state);
   for (const [marketId, market] of Object.entries(markets)) {
     const sites = marketSites[marketId];
+    const flow = expected.markets.get(marketId);
     referenceQuotes[marketId] = byGood((g) => {
       const good = market[g];
       const base = industries[g].basePrice;
-      const target = targetPrice(base, good.supply, good.demand);
+      const target = targetPrice(base, good.supply + (flow?.[g].incoming ?? 0), good.demand + (flow?.[g].outgoing ?? 0));
       const quote = nextPrice(state.countryEconomies[marketId].referenceQuotes?.[g] ?? base, target);
       good.targetPrice = Math.round(target);
       good.price = Math.round(quote);
@@ -356,17 +368,23 @@ function projectSettlement(state: GameState, war?: WarPlan, activeSites = state.
   }
   for (const [id, site] of Object.entries(report.states)) {
     const market = markets[marketOf(state, state.ownerByStateId[id])];
+    const flow = expected.sites.get(id);
     localQuotes[id] = byGood((g) => {
       const base = industries[g].basePrice;
-      const target = targetPrice(base, supplies[id][g], demands[id][g]);
+      const target = targetPrice(base, supplies[id][g] + (flow?.[g].incoming ?? 0), demands[id][g] + (flow?.[g].outgoing ?? 0));
       return nextPrice(state.stateEconomies[id].localQuotes?.[g] ?? base, target);
     });
     site.localPrices = byGood((g) => Math.round(
       site.access * market[g].price + (1 - site.access) * Math.round(localQuotes[id][g]),
     ));
   }
-  const trade = state.tradeRoutes?.length ? settleLandTrade(state, supplies, demands, report.states, fills) : undefined;
-  if (trade) report.trade = trade.deliveries;
+  const trade = state.tradeRoutes?.length
+    ? settleTrade(state, supplies, demands, report.states, fills, militaryCargo, blockadedPorts)
+    : undefined;
+  if (trade) {
+    report.trade = trade.deliveries;
+    for (const [id, cargo] of trade.seaCargo) report.countries[id].tradeSeaCargo = cargo;
+  }
   for (const [owner, ids] of Object.entries(holdings)) {
     const c = report.countries[owner],
       nation = state.nations[owner];
