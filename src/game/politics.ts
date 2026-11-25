@@ -1,10 +1,9 @@
 import { GameRuleError } from "./rules.ts";
 import type { GameState } from "./engine.ts";
 import type { EconomyReport } from "./economy.ts";
-import { groups, influence, literacyOf, reformConditions, techs } from "./society.ts";
+import { groups, influence, literacyOf, reformConditions, reformWork, techs, unrestOf } from "./society.ts";
 import type { Group, Law, Nation, SiteSocial, Tech } from "./society.ts";
 
-export const wageTaxReform = { baseRate: 10, rate: 14, weeks: 2 };
 export const textileResearch = { outputBonus: 25, weeks: 4 };
 export const researchCategory = {
   纺织工艺: "生产",
@@ -37,7 +36,7 @@ export const lawEffect: Record<Law, string> = {
   自由放任: "私人建造份额 75%，基础再投资比例 40%",
   平等公民权: "接纳所有文化",
   信仰自由: "接纳所有信仰",
-  普选制: "政治权力按人数计权",
+  普选制: "扩大基层参与，上／中／下层权重为 1.5／1.2／1",
   出版自由: "解除科技扩散的审查折减",
 };
 export type PoliticsCommand =
@@ -65,8 +64,9 @@ export function politicsError(state: GameState, command: PoliticsCommand) {
       return "已有研究、缺少前置技术或已经掌握该技术";
   } else {
     if (nation.reform !== null || nation.laws.includes(command.law)) return "已有议案或该法已生效";
-    const power = influence(ownedSocieties(state, id), id, nation);
-    if (!reformConditions(nation, power, command.law).speed)
+    const sites = ownedSocieties(state, id);
+    const power = influence(sites, id, nation);
+    if (!reformConditions(nation, power, command.law, unrestOf(sites.flatMap((site) => site.pops))).speed)
       return "需要政府集团或政治运动支持，并达到 25 合法性";
   }
 }
@@ -115,8 +115,8 @@ export function advancePolitics(state: GameState, report: EconomyReport): GameSt
         if (nation.research === tech && nation.knowledge[tech] === 100) nation.research = null;
       }
       if (nation.reform) {
-        nation.reformProgress += reformConditions(nation, influence(sites, id, nation), nation.reform).speed;
-        if (nation.reformProgress >= wageTaxReform.weeks) {
+        nation.reformProgress += reformConditions(nation, influence(sites, id, nation), nation.reform, unrestOf(people)).speed;
+        if (nation.reformProgress >= reformWork - 1e-9) {
           const reform = nation.reform;
           const retained = nation.laws.filter(
             (l) =>
