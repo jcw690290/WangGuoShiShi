@@ -23,6 +23,7 @@ const commandSchema = z.discriminatedUnion("type", [
   z.strictObject({ type: z.literal("addGoal"), countryId: id, goal: z.enum(goals) }),
   z.strictObject({ type: z.literal("sway"), countryId: id, allyId: id }),
   z.strictObject({ type: z.literal("joinUnion"), countryId: id, leaderId: id }),
+  z.strictObject({ type: z.literal("endDiplomaticTie"), countryId: id, partnerId: id }),
   z.strictObject({ type: z.literal(["backDown", "mobilize", "orderAdvance", "orderDefend", "raid", "signTreaty", "armistice", "promoteGeneral", "leaveUnion"]), countryId: id }),
 ]);
 export const memberSchema = z.object({ user: z.uuid(), country: id.nullable() });

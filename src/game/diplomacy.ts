@@ -1,5 +1,6 @@
 import { GameRuleError } from "./rules.ts";
 import { z } from "zod";
+import { diplomaticTie, removeDiplomaticTies } from "./diplomatic-ties.ts";
 import type { Scenario } from "../scenario/scenario.ts";
 import type { GameState } from "./engine.ts";
 import type { EconomyReport } from "./economy.ts";
@@ -64,6 +65,7 @@ export type BorderCommand =
   | { type: "demandBorder"; countryId: string; targetStateId: string; goal: Goal }
   | { type: "addGoal"; countryId: string; goal: Goal }
   | { type: "sway"; countryId: string; allyId: string }
+  | { type: "endDiplomaticTie"; countryId: string; partnerId: string }
   | {
       type:
         | "backDown"
@@ -161,8 +163,13 @@ function treaty(state: GameState, d: BorderDispute, victory: boolean, withdrawal
       if (reward < 50000) nations[a] = { ...nations[a], prestige: nations[a].prestige - 10 };
     }
   }
+  const live = new Set(Object.values(ownerByStateId));
+  const relations = removeDiplomaticTies(world, ({ senior, partner }) =>
+    !live.has(senior) || !live.has(partner) ||
+    nations[senior].overlord === partner || nations[partner].overlord === senior,
+  );
   return {
-    ...world,
+    ...relations,
     ownerByStateId,
     countryEconomies,
     nations,
@@ -185,6 +192,11 @@ export function applyBorderCommand(scenario: Scenario, state: GameState, cmd: Bo
     ...state,
     nations: { ...state.nations, [id]: { ...n, ...patch } },
   });
+  if (cmd.type === "endDiplomaticTie") {
+    const tie = diplomaticTie(state, id, cmd.partnerId);
+    if (!tie) throw new GameRuleError("无可解除的开局外交关系");
+    return removeDiplomaticTies(state, (current) => current === tie);
+  }
   if (cmd.type === "promoteGeneral") {
     if (n.generalRank >= 5 || state.countryEconomies[id].treasury < 80000)
       throw new GameRuleError("晋升需要 800 两，最高五级");
@@ -325,7 +337,12 @@ export function tickDiplomacy(scenario: Scenario, state: GameState): GameState {
   };
   if (state.elapsedDays - d.since < duration[d.phase]) return state;
   const phase = ({ escalation: "bargaining", bargaining: "countdown", countdown: "war" } as const)[d.phase];
-  return { ...state, borderDispute: { ...d, phase, since: state.elapsedDays } };
+  const next = { ...state, borderDispute: { ...d, phase, since: state.elapsedDays } };
+  if (phase !== "war") return next;
+  const sides = new Set(participants(d));
+  return removeDiplomaticTies(next, ({ senior, partner }) =>
+    sides.has(senior) && sides.has(partner) && attacking(d, senior) !== attacking(d, partner),
+  );
 }
 interface SupplyRoute {
   recruitmentStates: Set<string>;
@@ -448,7 +465,8 @@ export function aiDiplomacy(
           id !== owner &&
           !humanCountries.has(id) &&
           !state.nations[id].overlord &&
-          state.nations[owner].overlord !== id
+          state.nations[owner].overlord !== id &&
+          !diplomaticTie(state, id, owner)
         )
           return [{ type: "demandBorder", countryId: id, targetStateId: site.id, goal: "reparations" }];
       }

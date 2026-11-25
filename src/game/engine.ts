@@ -17,6 +17,7 @@ import { finalizeCampaign, startCampaign } from "./campaign.ts";
 import type { Campaign, CampaignSetup } from "./campaign.ts";
 import { fiscalWeekFraction } from "./fiscal.ts";
 import type { Occupation } from "./occupation.ts";
+import type { DiplomaticTie } from "./diplomatic-ties.ts";
 
 export interface GameState {
   elapsedDays: number;
@@ -34,6 +35,7 @@ export interface GameState {
   lastPopulation: PopulationMonth | null;
   campaign?: Campaign;
   borderDispute: BorderDispute | null;
+  diplomaticTies?: DiplomaticTie[];
   occupation?: Occupation;
 }
 export type Span = "day" | "week" | "halfYear";
@@ -68,6 +70,7 @@ export function createGame(scenario: Scenario, seed = 1820, difficulty: Difficul
     lastPopulation: null,
     ...(campaign ? { campaign: startCampaign(campaign) } : {}),
     borderDispute: null,
+    ...(scenario.diplomaticTies ? { diplomaticTies: scenario.diplomaticTies.map((tie) => ({ ...tie })) } : {}),
     ownerByStateId: Object.fromEntries(owned.map((s) => [s.id, s.ownerId!])),
     stateEconomies: Object.fromEntries(
       owned.map((s) => [
