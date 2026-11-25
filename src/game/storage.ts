@@ -11,8 +11,11 @@ import { importRegionalSave } from "./legacySave.ts";
 import { borderScenario } from "../scenario/scenario.ts";
 import type { Scenario } from "../scenario/scenario.ts";
 import { initialSettings, settingsSchema, validDifficultyHistory } from "./settings.ts";
+import { campaignSchema, endingSchema } from "./campaign.ts";
+import type { EndingRecord } from "./campaign.ts";
 const storeName = "saves";
 const indexName = "saveIndex";
+const archiveName = "endings";
 export const saveVersion = 8;
 export const manualSaveSlots = ["local", "manual-2", "manual-3", "manual-4", "manual-5"] as const;
 export const autoSaveSlots = ["auto-1", "auto-2", "auto-3"] as const;
@@ -29,13 +32,15 @@ export type SaveSummary = z.infer<typeof summarySchema>;
 interface SaveDatabase extends DBSchema {
   saves: { key: SaveSlot; value: unknown };
   saveIndex: { key: SaveSlot; value: unknown };
+  endings: { key: string; value: unknown };
 }
 
 function openSaves() {
-  return openDB<SaveDatabase>("wang-guo-shi-shi", 2, {
+  return openDB<SaveDatabase>("wang-guo-shi-shi", 3, {
     upgrade(db, previous) {
       if (previous === 0) db.createObjectStore(storeName);
-      db.createObjectStore(indexName);
+      if (previous < 2) db.createObjectStore(indexName);
+      db.createObjectStore(archiveName);
     },
   });
 }
@@ -116,6 +121,25 @@ export async function loadRecentGame(scenario: Scenario) {
       }
     }
     if (skipped > 0) throw new Error("没有可读取的存档", { cause: lastError });
+  } finally {
+    db.close();
+  }
+}
+
+export async function archiveEnding(ending: EndingRecord) {
+  const db = await openSaves();
+  try {
+    await db.put(archiveName, ending, ending.campaignId);
+  } finally {
+    db.close();
+  }
+}
+
+export async function listEndings() {
+  const db = await openSaves();
+  try {
+    return (await db.getAll(archiveName)).map((entry) => endingSchema.parse(entry))
+      .sort((a, b) => b.date.localeCompare(a.date));
   } finally {
     db.close();
   }
@@ -215,7 +239,7 @@ export function parseSave(scenario: Scenario, save: unknown): GameState {
       z.object({
         version: z.literal(saveVersion),
         scenarioId,
-        state: settingsStateSchema.extend({ lastPopulation }),
+        state: settingsStateSchema.extend({ lastPopulation, campaign: campaignSchema.optional() }),
       }),
     ])
     .safeParse(save);
@@ -232,6 +256,15 @@ export function parseSave(scenario: Scenario, save: unknown): GameState {
     throw new Error("存档中的人口、工程、外交或归属数据无效");
   }
   const owned = Object.keys(state.ownerByStateId);
+  const campaign = state.campaign;
+  if (campaign) {
+    const ending = campaign.ending;
+    if (
+      Date.UTC(campaign.endYear, 0, 1) <= Date.parse(scenario.startDate) ||
+      (ending !== null && (ending.campaignId !== campaign.id || ending.countryId !== state.playerCountryId ||
+        Date.parse(ending.date) > getGameDate(scenario, state).getTime()))
+    ) invalid();
+  }
   const population = state.lastPopulation;
   if (population && (
     population.day > state.elapsedDays ||

@@ -764,6 +764,46 @@ input:not([type="checkbox"]) {
 .room-members li { padding: 8px 0; border-bottom: 1px solid #b7a78a; }
 .room-members span { font-size: 0.85em; }
 .room-error { color: #8b3024; }
+.launcher {
+  position: absolute;
+  top: 50%;
+  left: 50%;
+  transform: translate(-50%, -50%);
+  width: min(24rem, calc(100% - 24px));
+  max-height: calc(100% - 24px);
+  overflow: auto;
+  padding: 20px;
+  border: 1px solid var(--line);
+  border-radius: 10px;
+  background: var(--paper);
+  color: var(--ink);
+  text-align: center;
+}
+.launcher h1 { margin: 0; font-family: var(--serif); }
+.launcher-actions { display: grid; gap: 8px; }
+.launcher-actions button { min-height: 44px; }
+.launcher-secondary { display: block; margin: 8px auto 0; border: 0; background: transparent; text-decoration: underline; }
+.country-tip { margin: 0; padding: 6px 12px; font-size: 0.85rem; }
+.country-picker footer input { width: 6rem; }
+.tutorial-guide {
+  position: absolute;
+  top: 10px;
+  left: 50%;
+  transform: translateX(-50%);
+  width: min(30rem, calc(100% - 24px));
+  max-height: 45%;
+  overflow: auto;
+  padding: 8px 12px;
+  border: 1px solid var(--line);
+  border-radius: 8px;
+  background: var(--paper);
+  color: var(--ink);
+}
+.tutorial-guide p { margin: 4px 0; }
+.tutorial-guide details { margin-top: 4px; }
+.ending-gallery dd { margin: 4px 0 12px; }
+.ending-records { padding-inline-start: 20px; }
+.ending-records p { margin: 4px 0; }
 .developer-dialog form, .developer-dialog form > div, .difficulty-control { display: grid; gap: 8px; }
 .developer-dialog form + form { margin-top: 16px; }
 .developer-dialog label, .difficulty-control label { display: flex; align-items: center; justify-content: space-between; gap: 8px; }
