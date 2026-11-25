@@ -8,6 +8,8 @@ import { getEconomicRules } from "./politics.ts";
 import { ruleTuning } from "./settings.ts";
 import { clearMarket, nextPrice, targetPrice } from "./market.ts";
 import type { MarketFill } from "./market.ts";
+import { settleFiscal } from "./fiscal.ts";
+import type { FiscalAccount } from "./fiscal.ts";
 
 export type Building = Good | (typeof facilityTypes)[number];
 export const projects = {
@@ -34,6 +36,7 @@ export interface CountryEconomy {
   treasury: number;
   queue: Project[];
   referenceQuotes?: ByGood<number>;
+  fiscal?: FiscalAccount;
 }
 export interface Market {
   demand: number;
@@ -83,6 +86,7 @@ export interface CountryReport {
   capacity: number;
   tribute: number;
   upkeep: number;
+  interestPaid?: number;
 }
 export interface EconomyReport {
   states: Record<string, SiteReport>;
@@ -91,7 +95,7 @@ export interface EconomyReport {
 
 export function weeklyBudgets(nations: GameState["nations"], report: EconomyReport) {
   const budgets = Object.fromEntries(Object.entries(report.countries).map(([id, country]) => [
-    id, { tributeReceived: 0, balance: country.tax - country.upkeep - country.tribute },
+    id, { tributeReceived: 0, balance: country.tax - country.upkeep - country.tribute - (country.interestPaid ?? 0) },
   ]));
   for (const [id, nation] of Object.entries(nations)) {
     if (nation.overlord === null) continue;
@@ -384,6 +388,9 @@ export function constructionError(
     return "只能在本国州内建设";
   const country = state.countryEconomies[countryId],
     nation = state.nations[countryId];
+  const fiscalRisk = country.fiscal?.week.risk;
+  if (!privateBuild && (fiscalRisk === "restricted" || fiscalRisk === "defaulted"))
+    return "公共支出不足，暂缓批准新工程";
   if (good === "grain" || good === "cloth") {
     const queued = [...country.queue, ...nation.privateQueue].filter(
       (p) => p.good === good && p.stateId === stateId,
@@ -414,7 +421,7 @@ export function chooseConstruction(
         return { stateId: id, good };
     }
 }
-export function settleEconomy(state: GameState, war?: WarPlan): GameState & { lastEconomy: EconomyReport } {
+export function settleEconomy(state: GameState, war?: WarPlan, fractionOfYear = 7 / 365): GameState & { lastEconomy: EconomyReport } {
   const before = projectEconomy(state, war);
   const tuning = ruleTuning(state.settings);
   const stateEconomies = { ...state.stateEconomies },
@@ -470,9 +477,19 @@ export function settleEconomy(state: GameState, war?: WarPlan): GameState & { la
   }
   const budgets = weeklyBudgets(nations, production);
   for (const [id, c] of Object.entries(production.countries)) {
+    const country = countryEconomies[id];
+    const closing = settleFiscal({
+      day: state.elapsedDays, treasury: country.treasury, fiscal: country.fiscal,
+      tax: c.tax, receipts: budgets[id].balance + c.upkeep, upkeep: c.upkeep,
+      fractionOfYear, difficulty: state.settings.difficulty,
+    });
+    const { week } = closing.fiscal;
+    if (c.upkeep > 0) c.military.readiness *= week.upkeepPaid / c.upkeep;
+    c.upkeep = week.upkeepPaid;
+    c.interestPaid = week.interestPaid;
     countryEconomies[id] = {
-      ...countryEconomies[id],
-      treasury: countryEconomies[id].treasury + budgets[id].balance,
+      ...country,
+      ...closing,
       referenceQuotes: referenceQuotes[marketOf(state, id)],
     };
     const morale = war?.routes[id]
