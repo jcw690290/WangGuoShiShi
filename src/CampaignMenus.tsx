@@ -6,7 +6,7 @@ import type { Campaign, EndingRecord } from "./game/campaign.ts";
 import { listAchievements, listEndings } from "./game/storage.ts";
 import { achievementCatalog, achievementKey } from "./game/achievements.ts";
 import type { AchievementRecord } from "./game/achievements.ts";
-import { endingCatalog } from "./scenario/endings.ts";
+import { endingCatalog, endingStory, endingTitle } from "./scenario/endings.ts";
 import type { Scenario } from "./scenario/scenario.ts";
 
 export function StartMenu({ saveCount, busy, hasCurrent, newGame, resume, gallery, returnToGame, notice }: {
@@ -66,9 +66,10 @@ export function EndingsGallery({ scenario, close }: { scenario: Scenario; close:
       {error ? <p role="alert">{error}</p> : records === null ? <p>正在读取记录</p>
         : records.length === 0 ? <p>暂无结局记录</p>
         : <ul className="ending-records">{records.map((record) => <li key={record.campaignId}>
-          <strong>{record.kind === "extinct" ? (endingCatalog[record.countryId]?.defeat.title ?? "正式灭国") : "未竟之志"}</strong>
+          <strong>{endingTitle(record)}</strong>
           <p>{scenario.countries[record.countryId]?.name ?? record.countryId} · {record.date} · {difficultyNames[record.difficulty]}</p>
           <small>国库 {silver(record.treasury)} · 属州 {count(record.stateCount)} · 人口 {count(record.population)}</small>
+          {endingStory(record) && <p>{endingStory(record)}</p>}
         </li>)}</ul>}
     </section>
     <section>
@@ -101,8 +102,7 @@ export function EndingsGallery({ scenario, close }: { scenario: Scenario; close:
         <p>IND 工业增加值占比，TRADE 贸易占比，GOV 治理覆盖，CORE 开局核心控制，SUP 陆军补给，ARM 有效陆军倍数，SEA 海运完成率，NEWCUL 新增亲近州，PUP 傀儡控制，FISCAL_RUIN 财政崩溃。</p>
       </details>
       <p><strong>民生典范</strong> · 高生活水平、识字率、基本消费满足率与可持续财政连续保持 5 年。</p>
-      {records?.some((record) => record.countryId === country && record.kind === "extinct") && <p>{story.defeat.story}</p>}
-      <small>当前可结算中性终局和正式灭国。其余条件可在此查阅。</small>
+      <small>终局按已接入的指标判定。地方动乱、治理覆盖、完整消费篮子及部分制度指标待接入。</small>
     </section>
   </dialog>;
 }

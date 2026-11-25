@@ -52,6 +52,7 @@ export type GameCommand =
   | { type: "setDifficulty"; difficulty: Difficulty }
   | { type: "setRuleTuning"; tuning: RuleTuning | null }
   | { type: "continueSandbox" }
+  | { type: "settleCampaignVictory" }
   | { type: "claimState"; stateId: string }
   | { type: "queueConstruction"; countryId: string; stateId: string; good: Building; privateBuild?: boolean }
   | { type: "advanceTick" | "advanceWeek" | "advanceDay" | "advanceHalfYear" }
@@ -143,7 +144,8 @@ export function advanceTick(
   const monthly = isPopulationMonth(scenario, next);
   if (next.elapsedDays % 7 !== 0) {
     const result = monthly ? settlePopulationMonth(scenario, next, date) : next;
-    return finalizeCampaign(advanceAchievements(state, result, date), date, result.ownerByStateId !== state.ownerByStateId);
+    return finalizeCampaign(scenario, advanceAchievements(state, result, date), date,
+      monthly || result.borderDispute !== state.borderDispute || result.ownerByStateId !== state.ownerByStateId);
   }
   const yearFraction = fiscalWeekFraction(date);
   const weekly = settleEconomy(next, planWar(scenario, next), yearFraction);
@@ -183,15 +185,16 @@ export function advanceTick(
       });
   }
   for (const cmd of aiDiplomacy(scenario, result, humanCountries)) result = applyCommand(scenario, result, cmd);
-  return finalizeCampaign(advanceAchievements(state, result, date, settled.lastEconomy), date,
-    result.ownerByStateId !== state.ownerByStateId);
+  return finalizeCampaign(scenario, advanceAchievements(state, result, date, settled.lastEconomy), date, true);
 }
 export function dispatch(scenario: Scenario, state: GameState, cmd: GameCommand): GameState {
   switch (cmd.type) {
     case "continueSandbox":
-      if (state.campaign?.ending?.kind !== "neutral" || state.campaign.sandbox)
+      if (!state.campaign?.ending || state.campaign.ending.kind === "extinct" || state.campaign.sandbox)
         throw new GameRuleError("当前无法继续沙盒");
       return { ...state, campaign: { ...state.campaign, sandbox: true } };
+    case "settleCampaignVictory":
+      return finalizeCampaign(scenario, state, getGameDate(scenario, state), true, true);
     case "advanceTick":
       if (!state.playerCountryId) throw new GameRuleError("请先选择国家");
       return advanceTick(scenario, state);
@@ -212,13 +215,13 @@ export function dispatch(scenario: Scenario, state: GameState, cmd: GameCommand)
       const next = applyCommand(scenario, state, cmd);
       const date = getGameDate(scenario, next);
       const awarded = advanceAchievements(state, next, date);
-      return next.ownerByStateId === state.ownerByStateId ? awarded : finalizeCampaign(awarded, date, true);
+      return finalizeCampaign(scenario, awarded, date, true);
   }
 }
 function applyCommand(
   scenario: Scenario,
   state: GameState,
-  cmd: Exclude<GameCommand, { type: "advanceTick" | "advanceWeek" | "advanceDay" | "advanceHalfYear" | "continueSandbox" }>,
+  cmd: Exclude<GameCommand, { type: "advanceTick" | "advanceWeek" | "advanceDay" | "advanceHalfYear" | "continueSandbox" | "settleCampaignVictory" }>,
 ): GameState {
   if (cmd.type === "selectCountry") {
     if (state.playerCountryId !== null || !Object.hasOwn(scenario.countries, cmd.countryId) ||
