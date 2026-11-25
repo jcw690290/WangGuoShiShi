@@ -3,6 +3,7 @@ import { test } from "node:test";
 import { projectEconomy } from "../src/game/economy.ts";
 import { planWar } from "../src/game/diplomacy.ts";
 import { advanceDay, createGame, dispatch } from "../src/game/engine.ts";
+import { byGood, industries } from "../src/game/industry.ts";
 import { parseSave, saveVersion } from "../src/game/storage.ts";
 import { applyPlayerCommand, decodeSnapshot, encodeSnapshot } from "../src/online/protocol.ts";
 import { borderScenario, scenario as world } from "../src/scenario/scenario.ts";
@@ -19,8 +20,8 @@ const start = () => {
   state.stateEconomies.Tonkin.buildings.grain = 0;
   state.stateEconomies.Annam.buildings.grain = 0;
   state.societies.Tonkin.infrastructure = 1;
-  state.countryEconomies[qing].referenceQuotes = { grain: 45, cloth: 300 };
-  state.countryEconomies[vietnam].referenceQuotes = { grain: 160, cloth: 300 };
+  state.countryEconomies[qing].referenceQuotes = byGood((good) => good === "grain" ? 45 : industries[good].basePrice);
+  state.countryEconomies[vietnam].referenceQuotes = byGood((good) => good === "grain" ? 160 : industries[good].basePrice);
   return state;
 };
 
@@ -147,7 +148,7 @@ test("商运使用海军军需后的剩余船队，破交只暂停受影响口�
   let game = dispatch(coastal, createGame(coastal), { type: "selectCountry", countryId: qing });
   game.nations[qing].convoys = 1;
   game.societies.Guangxi.infrastructure = 1;
-  game.countryEconomies[qing].referenceQuotes = { grain: 100, cloth: 500 };
+  game.countryEconomies[qing].referenceQuotes = byGood((good) => good === "cloth" ? 500 : industries[good].basePrice);
   const importCloth = { type: "openTradeRoute", countryId: qing, from: "Outlet", to: "Guangxi", mode: "sea",
     good: "cloth", limit: 500 } as const;
   game = dispatch(coastal, game, importCloth);

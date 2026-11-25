@@ -4,7 +4,8 @@ import { z } from "zod";
 import { disputeSchema, participants } from "./diplomacy.ts";
 import { DAY_MS, elapsedTicks, getGameDate, isPopulationMonth, TICKS_PER_DAY } from "./engine.ts";
 import type { GameState } from "./engine.ts";
-import { byGood, goods } from "./industry.ts";
+import { byIndustrialGood, goods, industrialGoods, industries } from "./industry.ts";
+import { industrialAccountSchema, industrialReportSchema } from "./industrial.ts";
 import { projects } from "./economy.ts";
 import { nationSchema, siteSocialSchema, projectTypes } from "./society.ts";
 import { importRegionalSave } from "./legacySave.ts";
@@ -184,8 +185,13 @@ export async function listAchievements() {
 const uint = z.int().nonnegative(),
   cash = z.int(),
   fraction = z.number().min(0).max(1);
-const goodsNumbers = z.object(byGood(() => uint));
-const quotes = z.object(byGood(() => z.number().positive()));
+const goodsNumbers = z.object({ grain: uint, cloth: uint, ...byIndustrialGood(() => uint.default(0)) });
+const allowedQuote = (base: number) => z.number().min(base * 0.25).max(base * 1.75);
+const quotes = z.object({
+  grain: allowedQuote(industries.grain.basePrice),
+  cloth: allowedQuote(industries.cloth.basePrice),
+  ...byIndustrialGood((good) => allowedQuote(industries[good].basePrice).default(industries[good].basePrice)),
+});
 const market = z.object({
   demand: uint, supply: uint, price: z.int().positive(), traded: uint.optional(), targetPrice: z.int().positive().optional(),
 })
@@ -204,7 +210,8 @@ const military = z.object({
   readiness: fraction,
 });
 const countryReport = z.object({
-  market: z.object(byGood(() => market)),
+  market: z.object({ grain: market, cloth: market, ...byIndustrialGood((good) =>
+    market.default({ supply: 0, demand: 0, price: industries[good].basePrice })) }),
   tax: uint,
   wageTaxRate: z.literal([10, 14]),
   wageTaxGain: uint,
@@ -222,11 +229,13 @@ const countryReport = z.object({
   tradeSeaCargo: uint.optional(),
 });
 const siteReport = z.object({
-  industries: z.object(byGood(() => industry)),
+  industries: z.object({ grain: industry, cloth: industry, ...byIndustrialGood(() =>
+    industry.default({ employed: 0, output: 0, wages: 0 })) }),
   populationChange: cash.optional(),
   foodFulfillment: fraction.optional(),
   householdConsumption: goodsNumbers.optional(),
   constructionGoods: goodsNumbers.optional(),
+  industrial: industrialReportSchema.optional(),
   consumptionIndex: z.number().nonnegative().optional(),
   conscripts: uint,
   regulars: uint,
@@ -265,7 +274,8 @@ export function parseSave(scenario: Scenario, save: unknown): GameState {
     ownerByStateId: z.record(activeSite, countries),
     stateEconomies: z.record(
       activeSite,
-      z.object({ population: z.int().positive(), buildings: goodsNumbers, localQuotes: quotes.optional() }),
+      z.object({ population: z.int().positive(), buildings: goodsNumbers, localQuotes: quotes.optional(),
+        industrial: industrialAccountSchema.optional() }),
     ),
     countryEconomies: z.record(countries, z.object({
       treasury: cash, queue: z.array(project), referenceQuotes: quotes.optional(), fiscal: fiscalAccountSchema.optional(),
@@ -397,6 +407,7 @@ export function parseSave(scenario: Scenario, save: unknown): GameState {
       { pops, governance, stability } = state.societies[id];
     if (governance?.integration && governance.integration.startedAtTick > elapsedTicks(state)) invalid();
     if (stability && Object.values(stability.lastIncident).some((day) => day > state.elapsedDays)) invalid();
+    if (!local.industrial && industrialGoods.some((good) => local.buildings[good] > 0)) invalid();
     if (pops.reduce((sum, p) => sum + p.people, 0) !== local.population) invalid();
     for (const p of pops) {
       if (
@@ -410,7 +421,7 @@ export function parseSave(scenario: Scenario, save: unknown): GameState {
     for (const g of goods)
       if (
         local.buildings[g] + queue.filter((p) => p.stateId === id && p.good === g).length >
-        scenario.states[id].capacity[g]
+        (scenario.states[id].capacity[g] ?? 0)
       )
         invalid();
   }

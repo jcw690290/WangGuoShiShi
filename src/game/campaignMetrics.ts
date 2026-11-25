@@ -6,7 +6,8 @@ import { participants } from "./diplomacy.ts";
 import { projectEconomy, weeklyBudgets, workForce } from "./economy.ts";
 import type { EconomyReport } from "./economy.ts";
 import type { GameState } from "./engine.ts";
-import { goods, industries } from "./industry.ts";
+import { goods, industrialGoods, industries } from "./industry.ts";
+import { inputs } from "./industrial.ts";
 import { accepted, governmentLegitimacy, influence } from "./society.ts";
 
 export const campaignBaselineSchema = z.object({ outputPerPerson: z.number().nonnegative(), army: z.number().nonnegative() });
@@ -15,9 +16,14 @@ type CampaignBaseline = z.infer<typeof campaignBaselineSchema>;
 function civilianOutput(report: EconomyReport, holdings: readonly string[]) {
   let total = 0, manufacturing = 0;
   for (const id of holdings) {
-    const activity = report.states[id].industries;
+    const { industries: activity, industrial } = report.states[id];
     for (const good of goods) total += activity[good].output * industries[good].basePrice;
-    manufacturing += activity.cloth.output * industries.cloth.basePrice;
+    if (industrial) for (const good of industrialGoods) total -= industrial.used[good] * industries[good].basePrice;
+    const toolRecipe = inputs.tools;
+    const toolInputs = (Object.keys(toolRecipe) as Array<keyof typeof toolRecipe>).reduce((sum, good) =>
+      sum + Math.ceil(activity.tools.employed * toolRecipe[good] / industries.tools.jobs) * industries[good].basePrice, 0);
+    manufacturing += activity.cloth.output * industries.cloth.basePrice +
+      activity.tools.output * industries.tools.basePrice - toolInputs;
   }
   return { total, manufacturing };
 }

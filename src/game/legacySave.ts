@@ -2,7 +2,7 @@ import { z } from "zod";
 import type { Scenario } from "../scenario/scenario.ts";
 import { createGame, DAY_MS } from "./engine.ts";
 import type { GameState } from "./engine.ts";
-import { byGood, goods, industries } from "./industry.ts";
+import { byGood, industries, isIndustrialGood, originalGoods } from "./industry.ts";
 
 // Input boundary for published versions 1–4 of the regional demo.
 export function importRegionalSave(region: Scenario, world: Scenario, save: unknown): GameState {
@@ -16,11 +16,12 @@ export function importRegionalSave(region: Scenario, world: Scenario, save: unkn
     playerCountryId: countryId,
     ownerByStateId: z.record(stateId, countryId),
   });
-  const project = z.object({ stateId, good: z.enum(goods), weeksLeft: z.int().positive() });
+  const project = z.object({ stateId, good: z.enum(originalGoods), weeksLeft: z.int().positive() });
   const industry = z.object({ employed: uint, output: uint, wages: uint });
   const market = z.object({ demand: uint, supply: uint, price: z.int().positive() });
-  const countryReport = z.object({ market: z.object(byGood(() => market)), tax: uint });
-  const stateReport = z.object({ industries: z.object(byGood(() => industry)), populationChange: z.int() });
+  const originalProducts = <T extends z.ZodType>(schema: T) => z.object({ grain: schema, cloth: schema });
+  const countryReport = z.object({ market: originalProducts(market), tax: uint });
+  const stateReport = z.object({ industries: originalProducts(industry), populationChange: z.int() });
   const economyReport = z.object({
     states: z.record(stateId, stateReport),
     countries: z.record(countryId, countryReport),
@@ -29,7 +30,7 @@ export function importRegionalSave(region: Scenario, world: Scenario, save: unkn
     .extend({
       stateEconomies: z.record(
         stateId,
-        z.object({ population: z.int().positive(), buildings: z.object(byGood(() => uint)) }),
+        z.object({ population: z.int().positive(), buildings: originalProducts(uint) }),
       ),
       countryEconomies: z.record(countryId, z.object({ treasury: uint, queue: z.array(project) })),
       lastEconomy: economyReport.nullable(),
@@ -49,7 +50,7 @@ export function importRegionalSave(region: Scenario, world: Scenario, save: unkn
       }
       return Object.entries(state.stateEconomies).every(([id, local]) => {
         const { queue } = state.countryEconomies[state.ownerByStateId[id]];
-        return goods.every((good) => {
+        return originalGoods.every((good) => {
           const queued = queue.filter((item) => item.stateId === id && item.good === good).length;
           return local.buildings[good] + queued <= scenario.states[id].capacity[good];
         });
@@ -156,8 +157,10 @@ export function importRegionalSave(region: Scenario, world: Scenario, save: unkn
     base.countryEconomies[id] = { treasury: region.countries[id].treasury, queue: [] };
   if ("countryEconomies" in original) {
     Object.assign(base.countryEconomies, original.countryEconomies);
-    Object.assign(base.stateEconomies, original.stateEconomies);
     for (const [id, local] of Object.entries(original.stateEconomies)) {
+      base.stateEconomies[id] = {
+        population: local.population, buildings: byGood((good) => isIndustrialGood(good) ? 0 : local.buildings[good]),
+      };
       const site = base.societies[id],
         sum = site.pops.reduce((a, p) => a + p.people, 0);
       let remainder = local.population;

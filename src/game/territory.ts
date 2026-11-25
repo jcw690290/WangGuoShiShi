@@ -4,6 +4,7 @@ import { isScenarioFinished } from "./engine.ts";
 import type { GameState } from "./engine.ts";
 import { initSiteSociety } from "./society.ts";
 import { newFrontier } from "./governance.ts";
+import { initialStateEconomy } from "./economy.ts";
 
 // Demo balance parameter, in the same internal silver units as construction.
 export const CLAIM_COST = 50_000;
@@ -36,10 +37,7 @@ export function applyClaim(
     ownerByStateId: { ...state.ownerByStateId, [stateId]: id },
     stateEconomies: {
       ...state.stateEconomies,
-      [stateId]: {
-        population: site.population,
-        buildings: { ...site.buildings },
-      },
+      [stateId]: initialStateEconomy(site),
     },
     societies: { ...state.societies, [stateId]: { ...initSiteSociety(site), governance: { ...newFrontier } } },
     countryEconomies: {

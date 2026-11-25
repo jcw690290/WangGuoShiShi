@@ -5,7 +5,7 @@ import { count, silver } from "./format.ts";
 import { constructionError, workForce } from "./game/economy.ts";
 import type { EconomyReport } from "./game/economy.ts";
 import type { GameCommand, GameState } from "./game/engine.ts";
-import { goods, industries } from "./game/industry.ts";
+import { goods, industrialGoods, industries, isGood } from "./game/industry.ts";
 import type { Scenario } from "./scenario/scenario.ts";
 import { affinityLevel, culturalAffinityOf } from "./game/culture.ts";
 import { governanceModes, governanceOf, governanceRules, integrationDuration, integrationStaffNeeded } from "./game/governance.ts";
@@ -104,7 +104,7 @@ function StateIndustry({
         </div>
         {snapshot.householdConsumption && <div>
           <dt>家庭到货</dt>
-          <dd>粮食 {count(snapshot.householdConsumption.grain)} · 布匹 {count(snapshot.householdConsumption.cloth)}</dd>
+          <dd>粮食 {count(snapshot.householdConsumption.grain)} · 布匹 {count(snapshot.householdConsumption.cloth)} · 木材 {count(snapshot.householdConsumption.wood)}</dd>
           <small>粮食满足 {Math.round(snapshot.foodFulfillment! * 100)}%</small>
         </div>}
         <div>
@@ -134,7 +134,7 @@ function StateIndustry({
               <div>
                 <strong>{industry.name}</strong>{" "}
                 <span>
-                  {local.buildings[good]} / {site.capacity[good]} 级
+                  {local.buildings[good]} / {site.capacity[good] ?? 0} 级
                 </span>
                 <p>
                   就业 {count(jobs.employed)} 人 · 周产出 {count(jobs.output)} · 本地价{" "}
@@ -158,6 +158,21 @@ function StateIndustry({
         })}
       </ul>
       <div className="control-block">
+        {snapshot.industrial && <details>
+          <summary>工业库存与周转资金</summary>
+          <p>周转金 {silver(snapshot.industrial.capital)} · 销售 {silver(snapshot.industrial.sales)} · 采购 {silver(snapshot.industrial.spent)} · 可分配结余 {silver(snapshot.industrial.distributed)}</p>
+          <div className="economy-table">
+            <table>
+              <thead><tr><th scope="col">商品</th><th scope="col">消耗</th><th scope="col">采购</th><th scope="col">余量</th></tr></thead>
+              <tbody>{industrialGoods.map((good) => <tr key={good}>
+                <td>{industries[good].goodName}</td>
+                <td>{count(snapshot.industrial!.used[good])}</td>
+                <td>{count(snapshot.industrial!.bought[good])}</td>
+                <td>{count(snapshot.industrial!.stocks[good])}</td>
+              </tr>)}</tbody>
+            </table>
+          </div>
+        </details>}
         <div className="diplomacy-actions">
           {facilityTypes.map((g) => (
             <button
@@ -430,7 +445,7 @@ export function EconomyPanel({ scenario, game, playerId, selectedId, report, bus
                     {queue.map(({ stateId, good, weeksLeft }, i) => (
                       <li key={i}>
                         {scenario.states[stateId].name} ·{" "}
-                        {good === "grain" || good === "cloth" ? industries[good].name : facilityNames[good]} ·
+                        {isGood(good) ? industries[good].name : facilityNames[good]} ·
                         余 {weeksLeft.toFixed(2)} 点
                       </li>
                     ))}

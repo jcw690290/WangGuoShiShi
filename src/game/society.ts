@@ -5,6 +5,7 @@ import { startingLivingStandard, updateLivingStandard } from "./households.ts";
 import { initialCulturalAffinity } from "./culture.ts";
 import { localGovernanceSchema } from "./governance.ts";
 import { emptyStability, stabilitySchema } from "./unrest.ts";
+import { goods } from "./industry.ts";
 
 export const occupations = ["农民", "劳工", "工程师", "军官", "教士", "店主", "资本家", "贵族"] as const;
 export type Occupation = (typeof occupations)[number];
@@ -85,7 +86,7 @@ export const emptyKnowledge = (): Record<Tech, number> => ({
 });
 export const privateProject = z.object({
   stateId: z.string(),
-  good: z.enum(["grain", "cloth"]),
+  good: z.enum(goods),
   weeksLeft: z.number().positive(),
 });
 export const facilityTypes = [
@@ -106,7 +107,7 @@ export const facilityNames = {
   arsenal: "兵工厂",
   ammunition: "弹药厂",
 };
-export const projectTypes = ["grain", "cloth", ...facilityTypes] as const;
+export const projectTypes = [...goods, ...facilityTypes] as const;
 export const subjectTypes = ["protectorate", "puppet", "vassal"] as const;
 export const tributeRate = { protectorate: 0.1, puppet: 0.15, vassal: 0.2 };
 export const nationSchema = z.object({

@@ -2,7 +2,7 @@ import assert from "node:assert/strict";
 import { test } from "node:test";
 import { createGame, dispatch } from "../src/game/engine.ts";
 import { marketOf, projectEconomy } from "../src/game/economy.ts";
-import { goods, industries } from "../src/game/industry.ts";
+import { goods, industries, isIndustrialGood } from "../src/game/industry.ts";
 import { clearMarket, nextPrice, targetPrice } from "../src/game/market.ts";
 import { parseSave, saveVersion } from "../src/game/storage.ts";
 import { scenario } from "../src/scenario/scenario.ts";
@@ -44,7 +44,8 @@ test("世界各共同市场的成交、州的销量与用量逐项一致，历�
       assert.equal(sites.reduce((n, [, site]) => n + site.industries[good].sold!, 0), market.traded);
       assert.equal(sites.reduce((n, [, site]) => n + site.industries[good].bought!, 0), market.traded);
       assert.ok(sites.every(([, site]) => site.industries[good].sold! <= site.industries[good].output));
-      assert.ok(sites.every(([, site]) => site.industries[good].sold! > 0 || site.industries[good].wages === 0));
+      if (!isIndustrialGood(good))
+        assert.ok(sites.every(([, site]) => site.industries[good].sold! > 0 || site.industries[good].wages === 0));
     }
   }
   const settled = dispatch(scenario, union, { type: "advanceWeek" });
