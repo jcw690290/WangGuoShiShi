@@ -8,8 +8,10 @@ import {
   goalNames,
   goals,
   holdings,
+  infamyLevel,
   interested,
   participants,
+  swayCost,
 } from "./game/diplomacy.ts";
 import type { BorderCommand, Goal } from "./game/diplomacy.ts";
 import type { EconomyReport } from "./game/economy.ts";
@@ -84,7 +86,7 @@ export function DiplomacyPanel({ scenario, game, playerId: id, report, busy, sen
         <h2 id="diplomacy-title">外交与战争</h2>
         <span>
           恶名 {n.infamy.toFixed(1)}
-          {n.infamy > 100 ? " · 国际弃民" : ""} · 外交信誉 {n.prestige}
+          {" · "}{infamyLevel(n.infamy)} · 外交信誉 {n.prestige}
         </span>
       </header>
       <div className="economy-grid">
@@ -97,14 +99,16 @@ export function DiplomacyPanel({ scenario, game, playerId: id, report, busy, sen
             {d && (
               <p role="status">
                 {countries[d.claimantId].name} → {countries[d.defenderId].name} ·{" "}
-                {scenario.states[d.targetStateId].name} · {d.goals.map((g) => goalNames[g]).join("、")}
+                {scenario.states[d.targetStateId].name} · 核心要求 {goalNames[d.goals[0]]}
+                {d.goals.length > 1 && ` · 追加 ${d.goals.slice(1).map((g) => goalNames[g]).join("、")}`}
                 {d.phase === "resolved" &&
                   " · " +
                     (d.outcome === "victory"
-                      ? "已执行全部要求"
+                      ? "条款已执行"
                       : d.outcome === "withdrawal"
                         ? "提出方撤回"
                         : "维持现状")}
+                {d.unacceptedGoals && ` · 未接受 ${d.unacceptedGoals.map((g) => goalNames[g]).join("、")}`}
               </p>
             )}
             {(!d || d.phase === "resolved") &&
@@ -165,6 +169,7 @@ export function DiplomacyPanel({ scenario, game, playerId: id, report, busy, sen
                       )}
                     {partner && (
                       <>
+                        <p>胜利条款生效时向该国支付 500 两，余额不足会降低信誉。</p>
                         <select
                           aria-label="拉拢国家"
                           value={partner}
@@ -177,15 +182,15 @@ export function DiplomacyPanel({ scenario, game, playerId: id, report, busy, sen
                           ))}
                         </select>
                         {btn(
-                          "承诺战胜后支付 500 两并拉拢",
+                          `拉拢支持 · ${swayCost(n.infamy)} 博弈点`,
                           { type: "sway", countryId: id, allyId: partner },
-                          !d.maneuvers,
+                          d.maneuvers < swayCost(n.infamy),
                         )}
                       </>
                     )}
                   </>
                 )}
-                {primary && btn(claimant ? "撤回要求" : "让步并接受全部要求", simple("backDown"))}
+                {primary && btn(claimant ? "撤回要求" : "让步并接受核心要求", simple("backDown"))}
               </>
             )}
             {d?.phase === "war" && (

@@ -338,6 +338,10 @@ export function parseSave(scenario: Scenario, save: unknown): GameState {
       parties.some((id) => !state.nations[id]) ||
       new Set(parties).size !== parties.length ||
       d.since > state.elapsedDays ||
+      (d.unacceptedGoals !== undefined && (
+        d.phase !== "resolved" || d.outcome !== "victory" || d.goals.length !== 1 ||
+        new Set([...d.goals, ...d.unacceptedGoals]).size !== d.goals.length + d.unacceptedGoals.length
+      )) ||
       [...d.advance, ...d.mobilized, ...d.raid].some((id) => !parties.includes(id)) ||
       d.promises.some((id) => !d.allies.includes(id))
     )

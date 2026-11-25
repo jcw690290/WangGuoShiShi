@@ -138,9 +138,10 @@ export function advanceTick(
     const result = monthly ? settlePopulationMonth(next, date) : next;
     return finalizeCampaign(result, date, result.ownerByStateId !== state.ownerByStateId);
   }
-  const weekly = settleEconomy(next, planWar(scenario, next), fiscalWeekFraction(date));
+  const yearFraction = fiscalWeekFraction(date);
+  const weekly = settleEconomy(next, planWar(scenario, next), yearFraction);
   const settled = monthly ? settlePopulationMonth(weekly, date) : weekly;
-  let result = advancePolitics(advanceFront(scenario, settled, settled.lastEconomy), settled.lastEconomy, date.getUTCFullYear());
+  let result = advancePolitics(advanceFront(scenario, settled, settled.lastEconomy), settled.lastEconomy, date.getUTCFullYear(), yearFraction);
   result.rng = (Math.imul(result.rng, 1664525) + 1013904223) >>> 0;
   const owners = new Set(Object.values(result.ownerByStateId));
   for (const id of owners) {
