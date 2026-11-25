@@ -81,6 +81,7 @@ export interface SiteReport {
   populationChange?: number;
   foodFulfillment?: number;
   householdConsumption?: ByGood<number>;
+  constructionGoods?: ByGood<number>;
   consumptionIndex?: number;
   conscripts: number;
   access: number;
@@ -427,6 +428,7 @@ function projectSettlement(state: GameState, war?: WarPlan, activeSites = state.
         const residentGoods = demand ? Math.floor(production.bought * household[g] / demand) : 0;
         return {
           residentGoods,
+          constructionGoods: production.bought - residentGoods,
           constructionFulfillment: fulfillment(production.bought - residentGoods, demand - household[g]),
         };
       });
@@ -439,6 +441,7 @@ function projectSettlement(state: GameState, war?: WarPlan, activeSites = state.
         c.tradeTariff! += transfer.tariff;
       }
       s.householdConsumption = byGood((g) => fillsByUse[g].residentGoods);
+      s.constructionGoods = byGood((g) => fillsByUse[g].constructionGoods);
       s.foodFulfillment = fulfillment(s.householdConsumption.grain, household.grain);
       const acquiredValue = goods.reduce((sum, g) => sum + fillsByUse[g].residentGoods * industries[g].basePrice, 0);
       s.consumptionIndex = acquiredValue / (state.stateEconomies[id].population * basketBaseValue);

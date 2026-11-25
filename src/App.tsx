@@ -9,7 +9,7 @@ import { projectEconomy } from "./game/economy.ts";
 import { campaignEndDate, createGame, dispatch, elapsedTicks, getGameDate, isScenarioFinished, spanDays, TICKS_PER_DAY } from "./game/engine.ts";
 import type { GameCommand, Span } from "./game/engine.ts";
 import { planWar } from "./game/diplomacy.ts";
-import { archiveEnding, autoSaveSlot, autoSaveSlots, listGameSaves, loadGame, loadRecentGame, manualSaveSlots, saveGame, saveSlotSchema } from "./game/storage.ts";
+import { archiveAchievements, archiveEnding, autoSaveSlot, autoSaveSlots, listGameSaves, loadGame, loadRecentGame, manualSaveSlots, saveGame, saveSlotSchema } from "./game/storage.ts";
 import type { SaveSlot, SaveSummary } from "./game/storage.ts";
 import { difficultyLevels, difficultyNames, difficultySchema } from "./game/settings.ts";
 import type { Difficulty } from "./game/settings.ts";
@@ -116,6 +116,7 @@ export function App({ scenario, geometry, initialSaves, initialSaveNotice }: {
   const date = getGameDate(scenario, game);
   const dateISO = date.toISOString().slice(0, 10);
   const ending = game.campaign?.ending;
+  const achievements = game.campaign?.achievements?.records;
   const deadline = campaignEndDate(scenario, game);
   const picker = !connection && (screen === "new" || screen === "tutorial");
   function markGuide(step: number) {
@@ -217,6 +218,10 @@ export function App({ scenario, geometry, initialSaves, initialSaveNotice }: {
     if (!connection && screen === "play" && ending)
       void archiveEnding(ending).catch((error: unknown) => setNotice("结局归档失败 · " + String(error)));
   }, [connection, ending, screen]);
+  useEffect(() => {
+    if (!connection && screen === "play" && achievements?.length)
+      void archiveAchievements(achievements).catch((error: unknown) => setNotice("成就归档失败 · " + String(error)));
+  }, [connection, achievements, screen]);
   const guideWeek = soloGame.campaign?.guideWeek;
   const guideStep = soloGame.campaign?.tutorialEnabled && !soloGame.campaign.guideSkipped ? soloGame.campaign.guideStep : null;
   const currentWeek = Math.floor(soloGame.elapsedDays / 7);

@@ -3,7 +3,9 @@ import { count, silver } from "./format.ts";
 import { difficultyNames } from "./game/settings.ts";
 import { defaultEndYear, guideSteps } from "./game/campaign.ts";
 import type { Campaign, EndingRecord } from "./game/campaign.ts";
-import { listEndings } from "./game/storage.ts";
+import { listAchievements, listEndings } from "./game/storage.ts";
+import { achievementCatalog, achievementKey } from "./game/achievements.ts";
+import type { AchievementRecord } from "./game/achievements.ts";
 import { endingCatalog } from "./scenario/endings.ts";
 import type { Scenario } from "./scenario/scenario.ts";
 
@@ -36,7 +38,9 @@ export function StartMenu({ saveCount, busy, hasCurrent, newGame, resume, galler
 export function EndingsGallery({ scenario, close }: { scenario: Scenario; close: () => void }) {
   const dialog = useRef<HTMLDialogElement>(null);
   const [records, setRecords] = useState<EndingRecord[] | null>(null);
+  const [achievements, setAchievements] = useState<AchievementRecord[] | null>(null);
   const [error, setError] = useState("");
+  const [achievementError, setAchievementError] = useState("");
   const [country, setCountry] = useState(Object.keys(endingCatalog)[0]);
   const story = endingCatalog[country];
   useEffect(() => {
@@ -46,12 +50,16 @@ export function EndingsGallery({ scenario, close }: { scenario: Scenario; close:
       (rows) => { if (!cancelled) setRecords(rows); },
       (cause: unknown) => { if (!cancelled) setError("结局读取失败 · " + String(cause)); },
     );
+    void listAchievements().then(
+      (rows) => { if (!cancelled) setAchievements(rows); },
+      (cause: unknown) => { if (!cancelled) setAchievementError("成就读取失败 · " + String(cause)); },
+    );
     return () => { cancelled = true; };
   }, []);
   return <dialog className="online-dialog ending-gallery" ref={dialog} onClose={close} aria-labelledby="gallery-title">
     <header className="room-heading">
-      <h2 id="gallery-title">结局</h2>
-      <button className="close-menu" aria-label="关闭结局" onClick={() => dialog.current!.close()}>×</button>
+      <h2 id="gallery-title">结局与成就</h2>
+      <button className="close-menu" aria-label="关闭结局与成就" onClick={() => dialog.current!.close()}>×</button>
     </header>
     <section>
       <h3>已结算战役</h3>
@@ -62,6 +70,21 @@ export function EndingsGallery({ scenario, close }: { scenario: Scenario; close:
           <p>{scenario.countries[record.countryId]?.name ?? record.countryId} · {record.date} · {difficultyNames[record.difficulty]}</p>
           <small>国库 {silver(record.treasury)} · 属州 {count(record.stateCount)} · 人口 {count(record.population)}</small>
         </li>)}</ul>}
+    </section>
+    <section>
+      <h3>战役成就</h3>
+      {achievementError ? <p role="alert">{achievementError}</p> : achievements === null ? <p>正在读取成就</p>
+        : achievements.length === 0 ? <p>暂无已解锁成就</p>
+        : <ul className="ending-records">{achievements.map((record) => <li key={achievementKey(record)}>
+          <strong>{achievementCatalog[record.id].title}</strong>
+          <p>{scenario.countries[record.countryId]?.name ?? record.countryId} · {record.date} · {difficultyNames[record.difficulty]}</p>
+        </li>)}</ul>}
+      <details>
+        <summary>成就条件</summary>
+        <dl>{Object.entries(achievementCatalog).map(([id, milestone]) => <div key={id}>
+          <dt>{milestone.title}</dt><dd>{milestone.condition}</dd>
+        </div>)}</dl>
+      </details>
     </section>
     <section>
       <h3>国家结局条件</h3>
