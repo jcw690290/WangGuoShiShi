@@ -10,7 +10,7 @@ import { getEconomicRules } from "./politics.ts";
 import { ruleTuning } from "./settings.ts";
 import { clearMarket, marketOf, nextPrice, targetPrice } from "./market.ts";
 import type { MarketFill } from "./market.ts";
-import { settleFiscal } from "./fiscal.ts";
+import { availablePrepaymentCredit, settleFiscal } from "./fiscal.ts";
 import type { FiscalAccount } from "./fiscal.ts";
 import { basicEquivalentSupply, byExtraGood, discretionaryIncome, extrasOrders, isExtraGood, livingStandardTarget,
   planBasicBasket, substitutedBasketCost } from "./households.ts";
@@ -93,6 +93,7 @@ export interface MilitarySupply {
   grainDrawn: number;
   grainTransport: number;
   seaCargoUsed?: number;
+  procurement?: { grain: number; cloth: number };
   equipment: Record<"weapons" | "ammunition" | "uniforms", { demand: number; delivered: number }>;
   readiness: number;
 }
@@ -168,15 +169,33 @@ const basketBaseValue = goods.reduce((total, good) =>
 export const privateShareOf = (n: GameState["nations"][string]) =>
   n.laws.includes("自由放任") ? 0.75 : n.laws.includes("干预主义") ? 0.5 : 0.20;
 type WeeklySupply = ByGood<number> & { weapons: number; ammunition: number };
+type MilitaryGoods = NonNullable<MilitarySupply["procurement"]>;
+interface SupplyContract {
+  cash: number;
+  prices: MilitaryGoods;
+  spending: MilitaryGoods;
+  proceeds: Map<string, number>;
+}
+
+export function militaryProcurementCost(spending: MilitarySupply["procurement"]) {
+  return spending === undefined ? 0 : spending.grain + spending.cloth;
+}
 
 // Add this force's issues to the national report, returning its own fulfilment for combat.
 function issueSupplies(
-  military: MilitarySupply, stocks: Record<string, WeeklySupply>, sources: string[],
+  military: MilitarySupply, contract: SupplyContract, stocks: Record<string, WeeklySupply>, sources: string[],
   regulars: number, fieldStrength: number, campaignGrain: number, transport: number, grainShare: number, overseas = false,
 ) {
+  function pay(id: string, good: keyof MilitaryGoods, units: number) {
+    if (units === 0) return;
+    const price = units * contract.prices[good];
+    contract.cash -= price;
+    contract.spending[good] += price;
+    contract.proceeds.set(id, (contract.proceeds.get(id) ?? 0) + price);
+  }
   const demand = regulars + campaignGrain;
   const grain = sources.reduce((total, id) => total + stocks[id].grain, 0);
-  const delivered = Math.min(demand, transport, Math.floor(grain * grainShare));
+  const delivered = Math.min(demand, transport, Math.floor(grain * grainShare), Math.floor(contract.cash / contract.prices.grain));
   military.grainDemand += demand;
   military.grainDrawn += delivered;
   military.grainTransport += Math.min(transport, grain);
@@ -186,6 +205,7 @@ function issueSupplies(
     cumulative += stocks[id].grain;
     const share = grain ? Math.floor(delivered * cumulative / grain) : 0;
     stocks[id].grain -= share - allocated;
+    pay(id, "grain", share - allocated);
     allocated = share;
   }
   const needs = {
@@ -197,10 +217,12 @@ function issueSupplies(
   for (const kind of ["weapons", "ammunition", "uniforms"] as const) {
     const good = kind === "uniforms" ? "cloth" : kind;
     let issued = 0;
-    const limit = Math.min(overseas ? transport - seaCargo : transport, needs[kind]);
+    const limit = Math.min(overseas ? transport - seaCargo : transport, needs[kind],
+      good === "cloth" ? Math.floor(contract.cash / contract.prices.cloth) : Infinity);
     for (const id of sources) {
       const take = Math.min(limit - issued, stocks[id][good]);
       stocks[id][good] -= take;
+      if (good === "cloth") pay(id, good, take);
       issued += take;
       if (issued === limit) break;
     }
@@ -400,6 +422,7 @@ function projectSettlement(state: GameState, war?: WarPlan, activeSites = state.
     };
   }
   const militaryCargo = new Map<string, number>();
+  const militaryReceipts = new Map<string, number>();
   const blockadedPorts = new Set<string>();
   for (const [owner, ids] of Object.entries(holdings)) {
     const c = report.countries[owner],
@@ -407,22 +430,34 @@ function projectSettlement(state: GameState, war?: WarPlan, activeSites = state.
     const marketId = marketOf(state, owner),
       m = c.military,
       pool = markets[marketId];
+    const priorPrices = state.countryEconomies[marketId].referenceQuotes;
+    const { fiscal, treasury } = state.countryEconomies[owner];
+    const contract: SupplyContract = {
+      cash: cashToCommit[owner] + availablePrepaymentCredit(fiscal, treasury),
+      prices: {
+        grain: Math.round(priorPrices?.grain ?? industries.grain.basePrice),
+        cloth: Math.round(priorPrices?.cloth ?? industries.cloth.basePrice),
+      },
+      spending: { grain: 0, cloth: 0 }, proceeds: militaryReceipts,
+    };
     if (route) {
       const rear = ids.filter((id) => !route.recruitmentStates.has(id));
       const rearRegulars = rear.reduce((sum, id) => sum + report.states[id].regulars, 0);
       const deployed = m.regulars - rearRegulars;
       const fieldStrength = deployed + m.conscripts;
       m.readiness = issueSupplies(
-        m, supplies, ids.filter((id) => route.connectedStates.has(id)),
+        m, contract, supplies, ids.filter((id) => route.connectedStates.has(id)),
         deployed, fieldStrength, fieldStrength * war!.grainPerRecruit, route.grainTransport, war!.supplyPercent / 100, route.overseas,
       );
       if (route.overseas) militaryCargo.set(owner, m.seaCargoUsed!);
       if (route.raided) for (const stateId of route.recruitmentStates) blockadedPorts.add(stateId);
       // Rear garrisons draw from the remaining domestic output, outside the front's transport limit.
-      if (rearRegulars > 0) issueSupplies(m, supplies, rear, rearRegulars, 0, 0, Infinity, 1);
+      if (rearRegulars > 0) issueSupplies(m, contract, supplies, rear, rearRegulars, 0, 0, Infinity, 1);
     } else {
-      m.readiness = issueSupplies(m, supplies, ids, m.regulars, 0, 0, Infinity, 1);
+      m.readiness = issueSupplies(m, contract, supplies, ids, m.regulars, 0, 0, Infinity, 1);
     }
+    m.procurement = contract.spending;
+    c.upkeep += militaryProcurementCost(contract.spending);
     for (const id of ids) {
       const subsistence = report.states[id].subsistence;
       if (subsistence) {
@@ -500,7 +535,7 @@ function projectSettlement(state: GameState, war?: WarPlan, activeSites = state.
       const office = officePlans.get(id)!;
       const account = state.stateEconomies[id].industrial;
       const subsistence = s.subsistence;
-      let industrialIncome = 0, industrialSales = 0;
+      let industrialIncome = militaryReceipts.get(id) ?? 0, industrialSales = industrialIncome;
       const fillsByUse = byGood((g) => {
         const m = c.market[g],
           production = s.industries[g],
@@ -725,18 +760,19 @@ export function settleEconomy(state: GameState, war?: WarPlan, fractionOfYear = 
   const administrationFunding: Record<string, number> = {};
   for (const [id, c] of Object.entries(production.countries)) {
     const country = countryEconomies[id];
+    const prepaidUpkeep = c.officeUpkeep! + militaryProcurementCost(c.military.procurement);
     const closing = settleFiscal({
       day: state.elapsedDays, treasury: country.treasury, fiscal: country.fiscal,
       tax: c.tax, receipts: budgets[id].balance + c.upkeep, upkeep: c.upkeep,
-      prepaidUpkeep: c.officeUpkeep!,
+      prepaidUpkeep,
       fractionOfYear, difficulty: state.settings.difficulty,
     });
     const { week } = closing.fiscal;
     const educationDue = c.universityWages!;
     const administrationDue = c.administrationWages!;
     const civilianDue = educationDue + administrationDue;
-    const remainingDue = c.upkeep - c.officeUpkeep!;
-    const remainingPaid = week.upkeepPaid - c.officeUpkeep!;
+    const remainingDue = c.upkeep - prepaidUpkeep;
+    const remainingPaid = week.upkeepPaid - prepaidUpkeep;
     const militaryDue = remainingDue - civilianDue;
     const educationPaid = remainingDue > 0 ? Math.floor(remainingPaid * educationDue / remainingDue) : 0;
     const civilianPaid = remainingDue > 0 ? Math.floor(remainingPaid * civilianDue / remainingDue) : 0;
