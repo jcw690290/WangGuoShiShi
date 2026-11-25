@@ -180,6 +180,7 @@ const countryReport = z.object({
   tribute: uint,
   upkeep: uint,
   interestPaid: uint.optional(),
+  universityWages: uint.optional(),
 });
 const siteReport = z.object({
   industries: z.object(byGood(() => industry)),
@@ -189,6 +190,7 @@ const siteReport = z.object({
   consumptionIndex: z.number().nonnegative().optional(),
   conscripts: uint,
   regulars: uint,
+  universityStaff: z.number().nonnegative().optional(),
   builders: uint,
   armourers: uint,
   access: fraction,

@@ -39,7 +39,8 @@ function StateIndustry({
     conscripts -
     report.states[stateId].builders -
     report.states[stateId].regulars -
-    report.states[stateId].armourers;
+    report.states[stateId].armourers -
+    Math.ceil(report.states[stateId].universityStaff ?? 0);
   const isOwnState = game.ownerByStateId[stateId] === playerId;
 
   const owner = game.ownerByStateId[stateId],
@@ -86,11 +87,15 @@ function StateIndustry({
           <small>粮食满足 {Math.round(snapshot.foodFulfillment! * 100)}%</small>
         </div>}
         <div>
-          <dt>常备军 / 建筑 / 军工工人</dt>
+          <dt>常备军 / 建筑 / 军工</dt>
           <dd>
             {snapshot.regulars} / {snapshot.builders} / {snapshot.armourers}
           </dd>
         </div>
+        {snapshot.universityStaff !== undefined && society.university > 0 && <div>
+          <dt>大学周实付岗位</dt>
+          <dd>{snapshot.universityStaff.toFixed(1)}（全周等效）</dd>
+        </div>}
         {conscripts > 0 && (
           <div>
             <dt>征兵占用</dt>
@@ -227,9 +232,13 @@ export function EconomyPanel({ scenario, game, playerId, selectedId, report, bus
               <dd>{silver(report.countries[marketId].investment)}</dd>
             </div>
             <div>
-              <dt>周军费（常备军与军工工资）</dt>
+              <dt>周公共支出（军费与大学工资）</dt>
               <dd>{silver(upkeep)}</dd>
             </div>
+            {report.countries[marketId].universityWages !== undefined && <div>
+              <dt>大学实付工资</dt>
+              <dd>{silver(report.countries[marketId].universityWages!)}</dd>
+            </div>}
             <div>
               <dt>贡金收入 / 上缴</dt>
               <dd>{silver(tributeReceived)} / {silver(tribute)}</dd>

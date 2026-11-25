@@ -4,7 +4,7 @@ import type { Difficulty, GameSettings, RuleTuning } from "./settings.ts";
 import type { Scenario } from "../scenario/scenario.ts";
 import { advanceFront, aiDiplomacy, applyBorderCommand, planWar, tickDiplomacy } from "./diplomacy.ts";
 import type { BorderCommand, BorderDispute } from "./diplomacy.ts";
-import { chooseConstruction, constructionError, projects, settleEconomy } from "./economy.ts";
+import { chooseConstruction, chooseUniversity, constructionError, projects, settleEconomy } from "./economy.ts";
 import type { Building, CountryEconomy, EconomyReport, StateEconomy } from "./economy.ts";
 import { advancePolitics, applyPolitics, availableTech, politicsError } from "./politics.ts";
 import type { PoliticsCommand } from "./politics.ts";
@@ -138,13 +138,13 @@ export function advanceTick(
   }
   const weekly = settleEconomy(next, planWar(scenario, next), fiscalWeekFraction(date));
   const settled = monthly ? settlePopulationMonth(weekly, date) : weekly;
-  let result = advancePolitics(advanceFront(scenario, settled, settled.lastEconomy), settled.lastEconomy);
+  let result = advancePolitics(advanceFront(scenario, settled, settled.lastEconomy), settled.lastEconomy, date.getUTCFullYear());
   result.rng = (Math.imul(result.rng, 1664525) + 1013904223) >>> 0;
   const owners = new Set(Object.values(result.ownerByStateId));
   for (const id of owners) {
     const { market } = settled.lastEconomy.countries[id];
     if (!humanCountries.has(id)) {
-      const job = chooseConstruction(scenario, result, id, market);
+      const job = chooseConstruction(scenario, result, id, market) ?? chooseUniversity(scenario, result, id);
       if (job) result = applyCommand(scenario, result, { type: "queueConstruction", countryId: id, ...job });
       const n = result.nations[id];
       const pending = techs.filter((t) => availableTech(n, t));
