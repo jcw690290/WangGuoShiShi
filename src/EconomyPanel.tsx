@@ -466,10 +466,10 @@ export function EconomyPanel({ scenario, game, playerId, selectedId, report, bus
                 </h4>
                 {queue.length ? (
                   <ol>
-                    {queue.map(({ stateId, good, weeksLeft }, i) => (
+                    {queue.map(({ stateId, good, weeksLeft, levels }, i) => (
                       <li key={i}>
                         {scenario.states[stateId].name} ·{" "}
-                        {isGood(good) ? industries[good].name : facilityNames[good]} ·
+                        {isGood(good) ? industries[good].name : facilityNames[good]}{levels && ` × ${levels}`} ·
                         余 {weeksLeft.toFixed(2)} 点
                       </li>
                     ))}

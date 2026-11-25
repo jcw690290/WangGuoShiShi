@@ -12,6 +12,11 @@ const a = "country_01",
   targetStateId = "Tonkin";
 const send = (s: GameState, c: GameCommand) => dispatch(scenario, s, c);
 const start = () => send(createGame(scenario), { type: "selectCountry", countryId: a });
+const startWithGrain = (levels: Record<string, number>) => send(createGame({ ...scenario, states: {
+  ...scenario.states, ...Object.fromEntries(Object.entries(levels).map(([id, grain]) => [id, {
+    ...scenario.states[id], buildings: { ...scenario.states[id].buildings, grain },
+  }])),
+} }), { type: "selectCountry", countryId: a });
 const demand = (s: GameState) =>
   send(s, { type: "demandBorder", countryId: a, targetStateId, goal: "cession" });
 const week = (s: GameState) => send(s, { type: "advanceWeek" });
@@ -79,7 +84,7 @@ test("常备军和平支薪，征兵占用产业工人；战线受命令和补�
   assert.equal(week(signed).lastEconomy!.countries[a].military.conscripts, 0);
 });
 test("后方驻军使用本地物资，前线运输限额仅约束参战部队", () => {
-  let g = demand(start());
+  let g = demand(startWithGrain({ Tonkin: 24 }));
   for (let i = 0; i < 4; i++) g = week(g);
   const plan = planWar(scenario, g)!;
   const route = plan.routes[b];
@@ -159,11 +164,14 @@ test("同盟内技术人口迁往接纳其身份的国家，迁入与迁出人�
   assert.equal(countEngineers(established, a) + countEngineers(established, b), countEngineers(baseline, b));
 });
 test("补足粮食后推进到和约门槛，移交州并结束征兵", () => {
-  let g = send(start(), { type: "queueConstruction", countryId: a, stateId: "Yunnan", good: "grain" });
+  let g = send(startWithGrain({ Yunnan: 42, Guangxi: 42, Tonkin: 12, Annam: 12 }), {
+    type: "queueConstruction", countryId: a, stateId: "Yunnan", good: "grain",
+  });
   for (let i = 0; i < 7 && g.countryEconomies[a].queue.length; i++) g = week(g);
-  assert.equal(g.stateEconomies.Yunnan.buildings.grain, scenario.states.Yunnan.buildings.grain + 1);
+  assert.equal(g.stateEconomies.Yunnan.buildings.grain, 43);
   g = demand(g);
   for (let i = 0; i < 4; i++) g = week(g);
+  g = send(g, { type: "promoteGeneral", countryId: a });
   g = send(g, { type: "promoteGeneral", countryId: a });
   g = send(g, { type: "mobilize", countryId: a });
   g = send(g, { type: "orderAdvance", countryId: a });

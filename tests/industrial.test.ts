@@ -14,7 +14,7 @@ const scenario = {
   states: {
     ...borderScenario.states,
     [stateId]: { ...original, capacity: { ...original.capacity, wood: 4, iron: 3, coal: 3, tools: 3 },
-      buildings: { ...original.buildings, wood: 1, iron: 1, coal: 1, tools: 1 } },
+      buildings: { grain: 0, cloth: 0, wood: 1, iron: 1, coal: 1, tools: 1 } },
   },
 };
 const start = (map: typeof borderScenario = scenario) =>
@@ -52,27 +52,22 @@ test("工商业按真实员工、库存和已落实资金生产并结算，预�
   assert.deepEqual(parseSave(scenario, { version: saveVersion, scenarioId: scenario.id, state: settled }), settled);
 });
 
-test("新工具厂的周转金来自项目费用，旧档保留既有产量和建筑", () => {
+test("新工具厂的周转金来自项目费用，实际采购后余额可对账并读档", () => {
   const map = { ...scenario, states: { ...scenario.states, [stateId]: {
-    ...scenario.states[stateId], buildings: original.buildings,
+    ...scenario.states[stateId], buildings: { grain: 0, cloth: 0 },
   } } };
   const initial = start(map);
   let game = dispatch(map, initial, { type: "queueConstruction", countryId, stateId, good: "tools" });
   assert.equal(initial.countryEconomies[countryId].treasury - game.countryEconomies[countryId].treasury, projects.tools.cost);
   assert.equal(game.stateEconomies[stateId].industrial, undefined);
-  for (let i = 0; i < 8 && game.countryEconomies[countryId].queue.length; i++)
+  for (let i = 0; i < 16 && game.countryEconomies[countryId].queue.length; i++)
     game = dispatch(map, game, { type: "advanceWeek" });
   assert.equal(game.stateEconomies[stateId].buildings.tools, 1);
-  assert.equal(game.stateEconomies[stateId].industrial!.capital, workingCapitalPerLevel("tools"));
-  assert.ok(Object.values(game.stateEconomies[stateId].industrial!.stocks).every((stock) => stock === 0));
+  const record = game.lastEconomy!.states[stateId].industrial!;
+  assert.equal(game.stateEconomies[stateId].industrial!.capital, workingCapitalPerLevel("tools") - record.spent);
+  assert.deepEqual(game.stateEconomies[stateId].industrial!.stocks, record.bought);
 
-  const legacy = dispatch(borderScenario, createGame(borderScenario), { type: "selectCountry", countryId });
-  const restored = parseSave(borderScenario, { version: 8, scenarioId: borderScenario.id, state: {
-    ...legacy, stateEconomies: Object.fromEntries(Object.entries(legacy.stateEconomies).map(([id, local]) => [id, {
-      ...local, buildings: { grain: local.buildings.grain, cloth: local.buildings.cloth },
-    }])),
-  } });
-  assert.deepEqual(restored, legacy);
+  assert.deepEqual(parseSave(map, { version: saveVersion, scenarioId: map.id, state: game }), game);
   assert.ok(Object.values(createGame(world).stateEconomies).some((local) => local.buildings.tools > 0));
 });
 
@@ -112,10 +107,18 @@ test("副食品、纤维、日用品与奢侈品按实物产出，家庭从已�
     ...scenario,
     states: { ...scenario.states, [stateId]: {
       ...scenario.states[stateId], capacity: { ...scenario.states[stateId].capacity, ...newLevels },
+      population: 8_000,
       buildings: { ...scenario.states[stateId].buildings, ...newLevels },
     } },
   };
   const initial = start(map);
+  const population = initial.societies[stateId].pops;
+  const farmer = population.find((group) => group.occupation === "农民" && group.culture === countryId)!;
+  const expert = population.find((group) => group.occupation === "工程师" && group.culture === countryId)!;
+  farmer.people -= 300;
+  expert.people += 300;
+  const stock = initial.stateEconomies[stateId].industrial!.stocks;
+  for (const good of industrialGoods) stock[good] *= 2;
   const preview = projectEconomy(initial).states[stateId];
   assert.deepEqual((["food", "fiber", "dailyGoods", "luxury"] as const).map((line) =>
     preview.industries[line].output), [70, 100, 70, 50]);

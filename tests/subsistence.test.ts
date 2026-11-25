@@ -10,7 +10,7 @@ const countryId = "country_01", stateId = "Yunnan";
 const original = borderScenario.states[stateId];
 function withFarmland(cropland: number) {
   return { ...borderScenario, states: { ...borderScenario.states, [stateId]: {
-    ...original, cropland, buildings: { ...original.buildings, grain: 0 },
+    ...original, cropland, buildings: { ...original.buildings, grain: 0, fiber: 0 },
     capacity: { ...original.capacity, food: 2, fiber: 2 },
   } } };
 }
@@ -53,10 +53,10 @@ test("农户留存实际收成，有成交才产生所得和租金，土地改�
 });
 
 test("政府与私人作物工程共享耕地，实际开业后挤出自给岗位", () => {
-  const map = withFarmland(750);
+  const map = withFarmland(250);
   let game = dispatch(map, createGame(map), { type: "selectCountry", countryId });
   const before = projectEconomy(game).states[stateId].subsistence!;
-  assert.equal(before.employed, 750);
+  assert.equal(before.employed, 250);
   game.nations[countryId].investment = 500_000;
   game = dispatch(map, game, { type: "queueConstruction", countryId, stateId, good: "grain" });
   game = dispatch(map, game, { type: "queueConstruction", countryId, stateId, good: "food", privateBuild: true });
@@ -65,7 +65,7 @@ test("政府与私人作物工程共享耕地，实际开业后挤出自给岗�
   for (let i = 0; i < 12 && (game.countryEconomies[countryId].queue.length || game.nations[countryId].privateQueue.length); i++)
     game = dispatch(map, game, { type: "advanceWeek" });
   const completed = projectEconomy(game).states[stateId].subsistence!;
-  assert.equal(completed.occupied, 700);
+  assert.equal(completed.occupied, 200);
   assert.equal(completed.employed, 50);
   assert.equal(completed.produced.grain, 40);
   assert.equal(completed.produced.wood, 5);

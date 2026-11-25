@@ -1,8 +1,8 @@
 import { z } from "zod";
-import { industrialGoods, byIndustrialGood } from "../game/industry.ts";
+import { industrialGoods, byIndustrialGood, convertCommercialLevels } from "../game/industry.ts";
 import type { ScenarioLevels } from "../game/industry.ts";
 import type { DiplomaticTie } from "../game/diplomatic-ties.ts";
-import { occupiedCropland } from "../game/subsistence.ts";
+import { croplandPerLegacyFarm, occupiedCropland } from "../game/subsistence.ts";
 import gameData from "../../resources/1820_game_data.json" with { type: "json" };
 import demoData from "./qing-vietnam.json" with { type: "json" };
 
@@ -114,10 +114,13 @@ export const borderScenario: Scenario = {
     ]),
   ),
   states: Object.fromEntries(
-    demo.states.map((state) => [
-      state.id,
-      { ...state, ownerId: stateOwnerSchema.parse(sourceStates.get(state.id)).countryId },
-    ]),
+    demo.states.map((state) => {
+      const buildings = convertCommercialLevels(state.buildings);
+      const resources = { wood: Math.ceil(state.population / 5_000) + 1, iron: 1, coal: 1,
+        tools: 1, fiber: Math.ceil(buildings.cloth * 0.7) };
+      return [state.id, { ...state, ownerId: stateOwnerSchema.parse(sourceStates.get(state.id)).countryId,
+        buildings: { ...buildings, ...resources }, capacity: { ...convertCommercialLevels(state.capacity), ...resources } }];
+    }),
   ),
 };
 
@@ -138,6 +141,7 @@ const productiveFarmDistricts = new Set([
   "Northern_Anhui", "Sichuan", "Punjab", "Zhejiang", "South_Bengal", "North_Bengal", "Iowa", "Indiana",
   "Flanders", "Venetia", "Lombardy", "Henan", "Jiangsu", "Bihar", "Kiev", "Normandy",
 ]);
+const textileExportDistricts = new Set(["Norrland", "Flanders", "Lancashire", "Gujarat"]);
 export const atlas = z.record(z.string(), siteSchema).parse(
   Object.fromEntries(Object.entries(rawWorld).map(([id, state]) => {
     // The available 1820 map has terrain and population but no mineral survey.
@@ -149,23 +153,26 @@ export const atlas = z.record(z.string(), siteSchema).parse(
     const paper = state.population >= 16_000 ? 5 : 1;
     const services = Math.max(1, Math.ceil(state.population / 8_000) + 1);
     const food = Math.max(1, Math.ceil(state.population / 12_000) + 1);
-    const fiber = state.terrain === "平原" ? 5 : 2;
+    const regionalBuildings = convertCommercialLevels(state.buildings);
+    if (textileExportDistricts.has(id)) regionalBuildings.cloth += 4;
+    const openingFiber = Math.ceil(regionalBuildings.cloth * 0.7);
+    const fiber = Math.max(state.terrain === "平原" ? 5 : 2, openingFiber + 2);
     const dailyGoods = Math.max(1, Math.ceil(state.population / 16_000));
     const luxury = Math.max(1, Math.ceil(state.population / 35_000));
     const owned = sourceStates.has(id);
     return [id, {
       ...state, name: (stateNames as Record<string, string>)[id],
-      capacity: { ...state.capacity, wood, iron, coal, tools, paper, services, food, fiber, dailyGoods, luxury },
+      capacity: { ...convertCommercialLevels(state.capacity), wood, iron, coal, tools, paper, services, food, fiber, dailyGoods, luxury },
       buildings: {
-        ...state.buildings,
+        ...regionalBuildings,
         wood: owned ? Math.min(wood, Math.max(1, Math.ceil(state.population / 24_000))) : 0,
         iron: owned && iron > 0 ? 1 : 0,
         coal: owned && coal > 0 ? 1 : 0,
-        tools: owned && state.buildings.cloth > 0 && state.population >= 18_000 ? 1 : 0,
+        tools: owned && regionalBuildings.cloth > 0 && state.population >= 12_000 ? 1 : 0,
         paper: owned && state.buildings.cloth > 0 && state.population >= 22_000 ? 1 : 0,
         services: owned && state.population >= 3_000 ? Math.ceil(state.population / 12_000) : 0,
         food: owned && state.population >= 8_000 ? 1 : 0,
-        fiber: owned && state.terrain === "平原" && state.buildings.cloth > 0 ? 1 : 0,
+        fiber: owned ? openingFiber : 0,
         dailyGoods: owned && state.buildings.cloth > 0 && state.population >= 16_000 ? 1 : 0,
         luxury: owned && state.buildings.cloth > 0 && state.population >= 32_000 ? 1 : 0,
       },
@@ -222,7 +229,11 @@ export const scenario: Scenario = {
       const ruralShare = site.terrain === "平原" ? 0.12 : site.terrain === "森林" ? 0.09 : 0.06;
       const farmland = productiveFarmDistricts.has(id)
         ? occupiedCropland(site.buildings) + Math.floor(site.population * 0.235) : Math.floor(site.population * ruralShare);
-      const cropland = Math.max(site.capacity.grain * 600 + 200, farmland);
+      const legacy = rawWorld[id];
+      const smallCrops = occupiedCropland({ grain: 0, cloth: 0, fiber: site.buildings.fiber, food: site.buildings.food });
+      const arable = Math.max(legacy.capacity.grain * 600 + smallCrops, Math.floor(site.population * ruralShare)) +
+        legacy.buildings.grain * croplandPerLegacyFarm;
+      const cropland = Math.max(occupiedCropland(site.buildings), farmland, arable);
       return [id, { ...site, id, ownerId: source ? source.countryId : null, startingOffices: source ? 1 : 0, cropland }];
     }),
   ),

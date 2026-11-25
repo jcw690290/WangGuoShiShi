@@ -2,7 +2,7 @@ import assert from "node:assert/strict";
 import { test } from "node:test";
 import { advanceDay, createGame, dispatch, getGameDate, spanDays } from "../src/game/engine.ts";
 import type { GameState, GameCommand } from "../src/game/engine.ts";
-import { projectEconomy, constructionError } from "../src/game/economy.ts";
+import { projectEconomy, constructionError, projects } from "../src/game/economy.ts";
 import { parseSave, saveVersion } from "../src/game/storage.ts";
 import { influence, reformConditions, reformWork } from "../src/game/society.ts";
 import type { Scenario } from "../src/scenario/scenario.ts";
@@ -32,8 +32,8 @@ const scenario: Scenario = {
       population: 12_000,
       neighbors: ["coast"],
       grainTransport: 4_000,
-      buildings: { grain: 1, cloth: 0 },
-      capacity: { grain: 2, cloth: 1 },
+      buildings: { grain: 20, cloth: 0, wood: 1, iron: 1, coal: 1, tools: 1, fiber: 1 },
+      capacity: { grain: 21, cloth: 1, wood: 1, iron: 1, coal: 1, tools: 1, fiber: 1 },
     },
     coast: {
       id: "coast",
@@ -43,8 +43,8 @@ const scenario: Scenario = {
       population: 12_000,
       neighbors: ["border"],
       grainTransport: 4_000,
-      buildings: { grain: 1, cloth: 0 },
-      capacity: { grain: 2, cloth: 1 },
+      buildings: { grain: 20, cloth: 0, wood: 1, iron: 1, coal: 1, tools: 1, fiber: 1 },
+      capacity: { grain: 21, cloth: 8, wood: 1, iron: 1, coal: 1, tools: 1, fiber: 6 },
     },
   },
 };
@@ -78,13 +78,14 @@ test("政府队列付款、所有权与容量校验，完工带来就业、产�
   const job = { type: "queueConstruction", countryId: "first", stateId: "border", good: "cloth" } as const;
   const old = g;
   g = send(g, job);
-  assert.equal(g.countryEconomies.first.treasury, old.countryEconomies.first.treasury - 360000);
+  assert.equal(g.countryEconomies.first.treasury, old.countryEconomies.first.treasury - projects.cloth.cost);
   assert.throws(() => send(g, job), /容量已满/);
   assert.throws(() => send(g, { ...job, stateId: "coast" }), /本国州内/);
   for (let i = 0; i < 15 && !g.stateEconomies.border.buildings.cloth; i++) g = week(g);
   assert.equal(g.stateEconomies.border.buildings.cloth, 1);
+  for (let i = 0; i < 3 && g.lastEconomy!.states.border.industries.cloth.employed < 100; i++) g = week(g);
   const report = g.lastEconomy!;
-  assert.equal(report.states.border.industries.cloth.employed, 400);
+  assert.equal(report.states.border.industries.cloth.employed, 100);
   assert.ok(report.states.border.industries.cloth.wages > 0);
   assert.ok(report.countries.first.tax > 0);
   assert.ok(
@@ -95,7 +96,9 @@ test("政府队列付款、所有权与容量校验，完工带来就业、产�
 test("AI 使用共用建设指令，全国市场价格与本州供需按接入混合", () => {
   let g = start();
   g.ownerByStateId.coast = "first";
-  g.stateEconomies.coast.buildings.cloth = 1;
+  g.stateEconomies.coast.buildings.cloth = 8;
+  g.stateEconomies.coast.industrial!.stocks.fiber = 560;
+  g.stateEconomies.coast.industrial!.stocks.tools += 8;
   g.societies.border.infrastructure = 1;
   g.societies.coast.infrastructure = 3;
   const isolated = projectEconomy(g);
@@ -119,8 +122,8 @@ test("投资池与国库单独扣款，两类工程共享建造力，闲置份�
     send(old, { type: "queueConstruction", countryId: "first", stateId: "border", good: "grain" }),
     { type: "queueConstruction", countryId: "first", stateId: "border", good: "cloth", privateBuild: true },
   );
-  assert.equal(both.nations.first.investment, 140000);
-  assert.equal(both.countryEconomies.first.treasury, old.countryEconomies.first.treasury - 240000);
+  assert.equal(both.nations.first.investment, old.nations.first.investment - projects.cloth.cost);
+  assert.equal(both.countryEconomies.first.treasury, old.countryEconomies.first.treasury - projects.grain.cost);
   const g = week(both);
   assert.ok(g.nations.first.privateQueue[0].weeksLeft < 3);
   assert.ok(g.countryEconomies.first.queue[0].weeksLeft < 2);

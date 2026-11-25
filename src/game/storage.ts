@@ -2,13 +2,15 @@ import { openDB } from "idb";
 import type { DBSchema, IDBPDatabase } from "idb";
 import { z } from "zod";
 import { disputeSchema, participants } from "./diplomacy.ts";
-import { DAY_MS, elapsedTicks, getGameDate, isPopulationMonth, TICKS_PER_DAY } from "./engine.ts";
+import { createGame, DAY_MS, elapsedTicks, getGameDate, isPopulationMonth, TICKS_PER_DAY } from "./engine.ts";
 import type { GameState } from "./engine.ts";
-import { byIndustrialGood, goods, industrialGoods, industries } from "./industry.ts";
+import { byIndustrialGood, commercialLevels, goods, industries, isGood, isIndustrialGood } from "./industry.ts";
 import { industrialAccountSchema, industrialReportSchema } from "./industrial.ts";
 import { officeReportSchema } from "./administration.ts";
 import { extrasReportSchema, substituteOrdersSchema } from "./households.ts";
 import { reservedCropland, subsistenceReportSchema } from "./subsistence.ts";
+import { migrateCommercialProduction } from "./commercialMigration.ts";
+import { openingMetrics } from "./campaignMetrics.ts";
 import { projects } from "./economy.ts";
 import { nationSchema, siteSocialSchema, projectTypes } from "./society.ts";
 import { importRegionalSave } from "./legacySave.ts";
@@ -28,7 +30,7 @@ const storeName = "saves";
 const indexName = "saveIndex";
 const archiveName = "endings";
 const achievementArchiveName = "achievements";
-export const saveVersion = 8;
+export const saveVersion = 9;
 export const manualSaveSlots = ["local", "manual-2", "manual-3", "manual-4", "manual-5"] as const;
 export const autoSaveSlots = ["auto-1", "auto-2", "auto-3"] as const;
 export const saveSlotSchema = z.enum([...manualSaveSlots, ...autoSaveSlots]);
@@ -274,7 +276,7 @@ export function parseSave(scenario: Scenario, save: unknown): GameState {
     countries = z.enum(Object.keys(scenario.countries));
   // A valid map ID is optional until claimed; enum-keyed records require every ID.
   const activeSite = z.string().refine((id) => Object.hasOwn(scenario.states, id));
-  const project = z.object({ stateId: sites, good: z.enum(projectTypes), weeksLeft: z.number().positive() });
+  const project = z.object({ stateId: sites, good: z.enum(projectTypes), weeksLeft: z.number().positive(), levels: uint.positive().optional() });
   const lastPopulation = z.object({ day: uint.positive(), changes: z.record(activeSite, cash) }).nullable();
   const stateSchema = z.object({
     elapsedDays: uint.max(Math.floor((8.64e15 - Date.parse(scenario.startDate)) / DAY_MS)),
@@ -284,7 +286,8 @@ export function parseSave(scenario: Scenario, save: unknown): GameState {
     stateEconomies: z.record(
       activeSite,
       z.object({ population: z.int().positive(), buildings: goodsNumbers, localQuotes: quotes.optional(),
-        industrial: industrialAccountSchema.optional(), discretionaryBudget: uint.optional(), cropland: uint.optional() }),
+        industrial: industrialAccountSchema.optional(), discretionaryBudget: uint.optional(), cropland: uint.optional(),
+        commercialRecipes: z.literal(true).optional() }),
     ),
     countryEconomies: z.record(countries, z.object({
       treasury: cash, queue: z.array(project), referenceQuotes: quotes.optional(), fiscal: fiscalAccountSchema.optional(),
@@ -307,21 +310,23 @@ export function parseSave(scenario: Scenario, save: unknown): GameState {
   const scenarioId = z.literal(scenario.id);
   const timedStateSchema = stateSchema.extend({ tickInDay: uint.max(TICKS_PER_DAY - 1) });
   const settingsStateSchema = timedStateSchema.extend({ settings: settingsSchema });
+  const campaignStateSchema = settingsStateSchema.extend({ lastPopulation, campaign: campaignSchema.optional() });
   const schema = z
     .discriminatedUnion("version", [
       z.object({ version: z.literal(5), scenarioId, state: stateSchema }),
       z.object({ version: z.literal(6), scenarioId, state: timedStateSchema }),
       z.object({ version: z.literal(7), scenarioId, state: settingsStateSchema }),
+      z.object({ version: z.literal(8), scenarioId, state: campaignStateSchema }),
       z.object({
         version: z.literal(saveVersion),
         scenarioId,
-        state: settingsStateSchema.extend({ lastPopulation, campaign: campaignSchema.optional() }),
+        state: campaignStateSchema,
       }),
     ])
     .safeParse(save);
   if (!schema.success) throw new Error("存档数据无效或版本不兼容", { cause: schema.error });
   const data = schema.data;
-  const state: GameState = data.version === saveVersion ? data.state : {
+  const state: GameState = data.version === saveVersion || data.version === 8 ? data.state : {
     ...data.state,
     tickInDay: data.version === 5 ? 0 : data.state.tickInDay,
     settings: data.version === 7 ? data.state.settings : initialSettings("standard"),
@@ -367,6 +372,12 @@ export function parseSave(scenario: Scenario, save: unknown): GameState {
     (state.lastEconomy !== null && !sameSites(state.lastEconomy.states)) ||
     Object.values(scenario.states).some((s) => s.ownerId !== null && !Object.hasOwn(state.ownerByStateId, s.id))
   ) invalid();
+  if (data.version === saveVersion && owned.some((id) => state.stateEconomies[id].commercialRecipes !== true)) invalid();
+  if (data.version !== saveVersion && migrateCommercialProduction(state) && campaign?.outcome?.baseline && campaign.ending === null) {
+    const fresh = openingMetrics(createGame(scenario, 1820, state.settings.difficulty), state.playerCountryId!);
+    campaign.outcome = { ...campaign.outcome, metrics: {}, lossSince: null, victorySince: null, genericSince: null,
+      baseline: { ...fresh, army: campaign.outcome.baseline.army } };
+  }
   if (state.diplomaticTies) {
     const live = new Set(Object.values(state.ownerByStateId));
     const pairs = new Set<string>();
@@ -404,7 +415,8 @@ export function parseSave(scenario: Scenario, save: unknown): GameState {
     if (Boolean(n.overlord) !== Boolean(n.subjectType)) invalid();
     const queued = [...state.countryEconomies[id].queue, ...n.privateQueue];
     for (const p of queued)
-      if (state.ownerByStateId[p.stateId] !== id || p.weeksLeft > projects[p.good].weeks) invalid();
+      if (state.ownerByStateId[p.stateId] !== id || p.weeksLeft > projects[p.good].weeks ||
+        (p.levels !== undefined && (!isGood(p.good) || isIndustrialGood(p.good) || p.levels !== commercialLevels[p.good]))) invalid();
     if (state.lastEconomy) {
       const { military: m, tradeSeaCargo } = state.lastEconomy.countries[id];
       if (m.grainDrawn > Math.min(m.grainDemand, m.grainTransport)) invalid();
@@ -416,7 +428,7 @@ export function parseSave(scenario: Scenario, save: unknown): GameState {
       { pops, governance, stability } = state.societies[id];
     if (governance?.integration && governance.integration.startedAtTick > elapsedTicks(state)) invalid();
     if (stability && Object.values(stability.lastIncident).some((day) => day > state.elapsedDays)) invalid();
-    if (!local.industrial && industrialGoods.some((good) => local.buildings[good] > 0)) invalid();
+    if (!local.industrial && goods.some((good) => local.buildings[good] > 0)) invalid();
     if (pops.reduce((sum, p) => sum + p.people, 0) !== local.population) invalid();
     for (const p of pops) {
       if (
@@ -435,7 +447,7 @@ export function parseSave(scenario: Scenario, save: unknown): GameState {
     }
     for (const g of goods)
       if (
-        local.buildings[g] + queue.filter((p) => p.stateId === id && p.good === g).length >
+        local.buildings[g] + queue.reduce((count, p) => count + (p.stateId === id && p.good === g ? p.levels ?? 1 : 0), 0) >
         (scenario.states[id].capacity[g] ?? 0)
       )
         invalid();

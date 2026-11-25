@@ -1,8 +1,10 @@
 import { z } from "zod";
-import { byIndustrialGood, industrialGoods, industries } from "./industry.ts";
-import type { ByIndustrialGood, IndustrialGood, ScenarioLevels } from "./industry.ts";
+import { byIndustrialGood, goods, industrialGoods, industries } from "./industry.ts";
+import type { ByIndustrialGood, Good, ScenarioLevels } from "./industry.ts";
 
 export const inputs = {
+  grain: { tools: 1 },
+  cloth: { fiber: 70, tools: 1 },
   wood: { tools: 2 },
   iron: { tools: 3 },
   coal: { tools: 3 },
@@ -13,7 +15,7 @@ export const inputs = {
   fiber: { tools: 1 },
   dailyGoods: { wood: 50, tools: 1 },
   luxury: { fiber: 20, dailyGoods: 30, paper: 4, tools: 2 },
-} satisfies Record<IndustrialGood, Readonly<Partial<ByIndustrialGood<number>>>>;
+} satisfies Record<Good, Readonly<Partial<ByIndustrialGood<number>>>>;
 const units = z.int().nonnegative();
 export const materialSchema = z.object({
   wood: units, iron: units, coal: units, tools: units, paper: units.default(0), services: units.default(0),
@@ -33,29 +35,30 @@ export function emptyIndustrialAccount(): IndustrialAccount {
 
 const regularWage = 100;
 const skilledPositions = {
+  grain: [0, 0], cloth: [10, 180],
   wood: [0, 0], iron: [0, 0], coal: [0, 0], tools: [20, 180], paper: [20, 180], services: [50, 150],
   food: [0, 0], fiber: [0, 0], dailyGoods: [10, 180], luxury: [20, 180],
-} satisfies Record<IndustrialGood, [number, number]>;
+} satisfies Record<Good, [number, number]>;
 
-export function industrialPayroll(good: IndustrialGood, employed: number) {
+export function industrialPayroll(good: Good, employed: number) {
   const [perHundred, wage] = skilledPositions[good];
   const skilled = Math.ceil(employed * perHundred / 100);
   const skilledWages = skilled * wage;
   return { skilled, skilledWages, total: (employed - skilled) * regularWage + skilledWages };
 }
 
-export function trainedLabourCapacity(good: IndustrialGood, trained: number) {
+export function trainedLabourCapacity(good: Good, trained: number) {
   const [perHundred] = skilledPositions[good];
   return perHundred > 0 ? Math.floor(trained * 100 / perHundred) : Infinity;
 }
 
-export function affordableIndustryWorkers(good: IndustrialGood, capital: number) {
+export function affordableIndustryWorkers(good: Good, capital: number) {
   const wage = industrialPayroll(good, 100).total / 100;
   const estimated = Math.floor(capital / wage);
   return industrialPayroll(good, estimated).total <= capital ? estimated : estimated - 1;
 }
 
-export function workingCapitalPerLevel(good: IndustrialGood) {
+export function workingCapitalPerLevel(good: Good) {
   const recipe: Readonly<Partial<ByIndustrialGood<number>>> = inputs[good];
   const materialCost = industrialGoods.reduce((sum, material) =>
     sum + (recipe[material] ?? 0) * industries[material].basePrice, 0);
@@ -63,13 +66,13 @@ export function workingCapitalPerLevel(good: IndustrialGood) {
 }
 
 export function workingCapitalTarget(levels: ScenarioLevels) {
-  return industrialGoods.reduce((sum, good) => sum + (levels[good] ?? 0) * workingCapitalPerLevel(good), 0);
+  return goods.reduce((sum, good) => sum + (levels[good] ?? 0) * workingCapitalPerLevel(good), 0);
 }
 
 export function initialIndustrialAccount(levels: ScenarioLevels): IndustrialAccount | undefined {
-  if (!industrialGoods.some((good) => (levels[good] ?? 0) > 0)) return;
+  if (!goods.some((good) => (levels[good] ?? 0) > 0)) return;
   const stocks = byIndustrialGood(() => 0);
-  for (const good of industrialGoods) {
+  for (const good of goods) {
     const recipe: Readonly<Partial<ByIndustrialGood<number>>> = inputs[good];
     for (const material of industrialGoods) stocks[material] += (recipe[material] ?? 0) * (levels[good] ?? 0);
   }
@@ -77,7 +80,7 @@ export function initialIndustrialAccount(levels: ScenarioLevels): IndustrialAcco
 }
 
 export function operateIndustry(
-  good: IndustrialGood, planned: number, stocks: ByIndustrialGood<number>, restock: ByIndustrialGood<number>,
+  good: Good, planned: number, stocks: ByIndustrialGood<number>, restock: ByIndustrialGood<number>,
 ) {
   const recipe: Readonly<Partial<ByIndustrialGood<number>>> = inputs[good];
   const jobsPerLevel = industries[good].jobs;

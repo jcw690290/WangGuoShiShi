@@ -8,6 +8,12 @@ export type ByGood<T> = Record<Good, T>;
 export type ByIndustrialGood<T> = Record<IndustrialGood, T>;
 export type ScenarioLevels = Record<typeof originalGoods[number], number> & Partial<ByIndustrialGood<number>>;
 
+export const commercialLevels = { grain: 12, cloth: 4 } as const;
+export const legacyCommercialCost = { grain: 240_000, cloth: 360_000 } as const;
+export function convertCommercialLevels<T extends ScenarioLevels>(levels: T) {
+  return { ...levels, grain: levels.grain * commercialLevels.grain, cloth: levels.cloth * commercialLevels.cloth };
+}
+
 export function isGood(value: string): value is Good {
   return (goods as readonly string[]).includes(value);
 }
@@ -18,10 +24,10 @@ export function isIndustrialGood(value: Good): value is IndustrialGood {
 
 // Quantities are weekly. Game price units are worth ten hundredths of a tael.
 export const industries = {
-  grain: { goodName: "粮食", name: "农田", jobs: 600, output: 6_000, demandPerPerson: 0.20,
-    basePrice: 100, cost: 240_000, weeks: 2 },
-  cloth: { goodName: "布匹", name: "纺织工坊", jobs: 400, output: 2_200, demandPerPerson: 0.02,
-    basePrice: 300, cost: 360_000, weeks: 3 },
+  grain: { goodName: "粮食", name: "粮食农场", jobs: 100, output: 180, demandPerPerson: 0.20,
+    basePrice: 100, cost: 80_000, weeks: 2 },
+  cloth: { goodName: "布匹", name: "纺织厂", jobs: 100, output: 100, demandPerPerson: 0.02,
+    basePrice: 300, cost: 160_000, weeks: 3 },
   wood: { goodName: "木材", name: "伐木场", jobs: 100, output: 100, demandPerPerson: 0.02,
     basePrice: 200, cost: 120_000, weeks: 3 },
   iron: { goodName: "铁", name: "铁矿", jobs: 100, output: 80, demandPerPerson: 0,
