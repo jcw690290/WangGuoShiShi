@@ -9,7 +9,7 @@ import type { GameCommand, GameState } from "./game/engine.ts";
 import { goods, industrialGoods, industries, isGood } from "./game/industry.ts";
 import { industrialRetrofits, isIndustrialRetrofit } from "./game/industrial.ts";
 import type { Scenario } from "./scenario/scenario.ts";
-import { affinityLevel, culturalAffinityOf } from "./game/culture.ts";
+import { affinityLevel, culturalAffinityOf, cultureName } from "./game/culture.ts";
 import { governanceLaw, governanceModeAllowed, governanceModes, governanceOf, governanceRules,
   integrationDuration, integrationStaffNeeded, localGovernanceRule } from "./game/governance.ts";
 import type { GovernanceMode } from "./game/governance.ts";
@@ -26,13 +26,6 @@ import { tariffBandNames, tariffBands, tariffRate, tariffRates, tradeLaw } from 
 import { authorityBudget, countryDisplayName, localNegotiationAuthority } from "./game/constitution.ts";
 import { ownedLevels, ownershipKinds, ownershipNames } from "./game/ownership.ts";
 import { opiumLaw } from "./game/opium.ts";
-
-function cultureName(scenario: Scenario, id: string) {
-  const separator = id.indexOf("-");
-  if (separator === -1 || id.startsWith("country_")) return scenario.countries[id]?.name ?? id;
-  const state = scenario.states[id.slice(separator + 1)];
-  return state ? state.name + "地方文化" : id;
-}
 
 interface Props {
   scenario: Scenario;
