@@ -17,7 +17,7 @@ import { allocateHouseholdIncome, basicEquivalentSupply, byExtraGood, extrasOrde
 import type { BasicPurchases, ExtrasReport, SubstituteOrders } from "./households.ts";
 import { administrationWage, advanceIntegration, integrationStaffNeeded,
   integrationWeekShare, localGovernanceRule } from "./governance.ts";
-import { expectedTrade, settleTrade } from "./trade.ts";
+import { expectedTrade, settleTrade, tradeRouteBlock } from "./trade.ts";
 import type { TradeDelivery } from "./trade.ts";
 import { unrestEffects } from "./unrest.ts";
 import { affordableIndustryWorkers, electricityUse, electricIndustries, electricRetrofits, emptyIndustrialAccount,
@@ -51,7 +51,7 @@ import type { Battalion, BattalionOrder } from "./military.ts";
 import { activeReplacements, fitWorkforce, injuredPersonnel } from "./military-health.ts";
 import { closeNavy, navyMaintenance, warshipMaterials } from "./navy.ts";
 import type { NavyReport } from "./navy.ts";
-import { advanceOpiumBurden, planOpium } from "./opium.ts";
+import { advanceOpiumBurden, opiumCommerceAllowed, opiumLaw, planOpium } from "./opium.ts";
 import type { OpiumReport } from "./opium.ts";
 
 export { marketOf } from "./market.ts";
@@ -570,7 +570,8 @@ function projectSettlement(state: GameState, war?: WarPlan, closingTick?: number
     marketSites[id] = [];
     holdings[id] = [];
     const work = (queue: Project[]) => Math.ceil(queue.reduce((points, project) =>
-      points + (project.stateId === state.occupation?.stateId ? 0 : remainingProjectPoints(project)), 0) *
+      points + (project.stateId === state.occupation?.stateId || (project.good === "opium" && !opiumCommerceAllowed(nation.laws))
+        ? 0 : remainingProjectPoints(project)), 0) *
       constructionJobs / constructionPointsPerLevel);
     constructionNeeds[id] = { public: work(state.countryEconomies[id].queue), private: work(nation.privateQueue) };
     privateConstructionCash[id] = nation.investment;
@@ -621,10 +622,12 @@ function projectSettlement(state: GameState, war?: WarPlan, closingTick?: number
   }
   for (const id of Object.keys(state.stateEconomies)) holdings[state.ownerByStateId[id]].push(id);
   const opiumMarkets = new Set<string>();
-  for (const [id, local] of Object.entries(state.stateEconomies))
-    if (local.buildings.opium > 0) opiumMarkets.add(marketOf(state, state.ownerByStateId[id]));
+  for (const [id, local] of Object.entries(state.stateEconomies)) {
+    const owner = state.ownerByStateId[id];
+    if (local.buildings.opium > 0 && opiumCommerceAllowed(state.nations[owner].laws)) opiumMarkets.add(marketOf(state, owner));
+  }
   for (const route of state.tradeRoutes ?? [])
-    if (route.good === "opium" && !route.paused) opiumMarkets.add(marketOf(state, route.importer));
+    if (route.good === "opium" && !tradeRouteBlock(state, route)) opiumMarkets.add(marketOf(state, route.importer));
   const garrisons = Object.fromEntries(Object.keys(state.stateEconomies).map((id) => [id, garrisonHeadcount(state, id)]));
   const rosters = Object.fromEntries(Object.keys(garrisons).map((id) => [id, battalionsAt(state, id, garrisons[id])]));
   const armamentOrders = planArmamentOrders(state, holdings, rosters, war);
@@ -706,7 +709,8 @@ function projectSettlement(state: GameState, war?: WarPlan, closingTick?: number
       const relief = planWelfareRelief(site.pops, services.welfare, cashToCommit[owner] + localCash);
       welfareReliefPlans.set(id, { ...relief, localReserved: reserveService(relief.reserved) });
     }
-    const opium = planOpium(local.population, site.opiumBurden ?? 0, opiumMarkets.has(marketOf(state, owner)),
+    const lawfulOpium = opiumLaw(nation.laws);
+    const opium = planOpium(local.population, site.opiumBurden ?? 0, opiumMarkets.has(marketOf(state, owner)), lawfulOpium,
       services.healthcare.staff, local.basicBudget, cashToCommit[owner] + localCash, ceilings.opium);
     opiumPlans.set(id, { ...opium, localReserved: reserveService(opium.medicalReserve) });
     let workers = labour - universityStaff - administrators - office.staff - institutionStaff,
@@ -753,6 +757,7 @@ function projectSettlement(state: GameState, war?: WarPlan, closingTick?: number
           250 * (local.buildings.wood + local.buildings.iron + local.buildings.coal + local.buildings.tools + local.buildings.paper)),
     ) * effects.transport;
     function produce(g: Good): IndustryReport {
+      if (g === "opium" && lawfulOpium === "鸦片禁令") return { employed: 0, output: 0, wages: 0 };
       if ((g === "tools" || g === "steel") && retrofitting.has(electricRetrofits[g])) return { employed: 0, output: 0, wages: 0 };
       const electric = activeElectric(g);
       const spec = industryMethod(g, electric);
@@ -1115,6 +1120,7 @@ function projectSettlement(state: GameState, war?: WarPlan, closingTick?: number
       if (opium.medical > 0 || opium.nonMedical > 0 || site.opiumBurden) {
         const { publicGoods, publicCost, residentGoods, residentCost } = fillsByUse.opium;
         s.opium = {
+          recoverySupport: 0.45 * (s.education?.coverage ?? 0) + 0.35 * (s.welfare?.coverage ?? 0) + 0.20 * (s.healthcare?.coverage ?? 0),
           medical: { ordered: opium.medical, delivered: publicGoods, spending: publicCost },
           nonMedical: { ordered: opium.nonMedical, consumed: residentGoods, spending: residentCost, budget: opium.householdReserve },
         };
@@ -1320,6 +1326,7 @@ export function constructionError(
   if (good === "port" && !scenario.states[stateId].coastal) return "只能在沿海州建设港口";
   if (good === "shipGoods" && !scenario.states[stateId].coastal) return "只能在沿海州建设造船厂";
   if (good === "oil" && nation.knowledge["内燃机"] !== 100) return "需要掌握内燃机技术";
+  if (good === "opium" && !opiumCommerceAllowed(nation.laws)) return "现行鸦片禁令禁止建设";
   const fiscalRisk = country.fiscal?.week.risk;
   if (!privateBuild && (fiscalRisk === "restricted" || fiscalRisk === "defaulted"))
     return "公共支出不足，暂缓批准新工程";
@@ -1554,7 +1561,8 @@ export function settleEconomy(state: GameState, war?: WarPlan, fractionOfYear = 
       relief,
     }, tuning);
     if (site.opiumBurden !== undefined || (habit && habit.consumed > 0))
-      societies[id] = { ...societies[id], opiumBurden: advanceOpiumBurden(site.opiumBurden ?? 0, habit?.consumed ?? 0, local.population) };
+      societies[id] = { ...societies[id], opiumBurden: advanceOpiumBurden(site.opiumBurden ?? 0, habit?.consumed ?? 0,
+        local.population, s.opium?.recoverySupport ?? 0) };
     if (site.barracksTraining) {
       const groups = inTraining(site, state.elapsedDays);
       if (groups.length !== site.barracksTraining.length) societies[id] = { ...societies[id], barracksTraining: groups };
@@ -1564,7 +1572,7 @@ export function settleEconomy(state: GameState, war?: WarPlan, fractionOfYear = 
   function complete<T extends Project>(queue: T[], points: number, privateBuild: boolean, nation: Nation) {
     const remaining: T[] = [];
     for (const job of queue) {
-      if (points === 0 || job.stateId === state.occupation?.stateId) {
+      if (points === 0 || job.stateId === state.occupation?.stateId || (job.good === "opium" && !opiumCommerceAllowed(nation.laws))) {
         remaining.push(job);
         continue;
       }

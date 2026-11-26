@@ -57,7 +57,7 @@ export function TradePanel({ scenario, game, stateId, playerId, busy, send }: Pr
     Object.keys(game.ownerByStateId).filter((id) => scenario.states[id].coastal && eligible(id));
   const source = sources.includes(choice) ? choice : sources[0];
   const restriction = source && (game.occupation?.stateId === source || game.occupation?.stateId === stateId)
-    ? "occupied" : source ? foreignTradeStatus(game, game.ownerByStateId[source], playerId) : undefined;
+    ? "occupied" : source ? foreignTradeStatus(game, game.ownerByStateId[source], playerId, good) : undefined;
   if (!routes.length && !landSources.length && !port) return null;
   function openRoute(event: FormEvent<HTMLFormElement>) {
     event.preventDefault();

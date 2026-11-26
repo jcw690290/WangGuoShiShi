@@ -48,6 +48,7 @@ import type { BattalionCommand, BattalionEquipmentCommand } from "./military.ts"
 import { recoverMilitaryInjuries } from "./military-health.ts";
 import { applyNavalConstruction, warshipMaterials } from "./navy.ts";
 import type { NavalConstructionCommand } from "./navy.ts";
+import { opiumLaw } from "./opium.ts";
 export { DAY_MS, elapsedTicks, TICKS_PER_DAY } from "./time.ts";
 
 export interface GameState {
@@ -251,6 +252,22 @@ function chooseCivicLaw(state: GameState, countryId: string): PoliticsCommand | 
   }
 }
 
+function chooseOpiumLaw(state: GameState, countryId: string): PoliticsCommand | undefined {
+  const law = opiumLaw(state.nations[countryId].laws);
+  if (law === "鸦片禁令") return;
+  let population = 0, affected = 0;
+  for (const [id, owner] of Object.entries(state.ownerByStateId)) {
+    if (owner !== countryId) continue;
+    const residents = state.stateEconomies[id].population;
+    population += residents;
+    affected += residents * (state.societies[id].opiumBurden ?? 0);
+  }
+  if (affected < population * (law === "鸦片许可经营" ? 15 : 35)) return;
+  const proposal = { type: "proposeLaw", countryId,
+    law: law === "鸦片许可经营" ? "鸦片限医疗" : "鸦片禁令" } as const;
+  if (!politicsError(state, proposal)) return proposal;
+}
+
 export function advanceTick(
   scenario: Scenario,
   state: GameState,
@@ -345,7 +362,8 @@ export function advanceTick(
         });
       if (!n.reform) {
         const proposal = result.elapsedDays % 28 === 0
-          ? chooseLaborLaw(result, id) ?? chooseInstitutionLaw(result, settled.lastEconomy, id) ?? chooseCivicLaw(result, id)
+          ? chooseOpiumLaw(result, id) ?? chooseLaborLaw(result, id) ??
+            chooseInstitutionLaw(result, settled.lastEconomy, id) ?? chooseCivicLaw(result, id)
           : undefined;
         if (proposal) result = applyCommand(scenario, result, proposal);
         else if (powerDistribution(n) !== "universal") {

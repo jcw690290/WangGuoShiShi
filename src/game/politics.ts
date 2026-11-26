@@ -9,6 +9,7 @@ import { civicLawCategory, civicLawOf, civicPolicy } from "./civic-policy.ts";
 import { constitutionLawCategory, representationLaw, stateForm } from "./constitution.ts";
 import { governanceLaw, isGovernanceLaw } from "./governance.ts";
 import { economicLaw, isEconomicLaw } from "./ownership.ts";
+import { isOpiumLaw, opiumLaw } from "./opium.ts";
 import { groups, influence, literacyOf, reformConditions, reformWork, techs, unrestOf } from "./society.ts";
 import type { Group, Law, Nation, SiteSocial, Tech } from "./society.ts";
 
@@ -166,12 +167,15 @@ export const lawEffect: Record<Law, string> = {
   中央集权: "边疆中央税收份额提至 90%，行政与整合岗位需求增加 15%，限制新设间接辖区",
   地方自治: "中央税收份额最高 80%，中央征用额度降至原来的 80%，行政与整合岗位需求降低 15%，限制新设殖民辖区",
   殖民特许: "殖民辖区中央税收份额提高至 75%，征用份额降至 65%，提高当地行政与整合成本",
+  鸦片许可经营: "允许医疗采购和家庭购买，国内产业与对外贸易照常",
+  鸦片限医疗: "仅开放医疗机构采购，允许合法生产与贸易",
+  鸦片禁令: "暂停合法生产、建设、贸易与采购，地方依赖继续按周恢复",
 };
 
 function exclusiveLawCategory(law: Law) {
   return institutionLawDetails(law)?.kind ?? laborLawCategory(law) ?? civicLawCategory(law) ?? constitutionLawCategory(law) ??
     (isTaxLaw(law) ? "tax" : isTradeLaw(law) ? "trade" : isGovernanceLaw(law) ? "governance" :
-      isEconomicLaw(law) ? "economy" :
+      isEconomicLaw(law) ? "economy" : isOpiumLaw(law) ? "opium" :
       law === "小农自耕" || law === "地主租佃" ? "land" : undefined);
 }
 export type PoliticsCommand =
@@ -206,6 +210,7 @@ export function politicsError(state: GameState, command: PoliticsCommand) {
         currentConstitution === command.law ||
         (isGovernanceLaw(command.law) && governanceLaw(nation.laws) === command.law) ||
         (isEconomicLaw(command.law) && economicLaw(nation.laws) === command.law) ||
+        (isOpiumLaw(command.law) && opiumLaw(nation.laws) === command.law) ||
         (civicCategory && civicLawOf(nation.laws, civicCategory) === command.law)) return "已有议案或该法已生效";
     const institution = institutionLawDetails(command.law);
     const modernTax = isTaxLaw(command.law) && command.law !== "传统土地身份税" && command.law !== "工资税改革";
