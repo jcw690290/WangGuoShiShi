@@ -45,7 +45,7 @@ import type { ForeignCommand, ForeignRelation, ForeignTreaty, TreatyOffer } from
 import { applyBattalionOrder, applyEquipmentOrder, chooseBattalionOrder, chooseEquipmentOrder } from "./military.ts";
 import type { BattalionCommand, BattalionEquipmentCommand } from "./military.ts";
 import { recoverMilitaryInjuries } from "./military-health.ts";
-import { applyNavalConstruction, shipGoodsPerWarship } from "./navy.ts";
+import { applyNavalConstruction, warshipMaterials } from "./navy.ts";
 import type { NavalConstructionCommand } from "./navy.ts";
 export { DAY_MS, elapsedTicks, TICKS_PER_DAY } from "./time.ts";
 
@@ -310,11 +310,12 @@ export function advanceTick(
         result = applyCommand(scenario, result, { type: "setConvoyOrder", countryId: id, stateId: port, operation: "add" });
       }
       const fleetNation = result.nations[id];
+      const model = fleetNation.knowledge["装甲舰艇"] === 100 ? "armored" : "standard";
       if (result.elapsedDays % 28 === 0 && port && result.occupation?.stateId !== port && !fleetNation.navy.order &&
           fleetNation.navy.warships < 1 + Math.floor(fleetNation.convoys / 6) &&
-          result.countryEconomies[id].treasury >= shipGoodsPerWarship * industries.shipGoods.basePrice * 2 &&
-          report.market.shipGoods.supply >= shipGoodsPerWarship) {
-        result = applyCommand(scenario, result, { type: "setWarshipOrder", countryId: id, stateId: port, operation: "add" });
+          result.countryEconomies[id].treasury >= warshipMaterials[model] * industries.shipGoods.basePrice * 2 &&
+          report.market.shipGoods.supply >= warshipMaterials[model]) {
+        result = applyCommand(scenario, result, { type: "setWarshipOrder", countryId: id, stateId: port, operation: "add", model });
       }
       if (result.elapsedDays % 28 === 0 && port && result.occupation?.stateId !== port &&
           fleetNation.knowledge["内燃机"] === 100 && fleetNation.convoys > fleetNation.fleet.motorized &&

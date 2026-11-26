@@ -49,7 +49,7 @@ import type { IndustryOwnership, Ownership, OwnershipAmounts } from "./ownership
 import { battalionsAt, equipmentNeeds, garrisonHeadcount, inTraining, refitOrder, trainingDays, trainNewBarracks } from "./military.ts";
 import type { Battalion, BattalionOrder } from "./military.ts";
 import { activeReplacements, fitWorkforce, injuredPersonnel } from "./military-health.ts";
-import { closeNavy, navyMaintenance, shipGoodsPerWarship } from "./navy.ts";
+import { closeNavy, navyMaintenance, warshipMaterials } from "./navy.ts";
 import type { NavyReport } from "./navy.ts";
 
 export { marketOf } from "./market.ts";
@@ -159,11 +159,12 @@ export interface MilitarySupply {
   grainDrawn: number;
   grainTransport: number;
   seaCargoUsed?: number;
-  procurement?: { grain: number; cloth: number; arms?: number; ammo?: number };
-  equipment: Record<"weapons" | "ammunition" | "uniforms", { demand: number; delivered: number }>;
+  procurement?: { grain: number; cloth: number; arms?: number; ammo?: number; oil?: number; rubber?: number };
+  equipment: Record<"weapons" | "ammunition" | "uniforms", EquipmentIssue> & Partial<Record<"fuel" | "spares", EquipmentIssue>>;
   readiness: number;
   supplyRatio?: number;
 }
+type EquipmentIssue = { demand: number; delivered: number };
 export interface SiteReport {
   workforce?: number;
   universityStaff?: number;
@@ -280,7 +281,8 @@ function orderQuoteCeilings(local: StateEconomy, market: CountryEconomy) {
 
 export const privateShareOf = (n: GameState["nations"][string]) =>
   economicOwnershipRules(n.laws).privateConstruction;
-const equipmentGoods = { weapons: "arms", ammunition: "ammo", uniforms: "cloth" } as const;
+const equipmentGoods = { weapons: "arms", ammunition: "ammo", uniforms: "cloth", fuel: "oil", spares: "rubber" } as const;
+const equipmentTypes = Object.keys(equipmentGoods) as (keyof typeof equipmentGoods)[];
 const armamentGoods = ["arms", "ammo"] as const;
 type ArmamentOrders = Record<(typeof armamentGoods)[number], number>;
 type MilitaryGoods = Required<NonNullable<MilitarySupply["procurement"]>>;
@@ -316,7 +318,8 @@ function buyMilitaryGoods(
 }
 
 export function militaryProcurementCost(spending: MilitarySupply["procurement"]) {
-  return spending === undefined ? 0 : spending.grain + spending.cloth + (spending.arms ?? 0) + (spending.ammo ?? 0);
+  return spending === undefined ? 0 : spending.grain + spending.cloth + (spending.arms ?? 0) + (spending.ammo ?? 0) +
+    (spending.oil ?? 0) + (spending.rubber ?? 0);
 }
 
 function availableEngineers(site: SiteSocial, owner: string, nation: GameState["nations"][string]) {
@@ -422,14 +425,14 @@ function issueSupplies(
     allocated = share;
   }
   let seaCargo = delivered;
-  for (const kind of ["weapons", "ammunition", "uniforms"] as const) {
+  for (const kind of equipmentTypes) {
     const good = equipmentGoods[kind];
     const available = sources.reduce((sum, id) => sum + stocks[id][good], 0);
     const limit = Math.min(overseas ? transport - seaCargo : transport, needs[kind], Math.floor(available * equipmentShare),
       Math.floor(contract.cash / contract.prices[good]));
     const issued = buyMilitaryGoods(contract, stocks, sources, good, limit);
-    military.equipment[kind].demand += needs[kind];
-    military.equipment[kind].delivered += issued;
+    military.equipment[kind]!.demand += needs[kind];
+    military.equipment[kind]!.delivered += issued;
     seaCargo += issued;
     if (needs[kind]) readiness = Math.min(readiness, issued / needs[kind]);
   }
@@ -465,9 +468,10 @@ function fleetPlans(state: GameState, holdings: Record<string, string[]>, scenar
     const fuelDemand = fleet.motorized + refits;
     const merchantDemand = port === null ? 0 : Math.max(0, buffer + berths * shipGoodsPerConvoy + refits * shipGoodsPerMotor - fleet.stores);
     const engaged = state.borderDispute?.phase === "war" && state.borderDispute.navalMissions?.[owner] !== undefined;
-    const navalUpkeep = navyMaintenance(navy.warships) * (engaged ? 2 : 1);
+    const navalUpkeep = navyMaintenance(navy) * (engaged ? 2 : 1);
     const navalMaintenance = port === null ? 0 : Math.max(0, navalUpkeep - navy.stores);
-    const navalDemand = port === null ? 0 : Math.max(0, navalUpkeep + navalBerths * shipGoodsPerWarship - navy.stores);
+    const hullMaterials = navy.order ? warshipMaterials[navy.order.model] : 0;
+    const navalDemand = port === null ? 0 : Math.max(0, navalUpkeep + navalBerths * hullMaterials - navy.stores);
     const requested = {
       shipGoods: merchantDemand + navalDemand,
       oil: port === null || fleet.oil >= fuelDemand ? 0 : Math.max(0, fuelDemand * 4 - fleet.oil),
@@ -478,7 +482,8 @@ function fleetPlans(state: GameState, holdings: Record<string, string[]>, scenar
   }));
 }
 
-function fleetIndustryOrders(state: GameState, plans: ReturnType<typeof fleetPlans>, good: FleetGood) {
+function fleetIndustryOrders(state: GameState, plans: ReturnType<typeof fleetPlans>, good: FleetGood,
+  armyFuelDemand: Record<string, { oil: number; rubber: number }>) {
   const demand = new Map<string, number>();
   const offers = new Map<string, number>();
   for (const [owner, plan] of Object.entries(plans)) {
@@ -486,7 +491,10 @@ function fleetIndustryOrders(state: GameState, plans: ReturnType<typeof fleetPla
     const funded = Math.min(plan.requested[good], Math.floor(Math.max(0, state.countryEconomies[owner].treasury) /
       industries[good].basePrice));
     offers.set(owner, funded);
-    demand.set(market, (demand.get(market) ?? 0) + funded);
+    const land = good === "shipGoods" ? 0 : armyFuelDemand[owner][good];
+    const homeOrder = Math.min(funded + land, Math.floor(Math.max(0, state.countryEconomies[owner].treasury) /
+      industries[good].basePrice));
+    demand.set(market, (demand.get(market) ?? 0) + homeOrder);
   }
   const imports = new Map<string, number>();
   for (const route of state.tradeRoutes ?? []) {
@@ -600,6 +608,8 @@ function projectSettlement(state: GameState, war?: WarPlan, closingTick?: number
           weapons: { demand: 0, delivered: 0 },
           ammunition: { demand: 0, delivered: 0 },
           uniforms: { demand: 0, delivered: 0 },
+          fuel: { demand: 0, delivered: 0 },
+          spares: { demand: 0, delivered: 0 },
         },
         readiness: 1,
       },
@@ -610,7 +620,24 @@ function projectSettlement(state: GameState, war?: WarPlan, closingTick?: number
   const rosters = Object.fromEntries(Object.keys(garrisons).map((id) => [id, battalionsAt(state, id, garrisons[id])]));
   const armamentOrders = planArmamentOrders(state, holdings, rosters, war);
   const fleets = fleetPlans(state, holdings, scenario);
-  const fleetProduction = byFleetGood((good) => fleetIndustryOrders(state, fleets, good));
+  const armyFuelDemand = Object.fromEntries(Object.entries(holdings).map(([owner, ids]) => {
+    const route = war?.routes[owner];
+    const demand = { oil: 0, rubber: 0 };
+    for (const id of ids) {
+      const upkeep = equipmentNeeds(rosters[id], 0, route?.recruitmentStates.has(id) === true);
+      demand.oil += upkeep.fuel;
+      demand.rubber += upkeep.spares;
+      if (state.occupation?.stateId === id) continue;
+      for (const unit of rosters[id]) {
+        if (!unit.pendingEquipment) continue;
+        const refit = refitOrder(unit);
+        demand.oil += refit.fuel;
+        demand.rubber += refit.spares;
+      }
+    }
+    return [owner, demand];
+  }));
+  const fleetProduction = byFleetGood((good) => fleetIndustryOrders(state, fleets, good, armyFuelDemand));
   for (const [id, local] of Object.entries(state.stateEconomies)) {
     const owner = state.ownerByStateId[id],
       nation = state.nations[owner],
@@ -837,8 +864,10 @@ function projectSettlement(state: GameState, war?: WarPlan, closingTick?: number
         cloth: Math.round(priorPrices?.cloth ?? industries.cloth.basePrice),
         arms: Math.round(priorPrices?.arms ?? industries.arms.basePrice),
         ammo: Math.round(priorPrices?.ammo ?? industries.ammo.basePrice),
+        oil: Math.round(priorPrices?.oil ?? industries.oil.basePrice),
+        rubber: Math.round(priorPrices?.rubber ?? industries.rubber.basePrice),
       },
-      spending: { grain: 0, cloth: 0, arms: 0, ammo: 0 }, proceeds: militaryReceipts,
+      spending: { grain: 0, cloth: 0, arms: 0, ammo: 0, oil: 0, rubber: 0 }, proceeds: militaryReceipts,
     };
     if (route) {
       const { front, rear } = militarySources(ids, route);
@@ -882,13 +911,11 @@ function projectSettlement(state: GameState, war?: WarPlan, closingTick?: number
       const shipped = new Map<number, BattalionOrder>();
       for (const unit of rosters[id]) {
         if (!unit.pendingEquipment || unit.trained !== unit.personnel) continue;
-        const { weapons, ammunition } = refitOrder(unit);
-        const cost = weapons * contract.prices.arms + ammunition * contract.prices.ammo;
-        if (cost > contract.cash ||
-            weapons > suppliers.reduce((sum, district) => sum + supplies[district].arms, 0) ||
-            ammunition > suppliers.reduce((sum, district) => sum + supplies[district].ammo, 0)) continue;
-        buyMilitaryGoods(contract, supplies, suppliers, "arms", weapons);
-        buyMilitaryGoods(contract, supplies, suppliers, "ammo", ammunition);
+        const refit = refitOrder(unit);
+        const cost = equipmentTypes.reduce((sum, kind) => sum + refit[kind] * contract.prices[equipmentGoods[kind]], 0);
+        if (cost > contract.cash || equipmentTypes.some((kind) => refit[kind] >
+          suppliers.reduce((sum, district) => sum + supplies[district][equipmentGoods[kind]], 0))) continue;
+        for (const kind of equipmentTypes) buyMilitaryGoods(contract, supplies, suppliers, equipmentGoods[kind], refit[kind]);
         shipped.set(unit.slot, { slot: unit.slot, kind: unit.kind, equipment: unit.pendingEquipment, readyDay });
       }
       if (shipped.size > 0) completedRefits[id] = state.societies[id].battalionOrders!.map((order) => shipped.get(order.slot) ?? order);
