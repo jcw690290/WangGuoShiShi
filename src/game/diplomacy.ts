@@ -16,7 +16,8 @@ import { adjustForeignRelation, breakOpposedTreaties, diplomaticTrust, expireTre
   fulfillObligation, obligationBetween, relationBetween, signForeignTreaty, treatyBetween,
   treatyInfluence, treatyPartners } from "./foreign-relations.ts";
 import { governmentLegitimacy, hash, influence, unrestOf } from "./society.ts";
-import { battalionDetails, battalionTrainingDays, battalionsAt, commandCapacity, equipmentDetails, garrisonHeadcount } from "./military.ts";
+import { battalionDetails, battalionTrainingDays, battalionsAt, commandCapacity, draftCenterQuota, equipmentDetails, garrisonHeadcount } from "./military.ts";
+import { militaryServicePolicies, militaryServicePolicy } from "./military-service.ts";
 import { applyMilitaryLoss, warLossesSchema } from "./military-health.ts";
 import { fleetPower, navalMissionSchema, navalMissionTargets, planNavalOperations } from "./naval-operations.ts";
 import type { NavalMissionCommand } from "./naval-operations.ts";
@@ -85,14 +86,14 @@ const peaceOfferSchema = z.object({
 type PeaceOffer = z.infer<typeof peaceOfferSchema>;
 const peaceOfferDuration = 14;
 
-const mobilizationBaseDays = 28;
 const mobilizationDelayDays = 7;
 const mobilizationPlanSchema = z.object({
   orderedDay: z.int().nonnegative(),
   readyDay: z.int().nonnegative(),
   origins: z.array(z.string()).nonempty().refine((sites) => new Set(sites).size === sites.length),
 }).refine(({ orderedDay, readyDay }) =>
-  [0, 1, 2].some((delay) => readyDay - orderedDay === mobilizationBaseDays + delay * mobilizationDelayDays));
+  Object.values(militaryServicePolicies).some(({ mobilizationDays }) =>
+    [0, 1, 2].some((delay) => readyDay - orderedDay === mobilizationDays + delay * mobilizationDelayDays)));
 export const supplyPriorities = ["front", "balanced", "civilian"] as const;
 export const supplyPriorityDetails = {
   front: { name: "前线优先", share: 1 },
@@ -601,7 +602,8 @@ export function applyBorderCommand(scenario: Scenario, state: GameState, cmd: Bo
     const transportDelay = nation.knowledge["运输调度"] !== 100 && (route.overseas ||
       origins.every((siteId) => state.societies[siteId].infrastructure === 1 && state.societies[siteId].railway === 0));
     const governmentDelay = origins.some((siteId) => localGovernanceRule(state.societies[siteId], nation.laws).militaryShare < 0.8);
-    const readyDay = state.elapsedDays + mobilizationBaseDays + (Number(transportDelay) + Number(governmentDelay)) * mobilizationDelayDays;
+    const readyDay = state.elapsedDays + militaryServicePolicy(nation.laws).mobilizationDays +
+      (Number(transportDelay) + Number(governmentDelay)) * mobilizationDelayDays;
     return patch({
       mobilized: [...d.mobilized, id],
       mobilization: { ...d.mobilization, [id]: { orderedDay: state.elapsedDays, readyDay, origins } },
@@ -680,7 +682,8 @@ export interface WarPlan {
   naval: ReturnType<typeof planNavalOperations>;
 }
 function mobilizationOrigins(state: GameState, route: SupplyRoute) {
-  return [...route.recruitmentStates].filter((id) => state.occupation?.stateId !== id && state.societies[id].conscription > 0);
+  return [...route.recruitmentStates].filter((id) =>
+    state.occupation?.stateId !== id && draftCenterQuota(state.societies[id], state.nations[state.ownerByStateId[id]].laws) > 0);
 }
 export function frontLine(scenario: Scenario, state: GameState, d: BorderDispute) {
   const site = scenario.states[d.targetStateId];

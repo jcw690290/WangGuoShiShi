@@ -20,6 +20,7 @@ import { barracksTrainingSchema, battalionOrdersSchema } from "./military.ts";
 import { militaryHealthSchema } from "./military-health.ts";
 import { initialNavy, navySchema } from "./navy.ts";
 import { isOpiumLaw, opiumBurdenSchema, opiumLaws } from "./opium.ts";
+import { isMilitaryServiceLaw, militaryServiceLaws } from "./military-service.ts";
 
 export const occupations = ["农民", "劳工", "工程师", "军官", "教士", "店主", "资本家", "贵族"] as const;
 export type Occupation = (typeof occupations)[number];
@@ -103,6 +104,7 @@ export const laws = [
   ...governanceLaws,
   ...economicLaws,
   ...opiumLaws,
+  ...militaryServiceLaws,
 ] as const;
 export type Law = (typeof laws)[number];
 export const techs = ["纺织工艺", "野战后勤", "公共教育", "机械织造", "运输调度", "高等教育", "蒸汽动力", "铁路",
@@ -197,7 +199,7 @@ export const nationSchema = z.object({
     const civicCategories = enacted.map(civicLawCategory).filter((category) => category !== undefined);
     return new Set(categories).size === categories.length && new Set(civicCategories).size === civicCategories.length;
   }).refine((enacted) => enacted.filter(isTaxLaw).length <= 1 && enacted.filter(isTradeLaw).length <= 1 &&
-    enacted.filter(isOpiumLaw).length <= 1 &&
+    enacted.filter(isOpiumLaw).length <= 1 && enacted.filter(isMilitaryServiceLaw).length <= 1 &&
     enacted.filter(isGovernanceLaw).length <= 1 && enacted.filter(isEconomicLaw).length <= 1 &&
     (["stateForm", "representation"] as const).every((category) =>
       enacted.filter((law) => constitutionLawCategory(law) === category).length <= 1)),
@@ -285,7 +287,8 @@ export function initSociety(scenario: Scenario) {
       startingStateForm: startingStateForm(id),
       ...(limitedVoteCountries.has(id) ? { startingRepresentation: "limited" as const } : {}),
       government: ["地主", "乡民"],
-      laws: [...institutionLawKinds.map((kind) => institutionLawOptions[kind][0]), ...startingLaborLaws(id), taxLaws[0], tradeLaws[0]],
+      laws: [...institutionLawKinds.map((kind) => institutionLawOptions[kind][0]), ...startingLaborLaws(id),
+        taxLaws[0], tradeLaws[0], "职业常备军"],
       taxBand: "standard",
       exciseGoods: [...exciseGoods],
       tariffBand: "standard",
@@ -344,6 +347,9 @@ export function influence(locals: SiteSocial[], id: string, nation: Nation) {
   return points;
 }
 export const supporters: Record<Law, Group[]> = {
+  地方民兵: ["乡民", "小市民"],
+  职业常备军: ["武装部队", "地主"],
+  义务兵役: ["武装部队", "知识分子"],
   鸦片许可经营: ["实业家", "地主"],
   鸦片限医疗: ["知识分子", "小市民", "教会"],
   鸦片禁令: ["教会", "乡民", "武装部队"],
@@ -404,7 +410,8 @@ export function approval(nation: Nation, g: Group) {
   return (
     (nation.government.includes(g) ? 8 : 0) +
     nation.laws.reduce((n, l) => institutionLawDetails(l)?.level === 1 || neutralLaborLaws.has(l) ||
-      l === "传统土地身份税" || l === "贸易保护" || l === "复合辖区制" || l === "国家主导" || isBaselineCivicLaw(l) ?
+      l === "传统土地身份税" || l === "贸易保护" || l === "复合辖区制" || l === "国家主导" ||
+      l === "职业常备军" || isBaselineCivicLaw(l) ?
       n : n + (supporters[l].includes(g) ? 4 : -1), 0)
   );
 }

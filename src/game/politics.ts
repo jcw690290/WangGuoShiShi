@@ -10,6 +10,7 @@ import { constitutionLawCategory, representationLaw, stateForm } from "./constit
 import { governanceLaw, isGovernanceLaw } from "./governance.ts";
 import { economicLaw, isEconomicLaw } from "./ownership.ts";
 import { isOpiumLaw, opiumLaw } from "./opium.ts";
+import { isMilitaryServiceLaw, militaryServiceLaw } from "./military-service.ts";
 import { groups, influence, literacyOf, reformConditions, reformWork, techs, unrestOf } from "./society.ts";
 import type { Group, Law, Nation, SiteSocial, Tech } from "./society.ts";
 
@@ -105,7 +106,7 @@ export const techEffect: Record<Tech, string> = {
   社会保障: "解锁《社会保险》",
   大众政治: "解锁《妇女平等权》",
   现代税制: "解锁比例、累进所得税和消费税制",
-  常备军组织: "陆军改编与新兵营训练缩短为 10 周",
+  常备军组织: "陆军改编与新兵营训练缩短为 10 周，允许提出义务兵役法",
   线列训练: "解锁步兵与骑兵的线列训练方案",
   后膛装备: "解锁步兵与骑兵的后膛装备",
   参谋组织: "每级将领指挥上限由 300 提至 400 人",
@@ -170,12 +171,15 @@ export const lawEffect: Record<Law, string> = {
   鸦片许可经营: "允许医疗采购和家庭购买，国内产业与对外贸易照常",
   鸦片限医疗: "仅开放医疗机构采购，允许合法生产与贸易",
   鸦片禁令: "暂停合法生产、建设、贸易与采购，地方依赖继续按周恢复",
+  地方民兵: "每级兵营 70 名常备军，每级征兵中心最多 400 名预备役，基础动员 42 天",
+  职业常备军: "每级兵营 100 名常备军，每级征兵中心最多 500 名预备役，基础动员 28 天",
+  义务兵役: "每级兵营 100 名常备军，每级征兵中心最多 750 名预备役，基础动员 21 天",
 };
 
 function exclusiveLawCategory(law: Law) {
   return institutionLawDetails(law)?.kind ?? laborLawCategory(law) ?? civicLawCategory(law) ?? constitutionLawCategory(law) ??
     (isTaxLaw(law) ? "tax" : isTradeLaw(law) ? "trade" : isGovernanceLaw(law) ? "governance" :
-      isEconomicLaw(law) ? "economy" : isOpiumLaw(law) ? "opium" :
+      isEconomicLaw(law) ? "economy" : isOpiumLaw(law) ? "opium" : isMilitaryServiceLaw(law) ? "militaryService" :
       law === "小农自耕" || law === "地主租佃" ? "land" : undefined);
 }
 export type PoliticsCommand =
@@ -211,10 +215,11 @@ export function politicsError(state: GameState, command: PoliticsCommand) {
         (isGovernanceLaw(command.law) && governanceLaw(nation.laws) === command.law) ||
         (isEconomicLaw(command.law) && economicLaw(nation.laws) === command.law) ||
         (isOpiumLaw(command.law) && opiumLaw(nation.laws) === command.law) ||
+        (isMilitaryServiceLaw(command.law) && militaryServiceLaw(nation.laws) === command.law) ||
         (civicCategory && civicLawOf(nation.laws, civicCategory) === command.law)) return "已有议案或该法已生效";
     const institution = institutionLawDetails(command.law);
     const modernTax = isTaxLaw(command.law) && command.law !== "传统土地身份税" && command.law !== "工资税改革";
-    const technology = modernTax ? "现代税制" :
+    const technology = command.law === "义务兵役" ? "常备军组织" : modernTax ? "现代税制" :
       institution ? institutionRequiredTech(institution.kind, institution.level) : laborLawTechnology[command.law];
     if (technology && nation.knowledge[technology] !== 100) return `立项需要掌握${technology}技术`;
     const sites = ownedSocieties(state, id);

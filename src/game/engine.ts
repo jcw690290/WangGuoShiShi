@@ -2,7 +2,7 @@ import { GameRuleError } from "./rules.ts";
 import { changeDifficulty, initialSettings, openingReserve } from "./settings.ts";
 import type { Difficulty, GameSettings, RuleTuning } from "./settings.ts";
 import type { Scenario } from "../scenario/scenario.ts";
-import { advanceFront, aiDiplomacy, applyBorderCommand, planWar, tickDiplomacy } from "./diplomacy.ts";
+import { advanceFront, aiDiplomacy, applyBorderCommand, attacking, participants, planWar, tickDiplomacy } from "./diplomacy.ts";
 import type { BorderCommand, BorderDispute } from "./diplomacy.ts";
 import { chooseConstruction, chooseElectrification, choosePort, chooseRailway, chooseUniversity, constructionError,
   initialStateEconomy, projectDeposit, projectOpeningCapital, projects, settleEconomy } from "./economy.ts";
@@ -56,6 +56,7 @@ import {
   advanceCivilWar, chooseCivilWarSide, controlledCivilCountry, mustChooseCivilSide, oppositionId, scenarioWithCivilWar,
 } from "./civil-war.ts";
 import type { CivilWar, CivilWarCommand, CivilWarResult } from "./civil-war.ts";
+import { militaryServiceLaw } from "./military-service.ts";
 export { DAY_MS, elapsedTicks, TICKS_PER_DAY } from "./time.ts";
 
 export interface GameState {
@@ -227,6 +228,21 @@ function chooseInstitutionLaw(state: GameState, report: EconomyReport, countryId
   }
 }
 
+function chooseMilitaryServiceLaw(state: GameState, report: EconomyReport, countryId: string): PoliticsCommand | undefined {
+  const dispute = state.borderDispute;
+  const risk = state.countryEconomies[countryId].fiscal!.week.risk;
+  const sustainable = risk === "stable" || risk === "warning";
+  const service = militaryServiceLaw(state.nations[countryId].laws);
+  const front = dispute?.phase === "war" && participants(dispute).includes(countryId) ? dispute : undefined;
+  const pressure = front && (attacking(front, countryId) ? front.progress < 40 : front.progress > 60);
+  const law = sustainable && pressure ? "义务兵役"
+    : !front && !sustainable && report.countries[countryId].military.regulars >= 100 ? "地方民兵"
+    : sustainable && service === "地方民兵" ? "职业常备军" : undefined;
+  if (!law) return;
+  const proposal = { type: "proposeLaw", countryId, law } as const;
+  if (!politicsError(state, proposal)) return proposal;
+}
+
 function chooseLaborLaw(state: GameState, countryId: string): PoliticsCommand | undefined {
   const laws = state.nations[countryId].laws;
   const proposals: Law[] = [];
@@ -389,7 +405,7 @@ export function advanceTick(
         });
       if (!n.reform) {
         const proposal = result.elapsedDays % 28 === 0
-          ? chooseOpiumLaw(result, id) ?? chooseLaborLaw(result, id) ??
+          ? chooseMilitaryServiceLaw(result, settled.lastEconomy, id) ?? chooseOpiumLaw(result, id) ?? chooseLaborLaw(result, id) ??
             chooseInstitutionLaw(result, settled.lastEconomy, id) ?? chooseCivicLaw(result, id)
           : undefined;
         if (proposal) result = applyCommand(scenario, result, proposal);

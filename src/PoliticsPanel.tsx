@@ -26,10 +26,11 @@ import {
 } from "./game/constitutional-crises.ts";
 import type { Scenario } from "./scenario/scenario.ts";
 import { civilWarEscalationDays } from "./game/civil-war.ts";
+import { isMilitaryServiceLaw, militaryServiceLaw, militaryServiceLaws } from "./game/military-service.ts";
 
 const otherLaws = laws.filter((law) => !institutionLawDetails(law) && !laborLawCategory(law) &&
   !(taxLaws as readonly Law[]).includes(law) && !isTradeLaw(law) && !civicLawCategory(law) &&
-  !constitutionLawCategory(law) && !isGovernanceLaw(law) && !isEconomicLaw(law));
+  !constitutionLawCategory(law) && !isGovernanceLaw(law) && !isEconomicLaw(law) && !isMilitaryServiceLaw(law));
 interface Props {
   scenario: Scenario;
   game: GameState;
@@ -57,7 +58,7 @@ export function PoliticsPanel({ scenario, game, playerId: id, year, busy, send }
   const proposal = { type: "proposeLaw", countryId: id, law } as const;
   const reason = politicsError(game, proposal);
   const effectiveLaws = n.laws.filter((law) => !civicLawCategory(law) && !constitutionLawCategory(law) && !isGovernanceLaw(law) &&
-    !isEconomicLaw(law));
+    !isEconomicLaw(law) && !isMilitaryServiceLaw(law));
   const authority = authorityBudget(game, id);
   const crisis = constitutionalCrisisWarning(game, id);
   const crisisState = game.constitutionalCrises?.[id];
@@ -120,7 +121,7 @@ export function PoliticsPanel({ scenario, game, playerId: id, year, busy, send }
                 </label>
               ))}
             </div>
-            <p>生效法律 · {[stateForm(n), representationLaw(n), governanceLaw(n.laws), economicLaw(n.laws),
+            <p>生效法律 · {[stateForm(n), representationLaw(n), governanceLaw(n.laws), economicLaw(n.laws), militaryServiceLaw(n.laws),
               ...effectiveLaws, ...enactedCivicLaws(n.laws)].join("、")}</p>
             <select
               value={law}
@@ -146,6 +147,9 @@ export function PoliticsPanel({ scenario, game, playerId: id, year, busy, send }
               </optgroup>
               <optgroup label="贸易法">
                 {tradeLaws.map((l) => <option key={l}>{l}</option>)}
+              </optgroup>
+              <optgroup label="军制">
+                {militaryServiceLaws.map((l) => <option key={l}>{l}</option>)}
               </optgroup>
               {Object.values(civicLawFamilies).map(({ name, options }) => (
                 <optgroup key={name} label={name}>
