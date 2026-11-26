@@ -1,10 +1,12 @@
 import assert from "node:assert/strict";
 import { test } from "node:test";
 import { projectEconomy } from "../src/game/economy.ts";
+import { planWar } from "../src/game/diplomacy.ts";
 import { advanceDay, createGame, dispatch } from "../src/game/engine.ts";
 import { parseSave, saveVersion } from "../src/game/storage.ts";
 import { applyPlayerCommand, decodeSnapshot, encodeSnapshot } from "../src/online/protocol.ts";
 import { borderScenario, scenario as world } from "../src/scenario/scenario.ts";
+import { convoyCargoCapacity, raidedConvoyCargoCapacity, seaVoyageCargoCost } from "../src/game/transport.ts";
 
 const qing = "country_01", vietnam = "country_26", to = "Tonkin", from = "Yunnan";
 const scenario = {
@@ -45,6 +47,9 @@ test("陆路贸易按实际发货结算供需、实收关税、运费、投资�
   const budget = week.lastEconomy!.countries[vietnam];
   assert.equal(week.countryEconomies[vietnam].treasury - initial.countryEconomies[vietnam].treasury, budget.tax - budget.upkeep);
   assert.deepEqual(await decodeSnapshot(scenario, await encodeSnapshot(scenario, week)), week);
+  const priceAfterImports = projectEconomy(week).countries[vietnam].market.grain.targetPrice!;
+  const noExpectedImports = { ...week, lastEconomy: { ...week.lastEconomy!, trade: [] } };
+  assert.ok(priceAfterImports < projectEconomy(noExpectedImports).countries[vietnam].market.grain.targetPrice!);
   const monthEnd = { ...week, elapsedDays: 30, tickInDay: 3 };
   const withoutDelivery = { ...monthEnd, lastEconomy: { ...week.lastEconomy!, trade: [] } };
   const exchanged = dispatch(scenario, monthEnd, { type: "advanceTick" });
@@ -90,4 +95,67 @@ test("世界开局俄罗斯可在奥卢通过陆路获得诺尔兰剩余的布�
   assert.equal(shipment.status, "shipped");
   assert.ok(shipment.quantity > 0 && shipment.quantity <= 500);
   assert.equal(settled.lastEconomy!.countries[countryId].tradeTariff, shipment.tariff);
+});
+
+test("沿海州能按海运结算，旧陆路档继续可读，跨图边界按短航程计算", async () => {
+  const countryId = "country_09";
+  const command = { type: "openTradeRoute", countryId, from: "Norrland", to: "Oulu", good: "cloth", limit: 500 } as const;
+  const initial = dispatch(world, createGame(world), { type: "selectCountry", countryId });
+  assert.throws(() => dispatch(world, initial, { ...command, mode: "sea", from: "Alberta" }), /沿海外国出口州/);
+  const land = dispatch(world, initial, command);
+  const old = structuredClone(land) as unknown as { tradeRoutes: Record<string, unknown>[] };
+  delete old.tradeRoutes[0].mode;
+  delete old.tradeRoutes[0].cargoCost;
+  assert.deepEqual(parseSave(world, { version: saveVersion, scenarioId: world.id, state: old }), land);
+  const sea = applyPlayerCommand(world, initial, countryId, { ...command, mode: "sea" });
+  const settled = dispatch(world, sea, { type: "advanceWeek" });
+  const [shipment] = settled.lastEconomy!.trade!;
+  assert.equal(shipment.mode, "sea");
+  assert.equal(shipment.status, "shipped");
+  assert.equal(settled.lastEconomy!.countries[countryId].tradeSeaCargo, shipment.quantity * sea.tradeRoutes![0].cargoCost);
+  assert.deepEqual(await decodeSnapshot(world, await encodeSnapshot(world, settled)), settled);
+  assert.equal(seaVoyageCargoCost([5, 70], [1195, 70]), 1);
+  assert.ok(seaVoyageCargoCost([25, 50], [625, 400]) > 1);
+});
+
+test("商运使用海军军需后的剩余船队，破交只暂停受影响口岸的海运", () => {
+  const trader = "country_16";
+  const { Guangxi, Yunnan, Tonkin, Annam } = borderScenario.states;
+  const coastal = {
+    ...borderScenario,
+    countries: { ...borderScenario.countries, [trader]: world.countries[trader] },
+    states: {
+      Guangxi: { ...Guangxi, coastal: true, neighbors: ["Yunnan"] },
+      Yunnan: { ...Yunnan, coastal: true, neighbors: ["Guangxi"] },
+      Tonkin: { ...Tonkin, coastal: true, neighbors: ["Annam"] },
+      Annam: { ...Annam, coastal: true },
+      Outlet: { ...Tonkin, id: "Outlet", ownerId: trader, coastal: true, neighbors: [], population: 6000,
+        buildings: { grain: 1, cloth: 2 }, label: [920, 240] as [number, number] },
+    },
+  };
+  let game = dispatch(coastal, createGame(coastal), { type: "selectCountry", countryId: qing });
+  game.nations[qing].convoys = 1;
+  game.societies.Guangxi.infrastructure = 1;
+  game.countryEconomies[qing].referenceQuotes = { grain: 100, cloth: 500 };
+  const importCloth = { type: "openTradeRoute", countryId: qing, from: "Outlet", to: "Guangxi", mode: "sea",
+    good: "cloth", limit: 500 } as const;
+  game = dispatch(coastal, game, importCloth);
+  game = dispatch(coastal, game, { ...importCloth, to: "Yunnan" });
+  assert.equal(projectEconomy(game).trade![0].status, "shipped");
+  game = dispatch(coastal, game, { type: "declareInterest", countryId: qing, targetStateId: "Tonkin" });
+  game = dispatch(coastal, game, { type: "demandBorder", countryId: qing, targetStateId: "Tonkin", goal: "cession" });
+  const allHumans = new Set([qing, vietnam, trader]);
+  while (game.elapsedDays < 56) game = advanceDay(coastal, game, allHumans);
+  game = dispatch(coastal, game, { type: "mobilize", countryId: qing });
+  const report = projectEconomy(game, planWar(coastal, game));
+  const { military, tradeSeaCargo } = report.countries[qing];
+  assert.ok(military.seaCargoUsed! > 0);
+  assert.ok(military.seaCargoUsed! + tradeSeaCargo! <= convoyCargoCapacity);
+  assert.equal(military.seaCargoUsed, convoyCargoCapacity);
+  assert.equal(tradeSeaCargo, 0);
+  const raided = dispatch(coastal, game, { type: "raid", countryId: vietnam });
+  const blocked = projectEconomy(raided, planWar(coastal, raided));
+  assert.equal(blocked.trade![0].status, "blockaded");
+  assert.notEqual(blocked.trade![1].status, "blockaded");
+  assert.ok(blocked.countries[qing].military.seaCargoUsed! <= raidedConvoyCargoCapacity);
 });

@@ -2,6 +2,7 @@ import { GameRuleError } from "./rules.ts";
 import { z } from "zod";
 import { diplomaticTie, removeDiplomaticTies } from "./diplomatic-ties.ts";
 import { newFrontier } from "./governance.ts";
+import { convoyCargoCapacity, raidedConvoyCargoCapacity } from "./transport.ts";
 import type { Scenario } from "../scenario/scenario.ts";
 import type { GameState } from "./engine.ts";
 import type { EconomyReport } from "./economy.ts";
@@ -354,6 +355,8 @@ interface SupplyRoute {
   connectedStates: Set<string>;
   grainTransport: number;
   mobilized: boolean;
+  overseas: boolean;
+  raided: boolean;
 }
 export interface WarPlan {
   routes: Record<string, SupplyRoute>;
@@ -392,13 +395,16 @@ export function planWar(scenario: Scenario, state: GameState): WarPlan | undefin
     const homeland =
       sites.filter((s) => s.ownerId === id).sort((a, b) => b.population - a.population)[0] ?? sites[0];
     const overseas = !fronts.length || !connectedStates.has(homeland.id);
-    if (overseas)
+    const raided = overseas && d.raid.some((x) => attacking(d, x) !== attacking(d, id) &&
+      holdings(scenario, state, x).some((site) => site.coastal));
+    if (state.nations[id].knowledge["运输调度"] === 100) grainTransport = Math.floor(grainTransport * 1.3);
+    if (overseas) {
       grainTransport = Math.min(
         grainTransport,
-        state.nations[id].convoys * (d.raid.some((x) => attacking(d, x) !== attacking(d, id)) ? 220 : 800),
+        state.nations[id].convoys * (raided ? raidedConvoyCargoCapacity : convoyCargoCapacity),
       );
-    if (state.nations[id].knowledge["运输调度"] === 100) grainTransport = Math.floor(grainTransport * 1.3);
-    routes[id] = { recruitmentStates, connectedStates, grainTransport, mobilized: d.mobilized.includes(id) };
+    }
+    routes[id] = { recruitmentStates, connectedStates, grainTransport, mobilized: d.mobilized.includes(id), overseas, raided };
   }
   return { ...scenario.borderDispute, routes };
 }
