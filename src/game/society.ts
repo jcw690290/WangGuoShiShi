@@ -10,6 +10,7 @@ import { initialFleet, merchantFleetSchema } from "./fleet.ts";
 import { institutionLawDetails, institutionLawKinds, institutionLawOptions, institutionLevelSchema } from "./institutions.ts";
 import { bondedRuralShare, laborLawCategory, laborLaws, laborProtection, neutralLaborLaws,
   participationTarget, startingLaborLaws, workForce } from "./labor.ts";
+import { exciseGoods, exciseGoodsSchema, isTaxLaw, taxBands, taxBandSchema, taxLaws } from "./taxation.ts";
 
 export const occupations = ["农民", "劳工", "工程师", "军官", "教士", "店主", "资本家", "贵族"] as const;
 export type Occupation = (typeof occupations)[number];
@@ -88,10 +89,11 @@ export const laws = [
   "小农自耕",
   ...institutionLawKinds.flatMap((kind) => [...institutionLawOptions[kind]]),
   ...laborLaws,
+  ...taxLaws,
 ] as const;
 export type Law = (typeof laws)[number];
 export const techs = ["纺织工艺", "野战后勤", "公共教育", "机械织造", "运输调度", "高等教育", "蒸汽动力", "铁路",
-  "规模化钢铁", "电气化", "内燃机", "公共卫生", "劳工保障", "社会保障", "大众政治"] as const;
+  "规模化钢铁", "电气化", "内燃机", "公共卫生", "劳工保障", "社会保障", "大众政治", "现代税制"] as const;
 export type Tech = (typeof techs)[number];
 export const emptyKnowledge = (): Record<Tech, number> => ({
   纺织工艺: 0,
@@ -109,6 +111,7 @@ export const emptyKnowledge = (): Record<Tech, number> => ({
   劳工保障: 0,
   社会保障: 0,
   大众政治: 0,
+  现代税制: 0,
 });
 const knowledgeSchema = z.object({
   纺织工艺: percent, 野战后勤: percent, 公共教育: percent, 机械织造: percent, 运输调度: percent, 高等教育: percent,
@@ -118,6 +121,7 @@ const knowledgeSchema = z.object({
   劳工保障: percent.default(0),
   社会保障: percent.default(0),
   大众政治: percent.default(0),
+  现代税制: percent.default(0),
 });
 export const privateProject = z.object({
   stateId: z.string(),
@@ -159,7 +163,9 @@ export const nationSchema = z.object({
     enacted.filter((law) => institutionLawDetails(law)?.kind === kind).length <= 1)).refine((enacted) => {
     const categories = enacted.map(laborLawCategory).filter((category) => category !== undefined);
     return new Set(categories).size === categories.length;
-  }),
+  }).refine((enacted) => enacted.filter(isTaxLaw).length <= 1),
+  taxBand: taxBandSchema.default(taxBands[2]),
+  exciseGoods: exciseGoodsSchema.default(() => [...exciseGoods]),
   reform: z.enum(laws).nullable(),
   reformProgress: z.number().nonnegative(),
   research: z.enum(techs).nullable(),
@@ -233,7 +239,9 @@ export function initSociety(scenario: Scenario) {
     nations[id] = {
       ...(limitedVoteCountries.has(id) ? { startingRepresentation: "limited" as const } : {}),
       government: ["地主", "乡民"],
-      laws: [...institutionLawKinds.map((kind) => institutionLawOptions[kind][0]), ...startingLaborLaws(id)],
+      laws: [...institutionLawKinds.map((kind) => institutionLawOptions[kind][0]), ...startingLaborLaws(id), taxLaws[0]],
+      taxBand: "standard",
+      exciseGoods: [...exciseGoods],
       reform: null,
       reformProgress: 0,
       research: null,
@@ -322,11 +330,15 @@ export const supporters: Record<Law, Group[]> = {
   传统性别分工: ["教会", "地主"],
   妇女就业权: ["实业家", "小市民", "乡民"],
   妇女平等权: ["知识分子", "工会", "乡民"],
+  传统土地身份税: ["乡民", "小市民"],
+  比例所得税: ["实业家", "小市民", "知识分子"],
+  累进所得税: ["工会", "乡民", "知识分子"],
+  消费税制: ["实业家", "地主"],
 };
 export function approval(nation: Nation, g: Group) {
   return (
     (nation.government.includes(g) ? 8 : 0) +
-    nation.laws.reduce((n, l) => institutionLawDetails(l)?.level === 1 || neutralLaborLaws.has(l) ?
+    nation.laws.reduce((n, l) => institutionLawDetails(l)?.level === 1 || neutralLaborLaws.has(l) || l === "传统土地身份税" ?
       n : n + (supporters[l].includes(g) ? 4 : -1), 0)
   );
 }
@@ -365,12 +377,12 @@ export function evolvePops(
   nation: Nation,
   week: {
     grainPrice: number; laborWages: number; specialistWages: number;
-    dividends: number; ruralResources: number; landRent: number; businessJobs: number; standardTarget: number;
+    capitalistIncome: number; landownerIncome: number; ruralResources: number; businessJobs: number; standardTarget: number;
     relief?: { 农民: number; 劳工: number };
   },
   tuning: RuleTuning,
 ) {
-  const { grainPrice, laborWages, specialistWages, dividends, ruralResources, landRent, businessJobs, standardTarget } = week;
+  const { grainPrice, laborWages, specialistWages, capitalistIncome, landownerIncome, ruralResources, businessJobs, standardTarget } = week;
   const totals = Object.fromEntries(
     occupations.map((o) => [o, site.pops.reduce((s, p) => s + (p.occupation === o ? p.people : 0), 0)]),
   ) as Record<Occupation, number>;
@@ -385,7 +397,7 @@ export function evolvePops(
         : p.occupation === "劳工"
           ? laborWages + (week.relief?.劳工 ?? 0)
           : socialTags[p.occupation][0] === "上层"
-            ? dividends / 2 + (p.occupation === "贵族" ? landRent : 0)
+            ? p.occupation === "贵族" ? landownerIncome : capitalistIncome
             : totals[p.occupation] * 4 + (p.occupation === "工程师" ? specialistWages : 0);
     const living = Math.max(
       0.5,

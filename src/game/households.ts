@@ -88,9 +88,12 @@ export function byExtraGood<T>(make: (good: ExtraGood) => T): Record<ExtraGood, 
 
 const preferences = { food: 0.25, dailyGoods: 0.35, services: 0.25, luxury: 0.15 };
 const extraPerPerson = { food: 0.20, dailyGoods: 0.25, services: 0.25, luxury: 0.075 };
-export function extrasOrders(people: number, budget: number) {
-  return byExtraGood((good) => Math.min(Math.round(people * extraPerPerson[good]),
-    Math.floor(budget * preferences[good] / Math.ceil(industries[good].basePrice * 1.75))));
+export function extrasOrders(people: number, budget: number, surcharge: (good: ExtraGood) => number = () => 0) {
+  return byExtraGood((good) => {
+    const ceiling = Math.ceil(industries[good].basePrice * 1.75);
+    const grossPrice = Math.ceil(ceiling * (1 + surcharge(good)));
+    return Math.min(Math.round(people * extraPerPerson[good]), Math.floor(budget * preferences[good] / grossPrice));
+  });
 }
 
 type IncomeOccupation = "农民" | "劳工" | "工程师" | "资本家" | "贵族";

@@ -7,6 +7,7 @@ import { migrateCommercialProduction } from "./commercialMigration.ts";
 import { initialIndustrialAccount } from "./industrial.ts";
 import { openingBasicBudget } from "./households.ts";
 import { unusedPrepaidConstruction } from "./economy.ts";
+import { isTaxLaw } from "./taxation.ts";
 
 // Input boundary for published versions 1–4 of the regional demo.
 export function importRegionalSave(region: Scenario, world: Scenario, save: unknown): GameState {
@@ -183,7 +184,7 @@ export function importRegionalSave(region: Scenario, world: Scenario, save: unkn
   if ("countryPolitics" in original)
     for (const [id, p] of Object.entries(original.countryPolitics)) {
       const n = base.nations[id];
-      if (p.reformWeeks === 2) n.laws.push("工资税改革");
+      if (p.reformWeeks === 2) n.laws = [...n.laws.filter((law) => !isTaxLaw(law)), "工资税改革"];
       else if (p.reformWeeks !== null) {
         n.reform = "工资税改革";
         n.reformProgress = p.reformWeeks;

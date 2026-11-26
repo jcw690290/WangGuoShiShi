@@ -3,6 +3,7 @@ import type { GameState } from "./engine.ts";
 import type { EconomyReport } from "./economy.ts";
 import { institutionLawDetails, institutionRequiredTech } from "./institutions.ts";
 import { laborLawCategory, laborLawTechnology } from "./labor.ts";
+import { isTaxLaw } from "./taxation.ts";
 import { groups, influence, literacyOf, reformConditions, reformWork, techs, unrestOf } from "./society.ts";
 import type { Group, Law, Nation, SiteSocial, Tech } from "./society.ts";
 
@@ -23,6 +24,7 @@ export const researchCategory = {
   劳工保障: "社会",
   社会保障: "社会",
   大众政治: "社会",
+  现代税制: "社会",
 } as const;
 const categories = ["生产", "军事", "社会"] as const;
 const prerequisite: Partial<Record<Tech, Tech>> = {
@@ -38,6 +40,7 @@ const prerequisite: Partial<Record<Tech, Tech>> = {
   劳工保障: "高等教育",
   社会保障: "劳工保障",
   大众政治: "劳工保障",
+  现代税制: "公共教育",
 };
 export function availableTech(n: Nation, t: Tech) {
   const prior = prerequisite[t];
@@ -70,9 +73,10 @@ export const techEffect: Record<Tech, string> = {
   劳工保障: "解锁《公共救济》",
   社会保障: "解锁《社会保险》",
   大众政治: "解锁《妇女平等权》",
+  现代税制: "解锁比例、累进所得税和消费税制",
 };
 export const lawEffect: Record<Law, string> = {
-  工资税改革: "工资税从 10% 提高至 14%",
+  工资税改革: "沿用 14% 工资税与 5% 经营所得税",
   干预主义: "私人建造份额 50%，基础再投资比例 25%",
   自由放任: "私人建造份额 75%，基础再投资比例 40%",
   平等公民权: "接纳所有文化",
@@ -100,11 +104,15 @@ export const lawEffect: Record<Law, string> = {
   传统性别分工: "州劳动力参与率逐步趋向 40%",
   妇女就业权: "州劳动力参与率逐步趋向 46%",
   妇女平等权: "州劳动力参与率逐步趋向 52%，提高中下层政治参与权重",
+  传统土地身份税: "农民和劳工 8%，土地所有者 18%，其他 10%",
+  比例所得税: "各职业按实际所得统一征收 15%",
+  累进所得税: "下、中、上层分别按实际所得征收 10%、18%、28%",
+  消费税制: "按实际所得征收 5%，另对选定的可选消费品征收 10%",
 };
 
 function exclusiveLawCategory(law: Law) {
   return institutionLawDetails(law)?.kind ?? laborLawCategory(law) ??
-    (law === "自由放任" || law === "干预主义" ? "economy" :
+    (isTaxLaw(law) ? "tax" : law === "自由放任" || law === "干预主义" ? "economy" :
       law === "小农自耕" || law === "地主租佃" ? "land" : undefined);
 }
 export type PoliticsCommand =
@@ -133,7 +141,9 @@ export function politicsError(state: GameState, command: PoliticsCommand) {
   } else {
     if (nation.reform !== null || nation.laws.includes(command.law)) return "已有议案或该法已生效";
     const institution = institutionLawDetails(command.law);
-    const technology = institution ? institutionRequiredTech(institution.kind, institution.level) : laborLawTechnology[command.law];
+    const modernTax = isTaxLaw(command.law) && command.law !== "传统土地身份税" && command.law !== "工资税改革";
+    const technology = modernTax ? "现代税制" :
+      institution ? institutionRequiredTech(institution.kind, institution.level) : laborLawTechnology[command.law];
     if (technology && nation.knowledge[technology] !== 100) return `立项需要掌握${technology}技术`;
     const sites = ownedSocieties(state, id);
     const power = influence(sites, id, nation);
