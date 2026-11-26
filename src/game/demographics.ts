@@ -5,6 +5,7 @@ import type { Scenario } from "../scenario/scenario.ts";
 import { culturalAffinityOf, cultureShares, updateCulturalAffinity } from "./culture.ts";
 import { participants } from "./diplomacy.ts";
 import { advanceUnrest, emptyStability } from "./unrest.ts";
+import { opiumEffects } from "./opium.ts";
 
 export interface PopulationMonth {
   day: number;
@@ -42,7 +43,10 @@ export function settlePopulationMonth<T extends GameState>(scenario: Scenario, s
     const food = latest?.foodFulfillment ?? 1;
     const additionalMortality = severeFoodShortageMortality * Math.max(0, 1 - food / 0.8);
     const healthCoverage = latest?.healthcare?.coverage ?? 0;
-    const baselineMortality = deathRate * (1 - healthcareMortalityReduction * healthCoverage);
+    const medical = latest?.opium?.medical;
+    const treatment = medical?.ordered ? 0.002 * healthCoverage * medical.delivered / medical.ordered : 0;
+    const burden = opiumEffects(site.opiumBurden);
+    const baselineMortality = deathRate * (1 - healthcareMortalityReduction * healthCoverage) - treatment + burden.mortality;
     const populationAfter = population + Math.round(
       population * (birthRate - baselineMortality - additionalMortality) * fractionOfYear,
     );
@@ -76,6 +80,7 @@ export function settlePopulationMonth<T extends GameState>(scenario: Scenario, s
     const stability = advanceUnrest(site.stability ?? emptyStability(), date, state.elapsedDays, {
       radicals: totals.radicals / populationAfter, living: totals.living / populationAfter,
       excluded: totals.excluded / populationAfter, food,
+      extraHardship: burden.unrest,
       war: occupied ? 35 : warParties.has(owner) && frontline.has(siteId) ? 15 : 0,
     }, policing);
     societies[siteId] = { ...site, pops, stability };

@@ -257,6 +257,12 @@ function StateIndustry({
           <p>可用资金 {silver(snapshot.householdExtras.budget)} · 实付 {silver(snapshot.householdExtras.spending)}</p>
           <ul>{extraGoods.map((good) => <li key={good}>{industries[good].goodName} {count(snapshot.householdExtras!.delivered[good])} / {count(snapshot.householdExtras!.orders[good])}</li>)}</ul>
         </details>}
+        {snapshot.opium && <details>
+          <summary>鸦片消费与依赖</summary>
+          <p>地方依赖负担 {(society.opiumBurden ?? 0).toFixed(1)} / 100</p>
+          <p>医疗采购 {count(snapshot.opium.medical.delivered)} / {count(snapshot.opium.medical.ordered)} · 机构实付 {silver(snapshot.opium.medical.spending)}</p>
+          <p>非医疗消费 {count(snapshot.opium.nonMedical.consumed)} / {count(snapshot.opium.nonMedical.ordered)} · 家庭实付 {silver(snapshot.opium.nonMedical.spending)}</p>
+        </details>}
         {snapshot.industrial && <details>
           <summary>工业库存与周转资金</summary>
           <p>周转金 {silver(snapshot.industrial.capital)} · 销售 {silver(snapshot.industrial.sales)} · 采购 {silver(snapshot.industrial.spent)} · 可分配结余 {silver(snapshot.industrial.distributed)}</p>

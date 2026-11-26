@@ -1,5 +1,5 @@
 export const originalGoods = ["grain", "cloth"] as const;
-export const industrialGoods = ["wood", "iron", "coal", "tools", "paper", "services", "food", "fiber", "dailyGoods", "luxury", "steel", "arms", "ammo", "shipGoods", "electricity", "oil", "rubber"] as const;
+export const industrialGoods = ["wood", "iron", "coal", "tools", "paper", "services", "food", "fiber", "dailyGoods", "luxury", "steel", "arms", "ammo", "shipGoods", "electricity", "oil", "rubber", "opium"] as const;
 export const goods = [...originalGoods, ...industrialGoods] as const;
 export function isLocalGood(good: Good) {
   return good === "services" || good === "electricity";
@@ -65,6 +65,8 @@ export const industries = {
     basePrice: 300, cost: 260_000, weeks: 4 },
   rubber: { goodName: "橡胶", name: "橡胶园", jobs: 100, output: 100, demandPerPerson: 0,
     basePrice: 250, cost: 150_000, weeks: 3 },
+  opium: { goodName: "鸦片", name: "鸦片产业", jobs: 100, output: 40, demandPerPerson: 0,
+    basePrice: 600, cost: 170_000, weeks: 3 },
 } satisfies ByGood<{
   goodName: string;
   name: string;
@@ -86,6 +88,6 @@ export function byIndustrialGood<T>(make: (good: IndustrialGood) => T): ByIndust
     paper: make("paper"), services: make("services"),
     food: make("food"), fiber: make("fiber"), dailyGoods: make("dailyGoods"), luxury: make("luxury"),
     steel: make("steel"), arms: make("arms"), ammo: make("ammo"), shipGoods: make("shipGoods"), electricity: make("electricity"),
-    oil: make("oil"), rubber: make("rubber"),
+    oil: make("oil"), rubber: make("rubber"), opium: make("opium"),
   };
 }

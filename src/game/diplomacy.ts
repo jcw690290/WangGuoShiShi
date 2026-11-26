@@ -22,6 +22,7 @@ import { fleetPower, navalMissionSchema, navalMissionTargets, planNavalOperation
 import type { NavalMissionCommand } from "./naval-operations.ts";
 import { recognizeTerritorialClaim, reconcileTerritorialPlans, settlementAt, territorialClaim, territorialClaimError } from "./territory.ts";
 import type { TerritorialClaimCommand } from "./territory.ts";
+import { opiumEffects } from "./opium.ts";
 
 export const goals = ["cession", "reparations", "puppet", "vassal", "protectorate", "annex", "recognition", "haltSettlement"] as const;
 export type Goal = (typeof goals)[number];
@@ -758,7 +759,8 @@ export function advanceFront(scenario: Scenario, state: GameState, report: Econo
       const conscripts = district.deployedConscripts!;
       const regulars = roster.reduce((sum, unit) => sum + unit.trained, 0);
       const effective = roster.reduce((sum, unit) =>
-        sum + unit.trained * battalionDetails[unit.kind][role] * equipmentDetails[unit.equipment][role] / 10, conscripts);
+        sum + unit.trained * battalionDetails[unit.kind][role] * equipmentDetails[unit.equipment][role] / 10, conscripts) *
+        opiumEffects(state.societies[siteId].opiumBurden).military;
       const mobile = roster.reduce((sum, unit) =>
         sum + (unit.kind === "cavalry" || unit.equipment === "mechanized" ? unit.trained : 0), 0);
       return { siteId, regulars, conscripts, effective, mobile };

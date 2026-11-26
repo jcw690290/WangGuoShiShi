@@ -51,6 +51,8 @@ import type { Battalion, BattalionOrder } from "./military.ts";
 import { activeReplacements, fitWorkforce, injuredPersonnel } from "./military-health.ts";
 import { closeNavy, navyMaintenance, warshipMaterials } from "./navy.ts";
 import type { NavyReport } from "./navy.ts";
+import { advanceOpiumBurden, planOpium } from "./opium.ts";
+import type { OpiumReport } from "./opium.ts";
 
 export { marketOf } from "./market.ts";
 
@@ -179,6 +181,7 @@ export interface SiteReport {
   householdConsumption?: ByGood<number>;
   householdBasicPurchases?: BasicPurchases;
   householdBasicOrders?: ByGood<number>;
+  opium?: OpiumReport;
   householdSubstituteOrders?: SubstituteOrders;
   subsistence?: SubsistenceReport;
   householdExtras?: ExtrasReport;
@@ -556,6 +559,7 @@ function projectSettlement(state: GameState, war?: WarPlan, closingTick?: number
   }>();
   const officePlans = new Map<string, ReturnType<typeof planOffice>>();
   const institutionPlans = new Map<string, Record<Institution, ReturnType<typeof planInstitution> & { localReserved: number }>>();
+  const opiumPlans = new Map<string, ReturnType<typeof planOpium> & { localReserved: number }>();
   const welfareReliefPlans = new Map<string, ReturnType<typeof planWelfareRelief> & { localReserved: number }>();
   const cashToCommit = Object.fromEntries(Object.entries(state.countryEconomies)
     .map(([id, account]) => [id, Math.max(0, account.treasury)]));
@@ -616,6 +620,11 @@ function projectSettlement(state: GameState, war?: WarPlan, closingTick?: number
     };
   }
   for (const id of Object.keys(state.stateEconomies)) holdings[state.ownerByStateId[id]].push(id);
+  const opiumMarkets = new Set<string>();
+  for (const [id, local] of Object.entries(state.stateEconomies))
+    if (local.buildings.opium > 0) opiumMarkets.add(marketOf(state, state.ownerByStateId[id]));
+  for (const route of state.tradeRoutes ?? [])
+    if (route.good === "opium" && !route.paused) opiumMarkets.add(marketOf(state, route.importer));
   const garrisons = Object.fromEntries(Object.keys(state.stateEconomies).map((id) => [id, garrisonHeadcount(state, id)]));
   const rosters = Object.fromEntries(Object.keys(garrisons).map((id) => [id, battalionsAt(state, id, garrisons[id])]));
   const armamentOrders = planArmamentOrders(state, holdings, rosters, war);
@@ -697,6 +706,9 @@ function projectSettlement(state: GameState, war?: WarPlan, closingTick?: number
       const relief = planWelfareRelief(site.pops, services.welfare, cashToCommit[owner] + localCash);
       welfareReliefPlans.set(id, { ...relief, localReserved: reserveService(relief.reserved) });
     }
+    const opium = planOpium(local.population, site.opiumBurden ?? 0, opiumMarkets.has(marketOf(state, owner)),
+      services.healthcare.staff, local.basicBudget, cashToCommit[owner] + localCash, ceilings.opium);
+    opiumPlans.set(id, { ...opium, localReserved: reserveService(opium.medicalReserve) });
     let workers = labour - universityStaff - administrators - office.staff - institutionStaff,
       conscripts = 0;
     const jobs = state.occupation?.stateId === id ? 0 : Math.min(workers, site.construction * constructionJobs);
@@ -814,13 +826,14 @@ function projectSettlement(state: GameState, war?: WarPlan, closingTick?: number
     const basic = planBasicBasket(marketNeeds, expectedSupply,
       local.localQuotes ?? byGood((g) => industries[g].basePrice), funded.coal);
     const { orders: household, basicBudget, discretionaryBudget } =
-      fundBasicBasket(basic, ceilings, local.basicBudget, local.discretionaryBudget ?? 0);
+      fundBasicBasket(basic, ceilings, local.basicBudget - opium.householdReserve, local.discretionaryBudget ?? 0);
     const extra = extrasOrders(local.population, discretionaryBudget, (good) => exciseOn(taxPolicies[owner], good));
     if (account) productionStocks.set(id, { remaining, restock, plannedWorkers, skilledWages });
     householdOrders[id] = household;
     householdPlans.set(id, { basicBudget, discretionaryBudget, extra });
     constructionOrders[id] = construction;
     demands[id] = byGood((g) => household[g] + (isExtraGood(g) ? extra[g] : 0) + construction[g] +
+      (g === "opium" ? opium.medical + opium.nonMedical : 0) +
       (isIndustrialGood(g) ? funded[g] : 0) +
       (isInstitutionGood(g) ? institutions.reduce((units, kind) => units + services[kind].orders[g], 0) : 0) +
       (g === "paper" ? office.paperDemand : g === "services" ? office.serviceDemand :
@@ -1002,6 +1015,7 @@ function projectSettlement(state: GameState, war?: WarPlan, closingTick?: number
       const construction = constructionOrders[id];
       const office = officePlans.get(id)!;
       const services = institutionPlans.get(id)!;
+      const opium = opiumPlans.get(id)!;
       const local = state.stateEconomies[id];
       const account = local.industrial;
       const subsistence = s.subsistence;
@@ -1033,14 +1047,15 @@ function projectSettlement(state: GameState, war?: WarPlan, closingTick?: number
         industrialIncome += margins[g];
         const demand = demands[id][g];
         const officeOrder = g === "paper" ? office.paperDemand : g === "services" ? office.serviceDemand : 0;
-        const residentOrder = household[g] + (isExtraGood(g) ? extra[g] : 0);
+        const residentOrder = household[g] + (isExtraGood(g) ? extra[g] : 0) + (g === "opium" ? opium.nonMedical : 0);
         const residentGoods = demand ? Math.floor(production.bought * residentOrder / demand) : 0;
         const basicGoods = Math.min(residentGoods, household[g]);
         const civilianGoods = demand ? Math.floor(production.bought * (residentOrder + construction[g]) / demand) : 0;
         const fleet = fleets[owner];
         const institutionOrders = byInstitution((kind) => isInstitutionGood(g) ? services[kind].orders[g] : 0);
         const fleetOrder = isFleetGood(g) && fleet.port === id ? fleet.ordered[g] : 0;
-        const publicOrder = institutions.reduce((units, kind) => units + institutionOrders[kind], officeOrder + fleetOrder);
+        const publicOrder = institutions.reduce((units, kind) => units + institutionOrders[kind],
+          officeOrder + fleetOrder + (g === "opium" ? opium.medical : 0));
         const privateGoods = publicOrder > 0 ? Math.floor(production.bought * (demand - publicOrder) / demand) : production.bought;
         const inputGoods = privateGoods - civilianGoods;
         const payment = localTrade * localPrice + poolBought * m.price + (transfer?.received[g] ?? 0) * s.localPrices[g];
@@ -1055,6 +1070,7 @@ function projectSettlement(state: GameState, war?: WarPlan, closingTick?: number
         const publicFill = deliverInstitutionOrders(institutionOrders, publicOrder, publicGoods, publicCost);
         return {
           residentGoods,
+          residentCost,
           extraGoods: residentGoods - basicGoods,
           basicCost,
           extraCost: residentCost - basicCost,
@@ -1094,6 +1110,16 @@ function projectSettlement(state: GameState, war?: WarPlan, closingTick?: number
         s.welfareRelief = relief;
         const paid = chargeService(relief.paid.农民 + relief.paid.劳工, plan.localReserved);
         c.welfareUpkeep! += paid;
+        c.upkeep += paid;
+      }
+      if (opium.medical > 0 || opium.nonMedical > 0 || site.opiumBurden) {
+        const { publicGoods, publicCost, residentGoods, residentCost } = fillsByUse.opium;
+        s.opium = {
+          medical: { ordered: opium.medical, delivered: publicGoods, spending: publicCost },
+          nonMedical: { ordered: opium.nonMedical, consumed: residentGoods, spending: residentCost, budget: opium.householdReserve },
+        };
+        const paid = chargeService(publicCost, opium.localReserved);
+        c.healthcareUpkeep! += paid;
         c.upkeep += paid;
       }
       if (s.power) s.power.spending = fillsByUse.electricity.materialCost;
@@ -1150,7 +1176,8 @@ function projectSettlement(state: GameState, war?: WarPlan, closingTick?: number
       s.ownershipIncome = earnings;
       s.dividends = earnings.PRIVATE + earnings.LAND + earnings.COOP;
       c.publicIndustryIncome! += earnings.PUBLIC;
-      const consumption = byGood((g) => fillsByUse[g].residentGoods + (subsistence && harvestGood(g) ? subsistence.retained[g] : 0));
+      const consumption = byGood((g) => g === "opium" ? 0 :
+        fillsByUse[g].residentGoods + (subsistence && harvestGood(g) ? subsistence.retained[g] : 0));
       s.householdConsumption = consumption;
       const delivered = byExtraGood((g) => fillsByUse[g].extraGoods);
       const extraBills = Object.values(byExtraGood((good) => {
@@ -1499,10 +1526,11 @@ export function settleEconomy(state: GameState, war?: WarPlan, fractionOfYear = 
       工程师: earned.工程师 + publicSpecialistWages,
     }, retainedValue);
     const basic = s.householdBasicPurchases!;
+    const habit = s.opium?.nonMedical;
     const extra = s.householdExtras!;
     const { constructionStock: _priorStock, ...local } = stateEconomies[id];
     stateEconomies[id] = { ...local, localQuotes: localQuotes[id],
-      basicBudget: basic.budget - basic.spending + income.basic,
+      basicBudget: basic.budget - basic.spending + income.basic + (habit ? habit.budget - habit.spending : 0),
       discretionaryBudget: extra.budget - extra.spending + income.discretionary,
       ...(s.localFiscal ? { localTreasury: s.localFiscal.balance } : {}),
       ...(Object.hasOwn(constructionClosing, id) ? { constructionStock: constructionClosing[id] } : {}),
@@ -1525,6 +1553,8 @@ export function settleEconomy(state: GameState, war?: WarPlan, fractionOfYear = 
       standardTarget: livingStandardTarget(s.consumptionIndex!, s.foodFulfillment!),
       relief,
     }, tuning);
+    if (site.opiumBurden !== undefined || (habit && habit.consumed > 0))
+      societies[id] = { ...societies[id], opiumBurden: advanceOpiumBurden(site.opiumBurden ?? 0, habit?.consumed ?? 0, local.population) };
     if (site.barracksTraining) {
       const groups = inTraining(site, state.elapsedDays);
       if (groups.length !== site.barracksTraining.length) societies[id] = { ...societies[id], barracksTraining: groups };
