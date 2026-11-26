@@ -45,32 +45,39 @@ interface BudgetInput {
   fiscal?: FiscalAccount;
 }
 
+export function availablePrepaymentCredit(fiscal: FiscalAccount | undefined, treasury: number) {
+  if (!fiscal || fiscal.week.risk === "restricted" || fiscal.week.risk === "defaulted") return 0;
+  return Math.max(0, fiscal.week.creditLimit - fiscal.debt - Math.max(0, -treasury));
+}
+
 export function settleFiscal(input: BudgetInput): { treasury: number; fiscal: FiscalAccount } {
   const { day, treasury, tax, receipts, upkeep, prepaidUpkeep = 0, difficulty, fractionOfYear, fiscal } = input;
   if (fiscal && fiscal.week.day >= day) throw new Error("财政周结算已记账");
-  if (prepaidUpkeep > Math.max(0, treasury) || prepaidUpkeep > upkeep)
-    throw new Error("行政预付超过本周现款或预算");
+  const cash = Math.max(0, treasury);
+  const advance = Math.max(0, prepaidUpkeep - cash);
+  if (advance > availablePrepaymentCredit(fiscal, treasury) || prepaidUpkeep > upkeep)
+    throw new Error("必要支出预付超过现款、可用授信或预算");
   const taxHistory = [...(fiscal?.taxHistory.slice(1 - maxSamples) ?? []), tax];
   const averageTax = taxHistory.reduce((sum, value) => sum + value, 0) / taxHistory.length;
   const creditLimit = Math.floor(averageTax * 104);
   // Versions before the credit system kept overdrafts as negative cash.
-  const openingDebt = (fiscal?.debt ?? 0) + Math.max(0, -treasury);
-  const openingCash = Math.max(0, treasury) + receipts;
+  const openingDebt = (fiscal?.debt ?? 0) + Math.max(0, -treasury) + advance;
+  const openingCash = cash + advance + receipts;
   const creditUse = creditLimit > 0 ? openingDebt / creditLimit : openingDebt > 0 ? 1 : 0;
   const annualRate = (0.06 + 0.1 * creditUse ** 2) * annualRateMultiplier[difficulty];
   const interestDue = (fiscal?.arrears ?? 0) + Math.round(openingDebt * annualRate * fractionOfYear);
-  const borrowed = Math.min(
+  const laterBorrowing = Math.min(
     Math.max(0, creditLimit - openingDebt),
     Math.max(0, interestDue + upkeep - openingCash),
   );
-  const available = openingCash + borrowed - prepaidUpkeep;
+  const available = openingCash + laterBorrowing - prepaidUpkeep;
   const interestPaid = Math.min(available, interestDue);
   const pendingUpkeepPaid = Math.min(available - interestPaid, upkeep - prepaidUpkeep);
   const upkeepPaid = prepaidUpkeep + pendingUpkeepPaid;
   const remaining = available - interestPaid - pendingUpkeepPaid;
   const repaid = Math.min(openingDebt, Math.max(0, remaining - 2 * upkeep));
   const closingCash = remaining - repaid;
-  const debt = openingDebt + borrowed - repaid;
+  const debt = openingDebt + laterBorrowing - repaid;
   const arrears = interestDue - interestPaid;
   const shortfall = arrears > 0 || upkeepPaid < upkeep;
   const priorShortfall = fiscal?.week.risk === "restricted" || fiscal?.week.risk === "defaulted";
@@ -80,7 +87,8 @@ export function settleFiscal(input: BudgetInput): { treasury: number; fiscal: Fi
     treasury: closingCash,
     fiscal: {
       debt, arrears, taxHistory,
-      week: { day, creditLimit, annualRate, borrowed, repaid, interestDue, interestPaid, upkeepDue: upkeep, upkeepPaid, risk },
+      week: { day, creditLimit, annualRate, borrowed: advance + laterBorrowing, repaid,
+        interestDue, interestPaid, upkeepDue: upkeep, upkeepPaid, risk },
     },
   };
 }

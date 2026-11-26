@@ -319,7 +319,7 @@ function StateIndustry({
 export function EconomyPanel({ scenario, game, playerId, selectedId, report, busy, send, onPopulationOpen }: Props) {
   const marketId = selectedId === null ? playerId : game.ownerByStateId[selectedId];
   const country = scenario.countries[marketId];
-  const { market, tax, wageTaxRate, upkeep, tribute, officeUpkeep } = report.countries[marketId];
+  const { market, tax, wageTaxRate, upkeep, tribute, officeUpkeep, military } = report.countries[marketId];
   const { tributeReceived, balance } = weeklyBudgets(game.nations, report)[marketId];
   const countryLiving = useMemo(() => livingStandardOf(Object.entries(game.societies)
     .filter(([stateId]) => game.ownerByStateId[stateId] === marketId).flatMap(([, site]) => site.pops)),
@@ -358,9 +358,10 @@ export function EconomyPanel({ scenario, game, playerId, selectedId, report, bus
               <dd>{silver(report.countries[marketId].investment)}</dd>
             </div>
             <div>
-              <dt>周公共支出（军费与大学工资）</dt>
+              <dt>周必要公共支出</dt>
               <dd>{silver(upkeep)}</dd>
               {officeUpkeep !== undefined && <small>其中行政署 {silver(officeUpkeep)}</small>}
+              {military.procurement && <small>军粮 {silver(military.procurement.grain)} · 军服 {silver(military.procurement.cloth)}</small>}
             </div>
             {report.countries[marketId].universityWages !== undefined && <div>
               <dt>大学实付工资</dt>

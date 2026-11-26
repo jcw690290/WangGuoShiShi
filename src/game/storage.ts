@@ -11,7 +11,7 @@ import { extrasReportSchema, substituteOrdersSchema } from "./households.ts";
 import { reservedCropland, subsistenceReportSchema } from "./subsistence.ts";
 import { migrateCommercialProduction } from "./commercialMigration.ts";
 import { openingMetrics } from "./campaignMetrics.ts";
-import { projects } from "./economy.ts";
+import { militaryProcurementCost, projects } from "./economy.ts";
 import { nationSchema, siteSocialSchema, projectTypes } from "./society.ts";
 import { importRegionalSave } from "./legacySave.ts";
 import { borderScenario } from "../scenario/scenario.ts";
@@ -211,6 +211,7 @@ const military = z.object({
   grainDrawn: uint,
   grainTransport: uint,
   seaCargoUsed: uint.optional(),
+  procurement: z.object({ grain: uint, cloth: uint }).optional(),
   equipment: z.object({ weapons: issue, ammunition: issue, uniforms: issue }),
   readiness: fraction,
 });
@@ -233,7 +234,7 @@ const countryReport = z.object({
   officeUpkeep: uint.optional(),
   tradeTariff: uint.optional(),
   tradeSeaCargo: uint.optional(),
-}).refine((country) => country.officeUpkeep === undefined || country.officeUpkeep <= country.upkeep);
+}).refine((country) => (country.officeUpkeep ?? 0) + militaryProcurementCost(country.military.procurement) <= country.upkeep);
 const siteReport = z.object({
   industries: z.object({ grain: industry, cloth: industry, ...byIndustrialGood(() =>
     industry.default({ employed: 0, output: 0, wages: 0 })) }),
