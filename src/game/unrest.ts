@@ -2,6 +2,7 @@ import { z } from "zod";
 import type { GameState } from "./engine.ts";
 import { GameRuleError } from "./rules.ts";
 import { calendarMonthsPassed } from "./time.ts";
+import { authorityBudget, localNegotiationAuthority } from "./constitution.ts";
 
 const causes = ["hardship", "exclusion", "war", "politics"] as const;
 type Cause = (typeof causes)[number];
@@ -65,11 +66,14 @@ export function negotiateLocalUnrest(state: GameState, command: LocalUnrestComma
   const site = state.societies[stateId];
   const stability = site.stability;
   if (!stability?.incident || stability.incident.negotiated) throw new GameRuleError("此州没有可协商的地方事件");
+  if (authorityBudget(state, countryId).available < localNegotiationAuthority)
+    throw new GameRuleError(`协商减税需要 ${localNegotiationAuthority} 权威力`);
   const incident = { ...stability.incident, negotiated: true };
   return { ...state, societies: { ...state.societies, [stateId]: { ...site, stability: { ...stability, incident } } } };
 }
 
 export function chooseLocalNegotiation(state: GameState, countryId: string): LocalUnrestCommand | undefined {
+  if (authorityBudget(state, countryId).available < localNegotiationAuthority) return;
   const stateId = Object.keys(state.ownerByStateId).find((id) => {
     if (state.ownerByStateId[id] !== countryId || state.occupation?.stateId === id) return false;
     const stability = state.societies[id].stability;

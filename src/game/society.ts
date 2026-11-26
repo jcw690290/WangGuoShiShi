@@ -13,6 +13,8 @@ import { bondedRuralShare, laborLawCategory, laborLaws, laborProtection, neutral
 import { exciseGoods, exciseGoodsSchema, isTaxLaw, taxBands, taxBandSchema, taxLaws } from "./taxation.ts";
 import { isTradeLaw, tariffBandSchema, tradeLaws, tradePartnersSchema } from "./trade-policy.ts";
 import { civicLawCategory, civicLaws, civicPolicy, civicStanding, isBaselineCivicLaw } from "./civic-policy.ts";
+import { constitutionalFormSchema, constitutionalLaws, constitutionalMandate, constitutionLawCategory,
+  powerDistribution, startingStateForm } from "./constitution.ts";
 
 export const occupations = ["农民", "劳工", "工程师", "军官", "教士", "店主", "资本家", "贵族"] as const;
 export type Occupation = (typeof occupations)[number];
@@ -81,7 +83,6 @@ export const siteSocialSchema = z.object({
 export type SiteSocial = z.infer<typeof siteSocialSchema>;
 export const laws = [
   "工资税改革",
-  "普选制",
   "干预主义",
   "自由放任",
   "地主租佃",
@@ -91,6 +92,7 @@ export const laws = [
   ...taxLaws,
   ...tradeLaws,
   ...civicLaws,
+  ...constitutionalLaws,
 ] as const;
 export type Law = (typeof laws)[number];
 export const techs = ["纺织工艺", "野战后勤", "公共教育", "机械织造", "运输调度", "高等教育", "蒸汽动力", "铁路",
@@ -160,12 +162,15 @@ export const tributeRate = { protectorate: 0.1, puppet: 0.15, vassal: 0.2 };
 export const nationSchema = z.object({
   government: z.array(z.enum(groups)).min(1),
   startingRepresentation: z.literal("limited").optional(),
+  startingStateForm: constitutionalFormSchema.optional(),
   laws: z.array(z.enum(laws)).refine((enacted) => institutionLawKinds.every((kind) =>
     enacted.filter((law) => institutionLawDetails(law)?.kind === kind).length <= 1)).refine((enacted) => {
     const categories = enacted.map(laborLawCategory).filter((category) => category !== undefined);
     const civicCategories = enacted.map(civicLawCategory).filter((category) => category !== undefined);
     return new Set(categories).size === categories.length && new Set(civicCategories).size === civicCategories.length;
-  }).refine((enacted) => enacted.filter(isTaxLaw).length <= 1 && enacted.filter(isTradeLaw).length <= 1),
+  }).refine((enacted) => enacted.filter(isTaxLaw).length <= 1 && enacted.filter(isTradeLaw).length <= 1 &&
+    (["stateForm", "representation"] as const).every((category) =>
+      enacted.filter((law) => constitutionLawCategory(law) === category).length <= 1)),
   taxBand: taxBandSchema.default(taxBands[2]),
   exciseGoods: exciseGoodsSchema.default(() => [...exciseGoods]),
   tariffBand: tariffBandSchema.default("standard"),
@@ -241,6 +246,7 @@ export function initSociety(scenario: Scenario) {
     if (site.ownerId !== null) societies[site.id] = initSiteSociety(site);
   for (const id of Object.keys(scenario.countries)) {
     nations[id] = {
+      startingStateForm: startingStateForm(id),
       ...(limitedVoteCountries.has(id) ? { startingRepresentation: "limited" as const } : {}),
       government: ["地主", "乡民"],
       laws: [...institutionLawKinds.map((kind) => institutionLawOptions[kind][0]), ...startingLaborLaws(id), taxLaws[0], tradeLaws[0]],
@@ -277,9 +283,7 @@ function populationAverage(pops: Pop[], metric: "literacy" | "livingStandard" | 
 export const literacyOf = (pops: Pop[]) => populationAverage(pops, "literacy");
 export const livingStandardOf = (pops: Pop[]) => populationAverage(pops, "livingStandard");
 export const unrestOf = (pops: Pop[]) => populationAverage(pops, "radicals");
-export function powerDistribution(nation: Nation): keyof typeof votingWeights {
-  return nation.laws.includes("普选制") ? "universal" : nation.startingRepresentation ?? "autocracy";
-}
+export { powerDistribution } from "./constitution.ts";
 
 export function influence(locals: SiteSocial[], id: string, nation: Nation) {
   const points = Object.fromEntries(groups.map((g) => [g, 0])) as Record<Group, number>;
@@ -344,6 +348,11 @@ export const supporters: Record<Law, Group[]> = {
   宗教宽容: ["知识分子", "小市民", "乡民"],
   出版审查: ["地主", "武装部队"],
   有限出版: ["小市民", "实业家", "乡民"],
+  君主制: ["地主", "武装部队", "教会"],
+  共和制: ["实业家", "知识分子", "小市民", "乡民"],
+  教权政体: ["教会", "地主"],
+  专制统治: ["地主", "武装部队"],
+  有限选举: ["实业家", "小市民", "乡民"],
 };
 export function approval(nation: Nation, g: Group) {
   return (
@@ -355,7 +364,6 @@ export function approval(nation: Nation, g: Group) {
 }
 export const reformWork = 2;
 export const baselineReformWeeks = 26;
-const recognizedSuccessors: Group[] = ["地主", "教会", "武装部队"];
 export function governmentLegitimacy(nation: Nation, power: Record<Group, number>) {
   const government = nation.government;
   const conflict =
@@ -366,7 +374,7 @@ export function governmentLegitimacy(nation: Nation, power: Record<Group, number
     const policyApproval = approval(nation, group) - (government.includes(group) ? 8 : 0);
     return sum + power[group] * Math.max(0, Math.min(1, 0.5 + policyApproval / 20));
   }, 0);
-  const mandateGroups = powerDistribution(nation) === "autocracy" ? recognizedSuccessors
+  const mandateGroups = powerDistribution(nation) === "autocracy" ? constitutionalMandate(nation)
     : [...groups].sort((a, b) => power[b] - power[a]).slice(0, government.length);
   const mandate = 100 * government.filter((group) => mandateGroups.includes(group)).length / government.length;
   return Math.round(Math.max(0, Math.min(100,

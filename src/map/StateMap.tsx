@@ -1,6 +1,7 @@
 import { Application, Container, Graphics, Text } from "pixi.js";
 import { useEffect, useRef, useState } from "react";
 import type { GameState } from "../game/engine.ts";
+import { countryDisplayName } from "../game/constitution.ts";
 import { atlas } from "../scenario/scenario.ts";
 import type { Scenario } from "../scenario/scenario.ts";
 import type { StateGeometry } from "./geometry.ts";
@@ -100,7 +101,7 @@ async function mountMap(
     return { id, marker };
   });
   const gesture = new MapGesture(fitView(host.clientWidth, host.clientHeight));
-  const nationTexts: { text: Text; size: number }[] = [];
+  const nationTexts: { text: Text; size: number; owner: string }[] = [];
   let focus: string | null = null;
   let previewCountry: string | null = null;
   function centerCapital(country: string) {
@@ -232,10 +233,18 @@ async function mountMap(
   app.renderer.resize(host.clientWidth, host.clientHeight);
   observer.observe(host);
   let previousOwners: GameState["ownerByStateId"] | null = null,
-    previousOccupation: string | null = null;
+    previousOccupation: string | null = null,
+    previousNations: GameState["nations"] | null = null;
   return {
     draw(game: GameState, owners: GameState["ownerByStateId"], selectedId: string | null, preview: string | null) {
       const occupation = game.occupation?.stateId ?? null;
+      if (previousNations !== game.nations) {
+        for (const { text, owner } of nationTexts) {
+          const name = countryDisplayName(scenario.countries[owner], game.nations[owner]);
+          if (text.text !== name) text.text = name;
+        }
+        previousNations = game.nations;
+      }
       if (
         previousOwners === owners &&
         focus === selectedId && preview === previewCountry &&
@@ -293,7 +302,7 @@ async function mountMap(
           geometry,
         )) {
           const text = new Text({
-            text: scenario.countries[info.owner].name,
+            text: countryDisplayName(scenario.countries[info.owner], game.nations[info.owner]),
             resolution: Math.min(2, window.devicePixelRatio),
             style: {
               fontFamily: "Noto Serif CJK SC, Songti SC, SimSun, serif",
@@ -309,7 +318,7 @@ async function mountMap(
           text.anchor.set(0.5);
           text.position.set(...info.position);
           names.addChild(text);
-          nationTexts.push({ text, size: info.size });
+          nationTexts.push({ text, size: info.size, owner: info.owner });
         }
       }
       selection.clear();

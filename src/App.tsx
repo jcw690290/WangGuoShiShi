@@ -24,6 +24,7 @@ import type { Speed } from "./online/protocol.ts";
 import { atlas } from "./scenario/scenario.ts";
 import type { Scenario } from "./scenario/scenario.ts";
 import { endingStory, endingTitle } from "./scenario/endings.ts";
+import { countryDisplayName } from "./game/constitution.ts";
 
 const dateFormat = new Intl.DateTimeFormat("zh-CN", { dateStyle: "long", timeZone: "UTC" });
 const tickRates = [1, 2, 4, 8];
@@ -94,6 +95,8 @@ export function App({ scenario, geometry, initialSaves, initialSaveNotice }: {
       ? (Object.keys(game.ownerByStateId).find((id) => game.ownerByStateId[id] === player) ?? null)
       : null);
   const owner = site ? game.ownerByStateId[site] : null;
+  const countryNames = useMemo(() => Object.fromEntries(Object.entries(scenario.countries)
+    .map(([id, country]) => [id, countryDisplayName(country, game.nations[id])])), [scenario.countries, game.nations]);
   const occupation = game.occupation;
   const actualController = occupation?.stateId === site ? occupation.controllerId : null;
   const mapOwners = useMemo(() => mapLayer === "controller" && occupation
@@ -107,11 +110,11 @@ export function App({ scenario, geometry, initialSaves, initialSaveNotice }: {
   const matches = useMemo(
     () =>
       Object.entries(atlas).filter(([id, s]) =>
-        (id + " " + s.name + " " + (scenario.countries[game.ownerByStateId[id]]?.name ?? "无主领土"))
+        (id + " " + s.name + " " + (countryNames[game.ownerByStateId[id]] ?? "无主领土"))
           .toLowerCase()
           .includes(search.trim().toLowerCase()),
       ),
-    [search, game.ownerByStateId, scenario],
+    [search, game.ownerByStateId, countryNames],
   );
   const date = getGameDate(scenario, game);
   const dateISO = date.toISOString().slice(0, 10);
@@ -399,8 +402,8 @@ export function App({ scenario, geometry, initialSaves, initialSaveNotice }: {
         {player && (!connection || onlinePlaying) && selected && <button className="site-chip" onClick={() => {
           if (owner === player) markGuide(2);
           openGovernment(0);
-        }}>{atlas[selected].name} · {owner ? scenario.countries[owner].name : "无主领土"}
-          {actualController && `（${scenario.countries[actualController].name}控制）`} ›</button>}
+        }}>{atlas[selected].name} · {owner ? countryNames[owner] : "无主领土"}
+          {actualController && `（${countryNames[actualController]}控制）`} ›</button>}
         {!connection && screen === "play" && game.campaign?.tutorialEnabled
           && !finished && <TutorialGuide campaign={game.campaign} skip={() => setGame((state) => ({
             ...state, campaign: { ...state.campaign!, guideSkipped: true },
@@ -471,7 +474,7 @@ export function App({ scenario, geometry, initialSaves, initialSaveNotice }: {
                 menu.current!.close();
               }}>继续沙盒</button>}
               <p>
-                {scenario.countries[player].name} · 国库 {silver(game.countryEconomies[player].treasury)} · 属州{" "}
+                {countryNames[player]} · 国库 {silver(game.countryEconomies[player].treasury)} · 属州{" "}
                 {count(Object.values(game.ownerByStateId).filter((id) => id === player).length)} 个 · 人口{" "}
                 {count(Object.entries(game.stateEconomies).reduce(
                   (sum, [id, state]) => sum + (game.ownerByStateId[id] === player ? state.population : 0),
@@ -526,14 +529,14 @@ export function App({ scenario, geometry, initialSaves, initialSaveNotice }: {
                   <option value="">{matches.length} 个匹配州</option>
                   {matches.map(([id, s]) => (
                     <option key={id} value={id}>
-                      {s.name} · {scenario.countries[game.ownerByStateId[id]]?.name ?? "无主领土"}
+                      {s.name} · {countryNames[game.ownerByStateId[id]] ?? "无主领土"}
                     </option>
                   ))}
                 </select>
                 {site && (
                   <p aria-live="polite">
-                    <strong>{atlas[site].name}</strong> · {owner ? scenario.countries[owner].name : "无主领土"}
-                    {actualController && ` · 实际控制 ${scenario.countries[actualController].name}`}
+                    <strong>{atlas[site].name}</strong> · {owner ? countryNames[owner] : "无主领土"}
+                    {actualController && ` · 实际控制 ${countryNames[actualController]}`}
                     {!owner && " · 占领后加入本国市场"}
                   </p>
                 )}

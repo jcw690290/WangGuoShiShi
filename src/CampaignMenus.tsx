@@ -67,7 +67,8 @@ export function EndingsGallery({ scenario, close }: { scenario: Scenario; close:
         : records.length === 0 ? <p>暂无结局记录</p>
         : <ul className="ending-records">{records.map((record) => <li key={record.campaignId}>
           <strong>{endingTitle(record)}</strong>
-          <p>{scenario.countries[record.countryId]?.name ?? record.countryId} · {record.date} · {difficultyNames[record.difficulty]}</p>
+          <p>{record.countryName ?? scenario.countries[record.countryId]?.name ?? record.countryId}
+            {record.stateForm && ` · ${record.stateForm}`} · {record.date} · {difficultyNames[record.difficulty]}</p>
           <small>国库 {silver(record.treasury)} · 属州 {count(record.stateCount)} · 人口 {count(record.population)}</small>
           {endingStory(record) && <p>{endingStory(record)}</p>}
         </li>)}</ul>}
