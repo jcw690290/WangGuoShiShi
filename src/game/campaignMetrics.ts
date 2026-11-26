@@ -9,6 +9,7 @@ import type { GameState } from "./engine.ts";
 import { goods, industrialGoods, industries } from "./industry.ts";
 import { industryMethod } from "./industrial.ts";
 import { institutions } from "./institutions.ts";
+import { bondedRuralWorkers, laborStatus, ruralPopulation } from "./labor.ts";
 import { accepted, governmentLegitimacy, influence } from "./society.ts";
 import { basicEquivalentSupply, essentialGoods } from "./households.ts";
 
@@ -60,6 +61,10 @@ export function measureCampaign(
   const nation = state.nations[countryId];
   const held = Object.keys(state.ownerByStateId).filter((id) => state.ownerByStateId[id] === countryId);
   const locals = held.map((id) => state.societies[id]);
+  const labour = held.reduce((sum, id) => sum + workForce(state.stateEconomies[id].population, state.societies[id].laborParticipation), 0);
+  const bonded = locals.reduce((sum, site) => sum +
+    bondedRuralWorkers(ruralPopulation(site.pops), site.laborParticipation, nation.laws), 0);
+  const freeLabor = laborStatus(nation.laws) === "自由劳动" ? 1 : 0;
   let people = 0, living = 0, literacy = 0, discriminated = 0, unrest = 0, core = 0, coreControlled = 0;
   for (const site of locals) for (const pop of site.pops) {
     people += pop.people;
@@ -87,6 +92,10 @@ export function measureCampaign(
     PUP: nation.subjectType === "puppet" ? 1 : 0,
     NEWCUL: culturalContacts,
     AGGRESSION_FREE_20: peacefulForeignPolicy ? 1 : 0,
+    ABOLISHED_SLAVERY: freeLabor,
+    ABOLISHED_SERFDOM: freeLabor,
+    IDENTITY_SERVITUDE_REFORM: freeLabor,
+    ...(labour > 0 ? { COERCED_LABOR: bonded / labour } : {}),
   };
   const treasury = state.countryEconomies[countryId];
   if (people > 0 && locals.every((site) => site.stability !== undefined)) metrics.TUR = unrest / people;
@@ -109,11 +118,11 @@ export function measureCampaign(
       state.ownerByStateId[from] === countryId || state.ownerByStateId[to] === countryId
         ? sum + quantity * industries[good].basePrice : sum, 0) / total;
   }
-  let labour = 0, employed = 0, food = 0, governance = 0;
+  let employed = 0, food = 0, governance = 0, workforce = 0;
   for (const id of held) {
     const site = report.states[id];
     const population = state.stateEconomies[id].population;
-    labour += workForce(population);
+    workforce += site.workforce ?? workForce(population, state.societies[id].laborParticipation);
     employed += goods.reduce((sum, good) => sum + site.industries[good].employed, 0) +
       site.builders + site.regulars + site.conscripts +
       (site.constructionMaintenance?.workers ?? 0) +
@@ -122,7 +131,7 @@ export function measureCampaign(
     food += population * (site.foodFulfillment ?? 0);
     governance += population * (site.office?.coverage ?? 0);
   }
-  if (labour > 0) metrics.U = 1 - Math.min(1, employed / labour);
+  if (workforce > 0) metrics.U = 1 - Math.min(1, employed / workforce);
   if (held.every((id) => report.states[id].foodFulfillment !== undefined)) metrics.FOOD = food / people;
   if (held.every((id) => report.states[id].office !== undefined)) metrics.GOV = governance / people;
   if (held.every((id) => report.states[id].householdBasicOrders !== undefined &&

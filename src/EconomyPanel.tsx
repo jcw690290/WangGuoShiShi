@@ -17,6 +17,7 @@ import { incidentNames, unrestEffects } from "./game/unrest.ts";
 import { basicEquivalentSupply, extraGoods } from "./game/households.ts";
 import { institutionCommands, institutionGoods, institutionLawLimit, institutionLevelError,
   institutionNames, institutions } from "./game/institutions.ts";
+import { bondedRuralWorkers, ruralPopulation } from "./game/labor.ts";
 
 function cultureName(scenario: Scenario, id: string) {
   const separator = id.indexOf("-");
@@ -51,8 +52,9 @@ function StateIndustry({
   const { industries: activity, populationChange, conscripts } = report.states[stateId];
   const monthlyChange = game.lastPopulation?.changes[stateId];
   const employed = goods.reduce((sum, good) => sum + activity[good].employed, report.states[stateId].subsistence?.employed ?? 0);
+  const society = game.societies[stateId];
   const workforce =
-    workForce(local.population) -
+    (report.states[stateId].workforce ?? workForce(local.population, society.laborParticipation)) -
     conscripts -
     report.states[stateId].builders -
     (report.states[stateId].constructionMaintenance?.workers ?? 0) -
@@ -64,10 +66,10 @@ function StateIndustry({
   const isOwnState = game.ownerByStateId[stateId] === playerId;
 
   const owner = game.ownerByStateId[stateId],
-    society = game.societies[stateId],
     snapshot = report.states[stateId];
   const governance = governanceOf(society);
   const nation = game.nations[owner];
+  const boundWorkers = bondedRuralWorkers(ruralPopulation(society.pops), society.laborParticipation, nation.laws);
   const order = nation.fleet.order;
   const motorizationHere = nation.fleet.motorizationPort === stateId;
   const movesOrder = order !== null && order.stateId !== stateId;
@@ -106,6 +108,8 @@ function StateIndustry({
           <dd>
             {count(employed)} / {count(workforce)} 人
           </dd>
+          <small>参与率 {(society.laborParticipation * 100).toFixed(1)}%
+            {boundWorkers > 0 && ` · 受约束的农村劳力 ${count(boundWorkers)} 人`}</small>
         </div>
         <div>
           <dt>市场接入</dt>

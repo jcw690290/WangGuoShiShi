@@ -14,8 +14,9 @@ import { distributionName, groups, influence, laws, literacyOf, powerDistributio
 import type { Law } from "./game/society.ts";
 import { count } from "./format.ts";
 import { institutionLawDetails, institutionLawFamilies, institutionLawKinds, institutionLawOptions } from "./game/institutions.ts";
+import { laborLawCategory, laborLawFamilies } from "./game/labor.ts";
 
-const otherLaws = laws.filter((law) => !institutionLawDetails(law));
+const otherLaws = laws.filter((law) => !institutionLawDetails(law) && !laborLawCategory(law));
 interface Props {
   game: GameState;
   playerId: string;
@@ -89,6 +90,11 @@ export function PoliticsPanel({ game, playerId: id, year, busy, send }: Props) {
               {institutionLawKinds.map((kind) => (
                 <optgroup key={kind} label={institutionLawFamilies[kind]}>
                   {institutionLawOptions[kind].map((l) => <option key={l}>{l}</option>)}
+                </optgroup>
+              ))}
+              {Object.values(laborLawFamilies).map(({ name, options }) => (
+                <optgroup key={name} label={name}>
+                  {options.map((l) => <option key={l}>{l}</option>)}
                 </optgroup>
               ))}
             </select>

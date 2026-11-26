@@ -39,6 +39,7 @@ import { portCapacity, railCapacityPerLevel } from "./transport.ts";
 import { byFleetGood, closeFleet, fleetGoods, fleetMaintenance, fleetSpending, isFleetGood,
   rubberPerMotor, shipGoodsPerConvoy, shipGoodsPerMotor } from "./fleet.ts";
 import type { FleetGood, FleetReport } from "./fleet.ts";
+import { bondedRuralWorkers, laborProtection, ruralPopulation, workForce } from "./labor.ts";
 
 export { marketOf } from "./market.ts";
 
@@ -144,6 +145,7 @@ export interface MilitarySupply {
   readiness: number;
 }
 export interface SiteReport {
+  workforce?: number;
   universityStaff?: number;
   administrationStaff?: number;
   freightWages?: number;
@@ -222,7 +224,7 @@ export function weeklyBudgets(nations: GameState["nations"], report: EconomyRepo
   }
   return budgets;
 }
-export const workForce = (population: number) => Math.floor(population * 0.4);
+export { workForce } from "./labor.ts";
 const fulfillment = (bought: number, demand: number) => demand ? bought / demand : 1;
 const siteTaxShare = (site: SiteSocial, occupied: boolean) => occupied ? 0 :
   unrestEffects(site.stability).collection * governanceRules[governanceOf(site).mode].centralTax / 100;
@@ -286,6 +288,8 @@ function planArmamentOrders(state: GameState, holdings: Record<string, string[]>
     Object.keys(state.stateEconomies).map((id) => [id, { arms: 0, ammo: 0 }]),
   );
   function assign(owner: string, sources: string[], strength: number, field: boolean) {
+    const nation = state.nations[owner];
+    const { ordinaryWage } = laborProtection(nation.laws);
     const needs = equipmentNeeds(strength, field);
     for (const good of armamentGoods) {
       let remaining = good === "arms" ? needs.weapons : needs.ammunition;
@@ -297,9 +301,9 @@ function planArmamentOrders(state: GameState, holdings: Record<string, string[]>
         if (local.buildings[good] === 0) continue;
         const account = local.industrial!;
         const site = state.societies[id];
-        const trained = Math.max(0, workForce(availableEngineers(site, owner, state.nations[owner])) - site.university * universityJobs);
+        const trained = Math.max(0, workForce(availableEngineers(site, owner, nation), site.laborParticipation) - site.university * universityJobs);
         const possible = Math.min(local.buildings[good] * spec.jobs, trainedLabourCapacity(good, trained),
-          affordableIndustryWorkers(good, account.capital));
+          affordableIndustryWorkers(good, account.capital, undefined, 0, ordinaryWage));
         const employed = materialWorkers(good, possible, account.stocks);
         const capacity = Math.floor(employed * spec.output * unrestEffects(site.stability).output / spec.jobs);
         const assigned = Math.min(Math.max(0, capacity - orders[id][good]), remaining);
@@ -327,8 +331,10 @@ function planArmamentOrders(state: GameState, holdings: Record<string, string[]>
       const deployed = regulars(ids) - rearRegulars;
       const mobilized = !route.mobilized ? 0 : [...route.recruitmentStates].reduce((sum, id) => {
         const site = state.societies[id];
+        const eligible = workForce(state.stateEconomies[id].population, site.laborParticipation) -
+          bondedRuralWorkers(ruralPopulation(site.pops), site.laborParticipation, state.nations[owner].laws);
         return sum + Math.min(Math.floor(site.conscription * 500 * siteMilitaryShare(site)),
-          Math.floor(workForce(state.stateEconomies[id].population) * war!.recruitPercent / 100));
+          Math.floor(eligible * war!.recruitPercent / 100));
       }, 0);
       assign(owner, front, deployed + mobilized, true);
       assign(owner, rear, rearRegulars, false);
@@ -549,9 +555,15 @@ function projectSettlement(state: GameState, war?: WarPlan, closingTick?: number
     const draftRate = front && route!.mobilized ? war!.recruitPercent : 0;
     const draftQuota = Math.floor(site.conscription * 500 * militaryShare);
     const engineers = availableEngineers(site, owner, nation);
-    const labour = workForce(local.population) - regulars;
-    const universityStaff = Math.min(labour, workForce(engineers), site.university * universityJobs);
-    const unassignedAfterUniversity = Math.min(labour - universityStaff, workForce(engineers) - universityStaff);
+    const participation = site.laborParticipation;
+    const ruralPeople = ruralPopulation(site.pops);
+    const boundToLand = bondedRuralWorkers(ruralPeople, participation, nation.laws);
+    const workforce = workForce(local.population, participation);
+    const labour = workforce - regulars - boundToLand;
+    const specialists = workForce(engineers, participation);
+    const universityStaff = Math.min(labour, specialists, site.university * universityJobs);
+    const unassignedAfterUniversity = Math.min(labour - universityStaff, specialists - universityStaff);
+    const { ordinaryWage } = laborProtection(nation.laws);
     const offices = state.occupation?.stateId === id ? 0 : site.bureaucracy;
     const office = planOffice(officeNeed(local.population, site, state.settings.difficulty, nation.laws),
       offices, unassignedAfterUniversity, cashToCommit[owner]);
@@ -609,7 +621,7 @@ function projectSettlement(state: GameState, war?: WarPlan, closingTick?: number
     let payrollBudget = account?.capital ?? 0;
     const remaining = account ? { ...account.stocks } : byIndustrialGood(() => 0);
     const restock = byIndustrialGood(() => 0);
-    let technicians = workForce(engineers) - universityStaff - administrators - office.staff - institutionStaff;
+    let technicians = specialists - universityStaff - administrators - office.staff - institutionStaff;
     let skilledWages = 0;
     const retrofitting = new Set(state.countryEconomies[owner].queue
       .filter((job) => job.stateId === id && job.weeksLeft < projects[job.good].weeks)
@@ -638,7 +650,7 @@ function projectSettlement(state: GameState, war?: WarPlan, closingTick?: number
         local.buildings[g] * spec.jobs,
         orderedJobs,
         trainedLabourCapacity(g, technicians, spec),
-        affordableIndustryWorkers(g, payrollBudget, spec, ceilings.electricity),
+        affordableIndustryWorkers(g, payrollBudget, spec, ceilings.electricity, ordinaryWage),
       );
       const drafted = Math.min(draftQuota - conscripts, Math.floor(jobs * draftRate / 100));
       conscripts += drafted;
@@ -650,7 +662,7 @@ function projectSettlement(state: GameState, war?: WarPlan, closingTick?: number
       powerLeft -= electricity;
       powerUsed += electricity;
       workers -= employed + drafted;
-      const payroll = industrialPayroll(g, employed, spec);
+      const payroll = industrialPayroll(g, employed, spec, ordinaryWage);
       payrollBudget -= payroll.total + electricity * ceilings.electricity;
       technicians -= payroll.skilled;
       skilledWages += payroll.skilledWages;
@@ -670,9 +682,8 @@ function projectSettlement(state: GameState, war?: WarPlan, closingTick?: number
     c.upkeep += regulars * 12 + universityStaff * universityWage + administrationDue + office.wages;
     supplies[id] = byGood((g) => activity[g].output);
     const essentialNeeds = byGood((g) => Math.round(local.population * industries[g].demandPerPerson));
-    const ruralPeople = site.pops.reduce((sum, pop) => sum + (pop.occupation === "农民" ? pop.people : 0), 0);
     const subsistence = local.cropland === undefined ? undefined : subsistenceHarvest(
-      local.cropland, local.buildings, ruralPeople, workers, workForce(ruralPeople),
+      local.cropland, local.buildings, ruralPeople, workers + boundToLand, workForce(ruralPeople, participation),
       effects.output, rentRateOf(nation),
     );
     const marketNeeds = subsistence ? { ...essentialNeeds,
@@ -704,6 +715,7 @@ function projectSettlement(state: GameState, war?: WarPlan, closingTick?: number
         isFleetGood(g) && fleet.port === id ? fleet.ordered[g] : g === "electricity" ? powerUsed : 0));
     report.states[id] = {
       industries: activity,
+      workforce,
       ...(powerDemand > 0 || local.buildings.electricity > 0 ?
         { power: { requested: powerRequested, delivered: powerUsed, spending: 0 } } : {}),
       householdBasicOrders: essentialNeeds,
@@ -836,6 +848,7 @@ function projectSettlement(state: GameState, war?: WarPlan, closingTick?: number
   for (const [owner, ids] of Object.entries(holdings)) {
     const c = report.countries[owner],
       nation = state.nations[owner];
+    const { ordinaryWage } = laborProtection(nation.laws);
     c.market = markets[marketOf(state, owner)];
     const rate =
       (nation.laws.includes("自由放任") ? 0.40 : nation.laws.includes("干预主义") ? 0.25 : 0.10) +
@@ -951,7 +964,7 @@ function projectSettlement(state: GameState, war?: WarPlan, closingTick?: number
         const available = account.capital + industrialIncome - inputCost;
         if (available < 0) throw new Error("工商业采购超过已落实的周转资金");
         const methods = byGood((g) => industryMethod(g, s.industries[g].electric === true));
-        const capital = Math.min(available, workingCapitalTarget(local.buildings, methods));
+        const capital = Math.min(available, workingCapitalTarget(local.buildings, methods, ordinaryWage));
         const surplus = available - capital;
         const contribution = Math.floor(surplus * rate);
         s.investment += contribution;

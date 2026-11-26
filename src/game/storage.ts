@@ -13,6 +13,7 @@ import { basicPurchasesSchema, extrasReportSchema, openingBasicBudget, substitut
 import { reservedCropland, subsistenceReportSchema } from "./subsistence.ts";
 import { migrateCommercialProduction } from "./commercialMigration.ts";
 import { openingMetrics } from "./campaignMetrics.ts";
+import { laborLawCategory, startingLaborLaws } from "./labor.ts";
 import { buildingCapacity, militaryProcurementCost, projects, unusedPrepaidConstruction } from "./economy.ts";
 import { constructionMaintenanceSchema, constructionReportSchema, constructionStockSchema, constructionSpending, constructionWage } from "./construction.ts";
 import { nationSchema, siteSocialSchema, projectTypes } from "./society.ts";
@@ -275,6 +276,7 @@ const siteReport = z.object({
   conscripts: uint,
   regulars: uint,
   universityStaff: z.number().nonnegative().optional(),
+  workforce: uint.optional(),
   administrationStaff: z.number().nonnegative().optional(),
   freightWages: uint.optional(),
   portTradeCargo: uint.optional(),
@@ -473,6 +475,9 @@ export function parseSave(scenario: Scenario, save: unknown): GameState {
     for (const kind of institutionLawKinds) levels[kind] = Math.max(levels[kind], state.societies[stateId][kind]);
   }
   for (const [id, n] of Object.entries(state.nations)) {
+    for (const law of startingLaborLaws(id)) {
+      if (!n.laws.some((current) => laborLawCategory(current) === laborLawCategory(law))) n.laws.push(law);
+    }
     // Saves made before institution laws preserve their configured service levels.
     for (const kind of institutionLawKinds) {
       if (!n.laws.some((law) => institutionLawDetails(law)?.kind === kind))
