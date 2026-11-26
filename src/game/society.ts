@@ -209,6 +209,7 @@ export const nationSchema = z.object({
   investment: z.int().nonnegative(),
   privateQueue: z.array(privateProject),
   infamy: z.number().nonnegative(),
+  lastThreatDay: z.int().nonnegative().optional(),
   marketLeader: z.string().nullable(),
   overlord: z.string().nullable(),
   subjectType: z.enum(subjectTypes).nullable(),

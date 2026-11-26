@@ -4,6 +4,7 @@ import {
   canAddGoal,
   canDemandGoal,
   canReach,
+  containmentCandidates,
   frontLine,
   frontObjectives,
   goalNames,
@@ -293,6 +294,7 @@ export function DiplomacyPanel({ scenario, game, playerId: id, report, busy, sen
   const involved = d && participants(d).includes(id),
     claimant = d?.claimantId === id,
     primary = claimant || d?.defenderId === id;
+  const canJoinContainment = d && containmentCandidates(scenario, game, d).includes(id);
   const allies = d
     ? live.filter(
         (x) =>
@@ -355,6 +357,8 @@ export function DiplomacyPanel({ scenario, game, playerId: id, report, busy, sen
                 {d.agreedPeace && ` · 双方同意 ${peaceSummary(d.agreedPeace.goals, d.agreedPeace.commercial)}`}
               </p>
             )}
+            {!!d?.containment?.length && <p>地区防御联合 · {d.containment.map((countryId) => countries[countryId].name).join("、")}</p>}
+            {canJoinContainment && btn("加入地区防御联合", { type: "joinContainment", countryId: id })}
             {(!d || d.phase === "resolved") &&
               (target ? (
                 <>
