@@ -14,8 +14,9 @@ import { ruleTuning } from "./settings.ts";
 import { syncOccupation } from "./occupation.ts";
 import { adjustForeignRelation, breakOpposedTreaties, diplomaticTrust, expireTreatyOffers, influenceBudget, reconcileTreaties,
   relationBetween, signForeignTreaty, treatyBetween, treatyInfluence, treatyPartners } from "./foreign-relations.ts";
-import { governmentLegitimacy, influence, unrestOf } from "./society.ts";
+import { governmentLegitimacy, hash, influence, unrestOf } from "./society.ts";
 import { battalionDetails, battalionTrainingDays, battalionsAt } from "./military.ts";
+import { applyMilitaryLoss, warLossesSchema } from "./military-health.ts";
 
 export const goals = ["cession", "reparations", "puppet", "vassal", "protectorate", "annex"] as const;
 export type Goal = (typeof goals)[number];
@@ -80,6 +81,7 @@ export const disputeSchema = z.object({
   defenders: z.array(z.string()),
   mobilized: z.array(z.string()),
   mobilization: z.record(z.string(), mobilizationPlanSchema).optional(),
+  losses: z.record(z.string(), warLossesSchema).optional(),
   advance: z.array(z.string()),
   raid: z.array(z.string()),
   progress: z.int().min(0).max(100),
@@ -167,6 +169,10 @@ function treaty(state: GameState, d: BorderDispute, victory: boolean, withdrawal
           societies[id] = {
             ...site, governance: { ...newFrontier }, battalionOrders: [],
             barracksTraining: site.barracks === 0 ? [] : [{ levels: site.barracks, readyDay: state.elapsedDays + battalionTrainingDays }],
+            ...(site.militaryHealth ? { militaryHealth: {
+              injuries: site.militaryHealth.injuries.map((injury) => ({ ...injury, regulars: 0, conscripts: 0 })),
+              replacements: [],
+            } } : {}),
           };
         }
       const subsidies = countryEconomies[b].industrySubsidies;
@@ -260,8 +266,13 @@ export function warWillingness(state: GameState, d: BorderDispute, countryId: st
   const occupied = state.occupation !== undefined && state.ownerByStateId[state.occupation.stateId] === countryId;
   const fatigue = d.phase === "war" ? Math.min(30, (state.elapsedDays - d.since) / 7) : 0;
   const momentum = d.phase === "war" ? (d.progress - 50) * (countryId === d.claimantId ? 0.35 : -0.35) : 0;
+  const losses = d.losses?.[countryId];
+  const army = state.lastEconomy?.countries[countryId].military;
+  const casualtyPressure = losses && army
+    ? Math.min(25, 60 * (losses.dead + 0.4 * losses.injured) / Math.max(1, army.regulars + army.conscripts + losses.dead))
+    : 0;
   return Math.round(Math.max(0, Math.min(100, 55 + momentum + (legitimacy - 50) * 0.3 +
-    (nation.morale - 50) * 0.3 - unrest * 0.25 - budgetPressure - fatigue - (occupied ? 15 : 0))));
+    (nation.morale - 50) * 0.3 - unrest * 0.25 - budgetPressure - fatigue - casualtyPressure - (occupied ? 15 : 0))));
 }
 
 function acceptsPeace(state: GameState, d: BorderDispute, offer: PeaceOffer, countryId: string) {
@@ -593,40 +604,74 @@ export function advanceFront(scenario: Scenario, state: GameState, report: Econo
     ({ 山地: 180, 森林: 350, 平原: 650 } as const)[target.terrain ?? "平原"] *
     state.societies[target.id].infrastructure;
   const plan = planWar(scenario, state)!;
-  const strength = (ids: string[]) => {
-    let committed = 0, power = 0;
-    for (const id of ids) {
-      const sites = [...plan.routes[id].recruitmentStates];
-      const roster = sites.flatMap((siteId) => battalionsAt(state, siteId, report.states[siteId].regulars));
-      const conscripts = report.countries[id].military.deployedConscripts!;
-      const soldiers = roster.reduce((sum, unit) => sum + unit.trained, conscripts);
-      if (soldiers === 0) continue;
-      const role = d.advance.includes(id) ? "attack" : "defense";
+  const randomFraction = (key: string) => ((Math.imul(state.rng ^ hash(key), 1664525) + 1013904223) >>> 0) / 2 ** 32;
+  const deployed = (id: string) => {
+    const route = plan.routes[id];
+    const role = d.advance.includes(id) ? "attack" : "defense";
+    const origins = [...new Set([...route.recruitmentStates, ...route.deployedDrafts])].map((siteId) => {
+      const district = report.states[siteId];
+      const roster = route.recruitmentStates.has(siteId) ? battalionsAt(state, siteId, district.regulars) : [];
+      const conscripts = district.deployedConscripts!;
+      const regulars = roster.reduce((sum, unit) => sum + unit.trained, 0);
       const effective = roster.reduce((sum, unit) => sum + unit.trained * battalionDetails[unit.kind][role] / 10, conscripts);
-      const nation = state.nations[id];
-      const available = Math.min(soldiers, 300 * nation.generalRank);
-      const landing = attacking(d, id) && !landBorder(scenario, state, id, d.targetStateId) ? 0.65 : 1;
-      const logistics = nation.knowledge["野战后勤"] === 100 ? 1.25 : 1;
-      committed += available;
-      power += available * effective / soldiers * report.countries[id].military.readiness * (nation.morale / 100) * landing * logistics;
-    }
-    return committed === 0 ? 0 : power * Math.min(1, width / committed);
+      return { siteId, regulars, conscripts, effective };
+    });
+    const soldiers = origins.reduce((sum, x) => sum + x.regulars + x.conscripts, 0);
+    const effective = origins.reduce((sum, x) => sum + x.effective, 0);
+    const nation = state.nations[id], military = report.countries[id].military;
+    const available = Math.min(soldiers, 300 * nation.generalRank);
+    const landing = attacking(d, id) && !landBorder(scenario, state, id, d.targetStateId) ? 0.65 : 1;
+    const logistics = nation.knowledge["野战后勤"] === 100 ? 1.25 : 1;
+    const random = 0.9 + randomFraction(id) * 0.2;
+    const power = soldiers === 0 ? 0 :
+      available * effective / soldiers * military.readiness * (nation.morale / 100) * landing * logistics * random;
+    return { id, origins, soldiers, available, power, supply: military.supplyRatio! };
   };
   const left = [d.claimantId, ...d.allies],
     right = [d.defenderId, ...d.defenders];
+  const side = (ids: string[]) => {
+    const forces = ids.map(deployed);
+    const committed = forces.reduce((sum, force) => sum + force.available, 0);
+    const frontage = committed === 0 ? 0 : Math.min(1, width / committed);
+    return { forces, committed, frontage, power: forces.reduce((sum, force) => sum + force.power, 0) * frontage };
+  };
+  const attackers = side(left), defenders = side(right);
+  const diff = attackers.power - defenders.power;
+  const offensive = d.advance.some((id) => left.includes(id) || right.includes(id));
   let delta = 0;
-  if (d.advance.some((id) => left.includes(id) || right.includes(id))) {
-    const diff = strength(left) - strength(right);
-    if (
-      (diff > 0 && left.some((id) => d.advance.includes(id))) ||
-      (diff < 0 && right.some((id) => d.advance.includes(id)))
-    ) {
-      delta =
-        Math.sign(diff) * Math.max(1, Math.floor(Math.abs(diff) / scenario.borderDispute.strengthPerPoint));
+  if ((diff > 0 && left.some((id) => d.advance.includes(id))) || (diff < 0 && right.some((id) => d.advance.includes(id))))
+    delta = Math.sign(diff) * Math.max(1, Math.floor(Math.abs(diff) / scenario.borderDispute.strengthPerPoint));
+
+  const contested = offensive && attackers.committed > 0 && defenders.committed > 0;
+  const result = { ...state, societies: { ...state.societies }, stateEconomies: { ...state.stateEconomies } };
+  const losses = { ...d.losses };
+  for (const coalition of [attackers, defenders]) {
+    const losing = coalition === attackers ? diff < 0 : diff > 0;
+    for (const force of coalition.forces) {
+      if (force.soldiers === 0) continue;
+      const battleLoss = contested ? (losing ? 0.018 : 0.010) * coalition.frontage * force.available / force.soldiers : 0;
+      const attrition = Math.max(0, (0.5 - force.supply) / 0.5) * 0.012;
+      for (const origin of force.origins) {
+        const take = (personnel: number, corps: string) => {
+          const dead = Math.floor(personnel * (battleLoss * 0.30 + attrition * 0.15) + randomFraction(origin.siteId + corps + "dead"));
+          const injured = Math.min(personnel - dead, Math.floor(
+            personnel * (battleLoss * 0.70 + attrition * 0.85) + randomFraction(origin.siteId + corps + "injured")));
+          return { dead, injured };
+        };
+        const regular = take(origin.regulars, "regular"), conscript = take(origin.conscripts, "conscript");
+        const dead = regular.dead + conscript.dead, injured = regular.injured + conscript.injured;
+        if (dead + injured === 0) continue;
+        applyMilitaryLoss(result, origin.siteId, {
+          regularDead: regular.dead, conscriptDead: conscript.dead,
+          regularInjured: regular.injured, conscriptInjured: conscript.injured,
+        });
+        const prior = losses[force.id] ?? { dead: 0, injured: 0 };
+        losses[force.id] = { dead: prior.dead + dead, injured: prior.injured + injured };
+      }
     }
   }
   const progress = Math.max(0, Math.min(100, d.progress + delta));
-  return syncOccupation(scenario, { ...state, borderDispute: { ...d, progress, lastChange: progress - d.progress } });
+  return syncOccupation(scenario, { ...result, borderDispute: { ...d, losses, progress, lastChange: progress - d.progress } });
 }
 export function aiDiplomacy(
   scenario: Scenario,

@@ -17,6 +17,7 @@ import { constitutionalFormSchema, constitutionalLaws, constitutionalMandate, co
   powerDistribution, startingStateForm } from "./constitution.ts";
 import { economicLaws, isEconomicLaw, ownershipSchema } from "./ownership.ts";
 import { barracksTrainingSchema, battalionOrdersSchema } from "./military.ts";
+import { militaryHealthSchema } from "./military-health.ts";
 
 export const occupations = ["农民", "劳工", "工程师", "军官", "教士", "店主", "资本家", "贵族"] as const;
 export type Occupation = (typeof occupations)[number];
@@ -82,6 +83,7 @@ export const siteSocialSchema = z.object({
   barracks: z.int().nonnegative(),
   barracksTraining: barracksTrainingSchema.optional(),
   battalionOrders: battalionOrdersSchema.optional(),
+  militaryHealth: militaryHealthSchema.optional(),
   conscription: z.int().nonnegative(),
 });
 export type SiteSocial = z.infer<typeof siteSocialSchema>;

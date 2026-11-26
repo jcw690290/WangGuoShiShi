@@ -2,7 +2,8 @@ import { z } from "zod";
 import type { GameState } from "./engine.ts";
 import type { EconomyReport } from "./economy.ts";
 import { localGovernanceRule } from "./governance.ts";
-import { bondedRuralWorkers, ruralPopulation, workForce } from "./labor.ts";
+import { bondedRuralWorkers, ruralPopulation } from "./labor.ts";
+import { activeReplacements, fitWorkforce, injuredPersonnel } from "./military-health.ts";
 import { GameRuleError } from "./rules.ts";
 import type { SiteSocial } from "./society.ts";
 
@@ -50,9 +51,10 @@ export function garrisonHeadcount(state: GameState, stateId: string) {
   const site = state.societies[stateId], countryId = state.ownerByStateId[stateId];
   const { laws } = state.nations[countryId], { population } = state.stateEconomies[stateId];
   const { militaryShare } = localGovernanceRule(site, laws);
-  const workforce = workForce(population, site.laborParticipation);
+  const workforce = fitWorkforce(site, population, state.elapsedDays);
   const bonded = bondedRuralWorkers(ruralPopulation(site.pops), site.laborParticipation, laws);
-  return Math.min(workforce - bonded, Math.floor(Math.min(site.barracks * barracksCapacity, population * 0.03) * militaryShare));
+  const quota = Math.floor(Math.min(site.barracks * barracksCapacity, population * 0.03) * militaryShare);
+  return Math.max(0, Math.min(workforce - bonded, quota - injuredPersonnel(site).regulars));
 }
 
 export function battalionsAt(state: GameState, stateId: string, personnel = garrisonHeadcount(state, stateId)): Battalion[] {
@@ -60,7 +62,10 @@ export function battalionsAt(state: GameState, stateId: string, personnel = garr
   const { militaryShare } = localGovernanceRule(site, state.nations[state.ownerByStateId[stateId]].laws);
   const pending = inTraining(site, day);
   let establishedLevels = site.barracks - pending.reduce((total, group) => total + group.levels, 0);
-  const trainedCapacity = Math.floor(establishedLevels * barracksCapacity * militaryShare);
+  const replacements = activeReplacements(site, day).filter((group) => group.regulars > 0);
+  const replacementPersonnel = replacements.reduce((total, group) => total + group.regulars, 0);
+  const trainedCapacity = Math.max(0, Math.min(personnel, Math.floor(establishedLevels * barracksCapacity * militaryShare)) -
+    replacementPersonnel);
   const trainingCapacity = pending.map((group) => ({
     readyDay: group.readyDay, through: Math.floor((establishedLevels += group.levels) * barracksCapacity * militaryShare),
   }));
@@ -69,7 +74,8 @@ export function battalionsAt(state: GameState, stateId: string, personnel = garr
     const start = slot * battalionSize;
     const end = Math.min(start + battalionSize, personnel);
     const order = orders.get(slot);
-    const readyDay = Math.max(order?.readyDay ?? 0, trainingCapacity.find((group) => end <= group.through)?.readyDay ?? 0);
+    const readyDay = Math.max(order?.readyDay ?? 0, trainingCapacity.find((group) => end <= group.through)?.readyDay ?? 0,
+      end > trainedCapacity && replacements.length > 0 ? replacements[replacements.length - 1].readyDay : 0);
     const trained = order && order.readyDay > day ? 0 : Math.max(0, Math.min(trainedCapacity, end) - start);
     return { slot, kind: order?.kind ?? "infantry", personnel: end - start, trained, readyDay };
   });

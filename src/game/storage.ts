@@ -21,6 +21,7 @@ import { startingStateForm } from "./constitution.ts";
 import { industryOwnershipSchema, ownershipAmountsSchema, ownershipKinds, ownershipSchema } from "./ownership.ts";
 import { foreignPairKey, foreignRelationSchema, foreignTreatySchema, treatyOfferSchema } from "./foreign-relations.ts";
 import { barracksCapacity, battalionSize, battalionTrainingDays } from "./military.ts";
+import { injuredPersonnel, replacementTrainingDays } from "./military-health.ts";
 import { buildingCapacity, militaryProcurementCost, projects, unusedPrepaidConstruction } from "./economy.ts";
 import { constructionMaintenanceSchema, constructionReportSchema, constructionStockSchema, constructionSpending, constructionWage } from "./construction.ts";
 import { nationSchema, siteSocialSchema, projectTypes } from "./society.ts";
@@ -222,6 +223,7 @@ const military = z.object({
   conscripts: uint,
   trainedConscripts: uint.optional(),
   deployedConscripts: uint.optional(),
+  injuredTroops: uint.optional(),
   grainDemand: uint,
   grainDrawn: uint,
   grainTransport: uint,
@@ -229,6 +231,7 @@ const military = z.object({
   procurement: z.object({ grain: uint, cloth: uint, arms: uint.optional(), ammo: uint.optional() }).optional(),
   equipment: z.object({ weapons: issue, ammunition: issue, uniforms: issue }),
   readiness: fraction,
+  supplyRatio: fraction.optional(),
 }).refine((force) =>
   (force.trainedRegulars ?? 0) <= force.regulars &&
   (force.trainedConscripts ?? 0) <= force.conscripts &&
@@ -294,6 +297,7 @@ const siteReport = z.object({
   welfareRelief: welfareReliefSchema.optional(),
   consumptionIndex: z.number().nonnegative().optional(),
   conscripts: uint,
+  deployedConscripts: uint.optional(),
   regulars: uint,
   universityStaff: z.number().nonnegative().optional(),
   workforce: uint.optional(),
@@ -308,7 +312,8 @@ const siteReport = z.object({
   dividends: uint,
   ownershipIncome: ownershipAmountsSchema.optional(),
   investment: uint,
-}).refine((site) => site.power === undefined ||
+}).refine((site) => (site.deployedConscripts ?? 0) <= site.conscripts
+).refine((site) => site.power === undefined ||
   site.power.delivered <= Math.min(site.industries.electricity.output, site.power.requested)
 ).refine((site) => site.construction === undefined ||
   site.construction.public.wages + site.construction.private.wages === site.builders * constructionWage
@@ -578,8 +583,11 @@ export function parseSave(scenario: Scenario, save: unknown): GameState {
     }
   }
   for (const [id, local] of Object.entries(state.stateEconomies)) {
-    const owner = state.ownerByStateId[id],
-      { pops, governance, stability, barracks, barracksTraining, battalionOrders } = state.societies[id];
+    const owner = state.ownerByStateId[id], site = state.societies[id];
+    const { pops, governance, stability, barracks, barracksTraining, battalionOrders, militaryHealth } = site;
+    if (militaryHealth && (injuredPersonnel(site).people > local.population ||
+        militaryHealth.injuries.some((group) => group.sufferedDay > state.elapsedDays) ||
+        militaryHealth.replacements.some((group) => group.readyDay > state.elapsedDays + replacementTrainingDays))) invalid();
     const latestTrainingDay = state.elapsedDays + battalionTrainingDays;
     if (battalionOrders?.some((order) => order.slot >= Math.ceil(barracks * barracksCapacity / battalionSize) ||
         order.readyDay > latestTrainingDay)) invalid();
@@ -641,6 +649,8 @@ export function parseSave(scenario: Scenario, save: unknown): GameState {
         new Set([...d.goals, ...d.unacceptedGoals]).size !== d.goals.length + d.unacceptedGoals.length
       )) ||
       [...d.advance, ...d.mobilized, ...d.raid].some((id) => !parties.includes(id)) ||
+      (d.losses !== undefined && ((d.phase !== "war" && d.phase !== "resolved") ||
+        Object.keys(d.losses).some((id) => !parties.includes(id)))) ||
       d.promises.some((id) => !d.allies.includes(id))
     )
       invalid();

@@ -48,6 +48,7 @@ import { allocateIndustrialSurplus, economicLaw, economicOwnershipRules, emptyOw
 import type { IndustryOwnership, Ownership, OwnershipAmounts } from "./ownership.ts";
 import { battalionsAt, equipmentNeeds, garrisonHeadcount, inTraining, trainNewBarracks } from "./military.ts";
 import type { Battalion } from "./military.ts";
+import { activeReplacements, fitWorkforce, injuredPersonnel } from "./military-health.ts";
 
 export { marketOf } from "./market.ts";
 
@@ -151,6 +152,7 @@ export interface MilitarySupply {
   conscripts: number;
   trainedConscripts?: number;
   deployedConscripts?: number;
+  injuredTroops?: number;
   grainDemand: number;
   grainDrawn: number;
   grainTransport: number;
@@ -158,6 +160,7 @@ export interface MilitarySupply {
   procurement?: { grain: number; cloth: number; arms?: number; ammo?: number };
   equipment: Record<"weapons" | "ammunition" | "uniforms", { demand: number; delivered: number }>;
   readiness: number;
+  supplyRatio?: number;
 }
 export interface SiteReport {
   workforce?: number;
@@ -190,6 +193,7 @@ export interface SiteReport {
   welfareRelief?: WelfareRelief;
   consumptionIndex?: number;
   conscripts: number;
+  deployedConscripts?: number;
   access: number;
   localPrices: ByGood<number>;
   dividends: number;
@@ -345,12 +349,14 @@ function planArmamentOrders(state: GameState, holdings: Record<string, string[]>
       let fieldReserves = 0, homeReserves = 0;
       if (route.mobilized) for (const id of route.draftOrigins) {
         const site = state.societies[id];
-        const eligible = workForce(state.stateEconomies[id].population, site.laborParticipation) -
-          bondedRuralWorkers(ruralPopulation(site.pops), site.laborParticipation, laws);
-        const quota = Math.min(Math.floor(site.conscription * 500 * localGovernanceRule(site, laws).militaryShare),
-          Math.floor(eligible * war!.recruitPercent / 100));
-        if (route.deployedDrafts.has(id)) fieldReserves += quota;
-        else homeReserves += quota;
+        const eligible = Math.max(0, fitWorkforce(site, state.stateEconomies[id].population, state.elapsedDays) -
+          bondedRuralWorkers(ruralPopulation(site.pops), site.laborParticipation, laws));
+        const quota = Math.max(0, Math.min(Math.floor(eligible * war!.recruitPercent / 100),
+          Math.floor(site.conscription * 500 * localGovernanceRule(site, laws).militaryShare) - injuredPersonnel(site).conscripts));
+        const training = activeReplacements(site, state.elapsedDays).reduce((sum, group) => sum + group.conscripts, 0);
+        const front = route.deployedDrafts.has(id) ? Math.max(0, quota - training) : 0;
+        fieldReserves += front;
+        homeReserves += quota - front;
       }
       const deployed = ids.filter((id) => route.recruitmentStates.has(id)).flatMap((id) => rosters[id]);
       assign(owner, front, equipmentNeeds(deployed, fieldReserves, true));
@@ -555,6 +561,7 @@ function projectSettlement(state: GameState, war?: WarPlan, closingTick?: number
         conscripts: 0,
         trainedConscripts: 0,
         deployedConscripts: 0,
+        injuredTroops: 0,
         grainDemand: 0,
         grainDrawn: 0,
         grainTransport: 0,
@@ -584,12 +591,14 @@ function projectSettlement(state: GameState, war?: WarPlan, closingTick?: number
     const { militaryShare, integrationCost } = localGovernanceRule(site, nation.laws);
     const regulars = garrisons[id];
     const draftRate = route?.mobilized && route.draftOrigins.has(id) ? war!.recruitPercent : 0;
-    const draftQuota = Math.floor(site.conscription * 500 * militaryShare);
+    const injured = injuredPersonnel(site);
+    const injuredTroops = injured.regulars + injured.conscripts;
+    const draftQuota = Math.max(0, Math.floor(site.conscription * 500 * militaryShare) - injured.conscripts);
     const engineers = availableEngineers(site, owner, nation);
     const participation = site.laborParticipation;
     const ruralPeople = ruralPopulation(site.pops);
-    const boundToLand = bondedRuralWorkers(ruralPeople, participation, nation.laws);
-    const workforce = workForce(local.population, participation);
+    const workforce = fitWorkforce(site, local.population, state.elapsedDays);
+    const boundToLand = Math.min(workforce, bondedRuralWorkers(ruralPeople, participation, nation.laws));
     const labour = workforce - regulars - boundToLand;
     const specialists = workForce(engineers, participation);
     const universityStaff = Math.min(labour, specialists, site.university * universityJobs);
@@ -715,12 +724,16 @@ function projectSettlement(state: GameState, war?: WarPlan, closingTick?: number
     const activity = byGood((g) => Object.hasOwn(suppliesFirst, g) ? suppliesFirst[g as keyof typeof suppliesFirst] : produce(g));
     c.military.regulars += regulars;
     c.military.trainedRegulars! += rosters[id].reduce((sum, unit) => sum + unit.trained, 0);
+    c.military.injuredTroops! += injuredTroops;
     c.military.conscripts += conscripts;
-    if (route?.draftReady) c.military.trainedConscripts! += conscripts;
-    if (route?.deployedDrafts.has(id)) c.military.deployedConscripts! += conscripts;
+    const trainingConscripts = activeReplacements(site, state.elapsedDays).reduce((sum, group) => sum + group.conscripts, 0);
+    const trainedConscripts = route?.draftReady ? Math.max(0, conscripts - trainingConscripts) : 0;
+    const deployedConscripts = route?.deployedDrafts.has(id) ? trainedConscripts : 0;
+    c.military.trainedConscripts! += trainedConscripts;
+    c.military.deployedConscripts! += deployedConscripts;
     c.universityWages! += universityStaff * universityWage;
     c.administrationWages! += administrationDue;
-    c.upkeep += (regulars + conscripts) * 12 + universityStaff * universityWage + administrationDue + office.wages;
+    c.upkeep += (regulars + conscripts + injuredTroops) * 12 + universityStaff * universityWage + administrationDue + office.wages;
     supplies[id] = byGood((g) => activity[g].output);
     const essentialNeeds = byGood((g) => Math.round(local.population * industries[g].demandPerPerson));
     const subsistence = local.cropland === undefined ? undefined : subsistenceHarvest(
@@ -767,6 +780,7 @@ function projectSettlement(state: GameState, war?: WarPlan, closingTick?: number
       administrationStaff: administrationDue / administrationWage,
       builders,
       conscripts,
+      deployedConscripts,
       access,
       localPrices: byGood(() => 0),
       dividends: 0,
@@ -835,6 +849,7 @@ function projectSettlement(state: GameState, war?: WarPlan, closingTick?: number
       m.readiness = issueSupplies(m, contract, supplies, ids, m.regulars, equipmentNeeds(ids.flatMap((id) => rosters[id]), 0, false), Infinity, 1);
     }
     m.procurement = contract.spending;
+    m.supplyRatio = m.readiness;
     c.upkeep += militaryProcurementCost(contract.spending);
     for (const id of ids) {
       const subsistence = report.states[id].subsistence;
@@ -1350,7 +1365,8 @@ export function settleEconomy(state: GameState, war?: WarPlan, fractionOfYear = 
     campusFunding[id] = universityDue > 0 ? universityPaid / universityDue : 0;
     administrationFunding[id] = administrationDue > 0 ? administrationPaid / administrationDue : 0;
     const militaryPaid = remainingPaid - civilianPaid;
-    militaryPayroll[id] = { paid: militaryPaid, personnel: c.military.regulars + c.military.conscripts, served: 0, allocated: 0 };
+    militaryPayroll[id] = { paid: militaryPaid, personnel: c.military.regulars + c.military.conscripts + c.military.injuredTroops!,
+      served: 0, allocated: 0 };
     if (militaryDue > 0) c.military.readiness *= Math.min(1, militaryPaid / militaryDue);
     c.upkeep = week.upkeepPaid;
     c.interestPaid = week.interestPaid;
@@ -1380,7 +1396,8 @@ export function settleEconomy(state: GameState, war?: WarPlan, fractionOfYear = 
     const standby = s.constructionMaintenance!;
     const publicConstructionWages = construction.public.wages + standby.wages;
     const payroll = militaryPayroll[owner];
-    payroll.served += s.regulars + s.conscripts;
+    const injured = injuredPersonnel(site);
+    payroll.served += s.regulars + s.conscripts + injured.regulars + injured.conscripts;
     const assigned = payroll.personnel ? Math.floor(payroll.paid * payroll.served / payroll.personnel) : 0;
     const armyWages = assigned - payroll.allocated;
     payroll.allocated = assigned;

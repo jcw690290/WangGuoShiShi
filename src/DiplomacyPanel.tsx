@@ -25,6 +25,7 @@ import { diplomaticGiftCost, diplomaticTrust, foreignCommandError, influenceBudg
 import { countryDisplayName } from "./game/constitution.ts";
 import { silver } from "./format.ts";
 import { battalionDetails, battalionKinds, battalionOrderError, battalionSize, battalionsAt } from "./game/military.ts";
+import { injuredPersonnel } from "./game/military-health.ts";
 interface Props {
   scenario: Scenario;
   game: GameState;
@@ -54,6 +55,7 @@ function ArmyRoster({ scenario, game, playerId, busy, send, selectedId }: Omit<P
   const active = sites.find((site) => site.id === district) ?? sites.find((site) => site.id === selectedId) ?? sites[0];
   if (!active) return null;
   const roster = battalionsAt(game, active.id);
+  const injured = injuredPersonnel(game.societies[active.id]);
   return (
     <details>
       <summary>常备陆军</summary>
@@ -62,6 +64,7 @@ function ArmyRoster({ scenario, game, playerId, busy, send, selectedId }: Omit<P
           {sites.map((site) => <option key={site.id} value={site.id}>{site.name}</option>)}
         </select>
       </label>
+      {injured.people > 0 && <p>{injured.people} 人正在养伤。</p>}
       {roster.length === 0 && <p>当前可征募人口不足。</p>}
       {roster.map((unit) => (
         <div key={unit.slot} className="control-block">
@@ -315,6 +318,7 @@ export function DiplomacyPanel({ scenario, game, playerId: id, report, busy, sen
                   const m = report.countries[x].military;
                   const orders = d.mobilization?.[x];
                   const remaining = orders ? Math.max(0, orders.readyDay - game.elapsedDays) : 0;
+                  const losses = d.losses?.[x];
                   return (
                     <p key={x}>
                       {countries[x].name} · {attacking(d, x) ? "提出方" : "防守方"} ·{" "}
@@ -323,7 +327,9 @@ export function DiplomacyPanel({ scenario, game, playerId: id, report, busy, sen
                       全军军粮 {m.grainDrawn} / {m.grainDemand} · 武器 {m.equipment.weapons.delivered}/
                       {m.equipment.weapons.demand}· 弹药 {m.equipment.ammunition.delivered}/
                       {m.equipment.ammunition.demand} · 军服 {m.equipment.uniforms.delivered}/
-                      {m.equipment.uniforms.demand} · 前线战备 {Math.round(m.readiness * 100)}% · 士气 {game.nations[x].morale.toFixed(0)}%
+                      {m.equipment.uniforms.demand} · 前线补给 {Math.round((m.supplyRatio ?? m.readiness) * 100)}% ·
+                      战备 {Math.round(m.readiness * 100)}% · 士气 {game.nations[x].morale.toFixed(0)}%
+                      {losses && ` · 累计阵亡 ${losses.dead} · 伤病 ${losses.injured}`}
                     </p>
                   );
                 })}

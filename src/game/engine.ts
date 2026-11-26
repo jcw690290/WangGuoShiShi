@@ -44,6 +44,7 @@ import { applyForeignCommand, settleAiTreatyOffers } from "./foreign-relations.t
 import type { ForeignCommand, ForeignRelation, ForeignTreaty, TreatyOffer } from "./foreign-relations.ts";
 import { applyBattalionOrder, chooseBattalionOrder } from "./military.ts";
 import type { BattalionCommand } from "./military.ts";
+import { recoverMilitaryInjuries } from "./military-health.ts";
 export { DAY_MS, elapsedTicks, TICKS_PER_DAY } from "./time.ts";
 
 export interface GameState {
@@ -259,7 +260,9 @@ export function advanceTick(
   const yearFraction = fiscalWeekFraction(date);
   const weekly = settleEconomy(next, planWar(scenario, next), yearFraction, scenario);
   const settled = monthly ? settlePopulationMonth(scenario, weekly, date) : weekly;
-  let result = advancePolitics(advanceFront(scenario, settled, settled.lastEconomy), settled.lastEconomy, date.getUTCFullYear(), yearFraction);
+  const battle = advanceFront(scenario, settled, settled.lastEconomy);
+  const recovered = recoverMilitaryInjuries(battle, settled.lastEconomy);
+  let result = advancePolitics(recovered, settled.lastEconomy, date.getUTCFullYear(), yearFraction);
   result.rng = (Math.imul(result.rng, 1664525) + 1013904223) >>> 0;
   const owners = new Set(Object.values(result.ownerByStateId));
   for (const id of owners) {
