@@ -20,7 +20,7 @@ import { battalionDetails, battalionTrainingDays, battalionsAt, commandCapacity,
 import { applyMilitaryLoss, warLossesSchema } from "./military-health.ts";
 import { fleetPower, navalMissionSchema, navalMissionTargets, planNavalOperations } from "./naval-operations.ts";
 import type { NavalMissionCommand } from "./naval-operations.ts";
-import { recognizeTerritorialClaim, reconcileTerritorialClaims, territorialClaim, territorialClaimError } from "./territory.ts";
+import { recognizeTerritorialClaim, reconcileTerritorialPlans, territorialClaim, territorialClaimError } from "./territory.ts";
 import type { TerritorialClaimCommand } from "./territory.ts";
 
 export const goals = ["cession", "reparations", "puppet", "vassal", "protectorate", "annex", "recognition"] as const;
@@ -308,7 +308,7 @@ function treaty(state: GameState, d: BorderDispute, victory: boolean, withdrawal
     !live.has(senior) || !live.has(partner) ||
     nations[senior].overlord === partner || nations[partner].overlord === senior,
   );
-  return reconcileTerritorialClaims(reconcileTreaties({
+  return reconcileTerritorialPlans(reconcileTreaties({
     ...relations,
     ownerByStateId,
     countryEconomies,

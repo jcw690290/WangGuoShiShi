@@ -11,8 +11,8 @@ import { advancePolitics, applyPolitics, availableTech, ownedSocieties, politics
 import type { PoliticsCommand } from "./politics.ts";
 import { initSociety, techs, hash, literacyOf } from "./society.ts";
 import type { Law, Nation, SiteSocial } from "./society.ts";
-import { applyClaim, applyTerritorialClaim } from "./territory.ts";
-import type { TerritorialClaim, TerritorialClaimCommand } from "./territory.ts";
+import { advanceTerritorialSettlements, applyTerritorialClaim, applyTerritorialSettlement, chooseTerritorialSettlement } from "./territory.ts";
+import type { TerritorialClaim, TerritorialClaimCommand, TerritorialSettlement, TerritorialSettlementCommand } from "./territory.ts";
 import { settlePopulationMonth } from "./demographics.ts";
 import type { PopulationMonth } from "./demographics.ts";
 import { finalizeCampaign, startCampaign } from "./campaign.ts";
@@ -73,6 +73,7 @@ export interface GameState {
   aidOffers?: AidOffer[];
   foreignObligations?: ForeignObligation[];
   territorialClaims?: TerritorialClaim[];
+  territorialSettlements?: TerritorialSettlement[];
   tradeRoutes?: TradeRoute[];
   occupation?: Occupation;
 }
@@ -83,7 +84,7 @@ export type GameCommand =
   | { type: "setRuleTuning"; tuning: RuleTuning | null }
   | { type: "continueSandbox" }
   | { type: "settleCampaignVictory" }
-  | { type: "claimState"; stateId: string }
+  | TerritorialSettlementCommand
   | TerritorialClaimCommand
   | { type: "queueConstruction"; countryId: string; stateId: string; good: Building; privateBuild?: boolean }
   | { type: "cancelConstruction"; countryId: string; index: number; stateId: string; good: Building; privateBuild?: boolean }
@@ -277,6 +278,8 @@ export function advanceTick(
   for (const id of owners) {
     const { market } = settled.lastEconomy.countries[id];
     if (!humanCountries.has(id)) {
+      const settlement = chooseTerritorialSettlement(scenario, result, id);
+      if (settlement) result = applyCommand(scenario, result, settlement);
       const job = chooseUniversity(scenario, result, id) ?? chooseRailway(scenario, result, id, settled.lastEconomy) ??
         choosePort(scenario, result, id, settled.lastEconomy) ?? chooseElectrification(scenario, result, id) ??
         chooseConstruction(scenario, result, id, market);
@@ -363,6 +366,7 @@ export function advanceTick(
   }
   for (const cmd of aiDiplomacy(scenario, result, humanCountries)) result = applyCommand(scenario, result, cmd);
   result = settleAiForeignOffers(result, humanCountries);
+  result = advanceTerritorialSettlements(scenario, result, settled.lastEconomy);
   return finalizeCampaign(scenario, advanceAchievements(state, result, date, settled.lastEconomy), date, true);
 }
 export function dispatch(scenario: Scenario, state: GameState, cmd: GameCommand): GameState {
@@ -429,7 +433,8 @@ function applyCommand(
       return { ...state, nations: { ...state.nations, [cmd.countryId]: { ...nation, exciseGoods: selected.data } } };
     }
     case "claimState":
-      return applyClaim(scenario, state, cmd.stateId);
+    case "cancelTerritorialSettlement":
+      return applyTerritorialSettlement(scenario, state, cmd);
     case "declareTerritorialClaim":
     case "renounceTerritorialClaim":
       return applyTerritorialClaim(scenario, state, cmd);

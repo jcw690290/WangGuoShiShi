@@ -14,7 +14,7 @@ import type { SaveSlot, SaveSummary } from "./game/storage.ts";
 import { difficultyLevels, difficultyNames, difficultySchema } from "./game/settings.ts";
 import type { Difficulty } from "./game/settings.ts";
 import { canSettleVictory, completeGuideStep, defaultEndYear, endYearSchema } from "./game/campaign.ts";
-import { CLAIM_COST, claimError, territorialClaimError } from "./game/territory.ts";
+import { CLAIM_COST, claimError, settlementAt, territorialClaimError, territoryType } from "./game/territory.ts";
 import { StateMap } from "./map/StateMap.tsx";
 import { capitals } from "./map/capitals.ts";
 import { countryColor } from "./map/cartography.ts";
@@ -95,6 +95,10 @@ export function App({ scenario, geometry, initialSaves, initialSaveNotice }: {
       ? (Object.keys(game.ownerByStateId).find((id) => game.ownerByStateId[id] === player) ?? null)
       : null);
   const owner = site ? game.ownerByStateId[site] : null;
+  const unownedLabels = { UNCLAIMED: "无主地区", LOCAL_POLITY: "地方势力", STATE_OWNED: "国家领土" };
+  const selectedTerritory = site ? territoryType(scenario, game, site) : null;
+  const settlement = site ? settlementAt(game, site) : undefined;
+  const settlementBlock = site && player && !owner && !settlement ? claimError(scenario, game, site, player) : undefined;
   const claims = site ? (game.territorialClaims ?? []).filter((claim) => claim.stateId === site) : [];
   const hasClaim = claims.some((claim) => claim.claimantId === player);
   const declaration = player && site && owner !== player ? {
@@ -535,15 +539,14 @@ export function App({ scenario, geometry, initialSaves, initialSaveNotice }: {
                   <option value="">{matches.length} 个匹配州</option>
                   {matches.map(([id, s]) => (
                     <option key={id} value={id}>
-                      {s.name} · {countryNames[game.ownerByStateId[id]] ?? "无主领土"}
+                          {s.name} · {countryNames[game.ownerByStateId[id]] ?? unownedLabels[territoryType(scenario, game, id)]}
                     </option>
                   ))}
                 </select>
                 {site && (
                   <p aria-live="polite">
-                    <strong>{atlas[site].name}</strong> · {owner ? countryNames[owner] : "无主领土"}
+                    <strong>{atlas[site].name}</strong> · {owner ? countryNames[owner] : unownedLabels[selectedTerritory!]}
                     {actualController && ` · 实际控制 ${countryNames[actualController]}`}
-                    {!owner && " · 占领后加入本国市场"}
                   </p>
                 )}
                 {claims.map((claim) => (
@@ -563,18 +566,22 @@ export function App({ scenario, geometry, initialSaves, initialSaveNotice }: {
                 })()}
                 {site && !owner && (
                   <div className="claim-territory">
-                    <p>无主领土可直接占领，无需宣战。一次支付 {silver(CLAIM_COST)}，立即获得州归属、人口和建设权限。</p>
-                    <button
-                      className="build"
-                      disabled={locked || finished || Boolean(claimError(scenario, game, site))}
-                      onClick={() => {
-                        send({ type: "claimState", stateId: site });
-                        if (!connection) setNotice(`已占领 ${atlas[site].name} · 支出 ${silver(CLAIM_COST)}`);
-                      }}
-                    >
-                      占领 {atlas[site].name}
-                    </button>
-                    <p role="status">{finished ? "剧本已结束" : claimError(scenario, game, site) ?? "可占领 · 不限制接壤或跨海"}</p>
+                    {settlement ? <>
+                      <p>{countryNames[settlement.countryId]} · {settlement.mode === "INDIRECT" ? "地方协议" : "移民开发"} ·
+                        行政来源 {atlas[settlement.anchorId].name} · 进度 {Math.floor(settlement.progress * 100)}%</p>
+                      {game.lastEconomy && <p>上周来源州行政覆盖 {Math.round((game.lastEconomy.states[settlement.anchorId].office?.coverage ?? 0) * 100)}%</p>}
+                      <progress aria-label="领土项目进度" max={1} value={settlement.progress} />
+                      {player === settlement.countryId && <button className="build" disabled={locked || finished}
+                        onClick={() => send({ type: "cancelTerritorialSettlement", countryId: player, stateId: site })}>
+                        终止 {atlas[site].name} 项目
+                      </button>}
+                    </> : player && <>
+                      <button className="build" disabled={locked || finished || settlementBlock !== undefined} title={settlementBlock}
+                        onClick={() => send({ type: "claimState", countryId: player, stateId: site })}>
+                        {selectedTerritory === "LOCAL_POLITY" ? "洽谈地方协议" : "启动移民开发"} · {silver(CLAIM_COST)}
+                      </button>
+                      {settlementBlock && <p role="status">{settlementBlock}</p>}
+                    </>}
                   </div>
                 )}
               </div>

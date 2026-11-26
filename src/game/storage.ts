@@ -22,7 +22,8 @@ import { industryOwnershipSchema, ownershipAmountsSchema, ownershipKinds, owners
 import { aidOfferSchema, foreignObligationSchema, foreignPairKey, foreignRelationSchema, foreignTreatySchema, treatyOfferSchema } from "./foreign-relations.ts";
 import { barracksCapacity, battalionSize, battalionTrainingDays, equipmentDetails } from "./military.ts";
 import { injuredPersonnel, replacementTrainingDays } from "./military-health.ts";
-import { territorialClaim, territorialClaimSchema } from "./territory.ts";
+import { territorialClaim, territorialClaimSchema, territorialSettlementSchema } from "./territory.ts";
+import { seaVoyageCargoCost } from "./transport.ts";
 import { buildingCapacity, militaryProcurementCost, projects, unusedPrepaidConstruction } from "./economy.ts";
 import { constructionMaintenanceSchema, constructionReportSchema, constructionStockSchema, constructionSpending, constructionWage } from "./construction.ts";
 import { nationSchema, siteSocialSchema, projectTypes } from "./society.ts";
@@ -369,6 +370,7 @@ export function parseSave(scenario: Scenario, save: unknown): GameState {
     aidOffers: z.array(aidOfferSchema).optional(),
     foreignObligations: z.array(foreignObligationSchema).optional(),
     territorialClaims: z.array(territorialClaimSchema).optional(),
+    territorialSettlements: z.array(territorialSettlementSchema).optional(),
     tradeRoutes: z.array(tradeRouteSchema.extend({ from: sites, to: sites, exporter: countries, importer: countries })).optional(),
     occupation: z.object({ stateId: sites, controllerId: countries }).optional(),
     lastEconomy: z
@@ -525,6 +527,16 @@ export function parseSave(scenario: Scenario, save: unknown): GameState {
         !liveCountries.has(claim.claimantId) || state.ownerByStateId[claim.stateId] === claim.claimantId ||
         claim.recognizedBy.some((id) => !liveCountries.has(id)) || claim.declaredDay > state.elapsedDays) invalid();
     claimKeys.add(key);
+  }
+  const settlementKeys = new Set<string>();
+  for (const project of state.territorialSettlements ?? []) {
+    const site = scenario.states[project.stateId], anchor = scenario.states[project.anchorId];
+    if (!site || !anchor || settlementKeys.has(site.id) || Object.hasOwn(state.ownerByStateId, site.id) ||
+        !liveCountries.has(project.countryId) || project.startedDay > state.elapsedDays ||
+        (site.unownedStatus === "LOCAL_POLITY") !== (project.mode === "INDIRECT") ||
+        (project.sea ? !site.coastal || !anchor.coastal || seaVoyageCargoCost(site.label, anchor.label) > 2 :
+          !site.neighbors.includes(anchor.id))) invalid();
+    settlementKeys.add(site.id);
   }
   if (data.version !== saveVersion && migrateCommercialProduction(state) && campaign?.outcome?.baseline && campaign.ending === null) {
     const fresh = openingMetrics(createGame(scenario, 1820, state.settings.difficulty), state.playerCountryId!);
