@@ -28,7 +28,7 @@ export type OfficeReport = z.infer<typeof officeReportSchema>;
 export function officeNeed(population: number, site: SiteSocial, nation: Nation, difficulty: Difficulty) {
   const { mode, integrated } = governanceOf(site);
   const education = nation.knowledge["高等教育"] === 100 ? 2 : nation.knowledge["公共教育"] === 100 ? 1 : 0;
-  return population / 10_000 * (1 + 0.15 * education + (integrated ? 0 : 0.30)) *
+  return population / 10_000 * (1 + 0.15 * (education + site.healthcare) + (integrated ? 0 : 0.30)) *
     governanceRules[mode].administrationCost * administrationDemandMultiplier(difficulty);
 }
 

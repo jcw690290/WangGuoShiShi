@@ -13,6 +13,7 @@ export interface PopulationMonth {
 
 const birthRate = 0.036;
 const deathRate = 0.030;
+const healthcareMortalityReduction = 0.25;
 const severeFoodShortageMortality = 0.030;
 
 export function settlePopulationMonth<T extends GameState>(scenario: Scenario, state: T, date: Date): T {
@@ -37,8 +38,10 @@ export function settlePopulationMonth<T extends GameState>(scenario: Scenario, s
     const population = economy.population;
     const food = state.lastEconomy?.states[siteId].foodFulfillment ?? 1;
     const additionalMortality = severeFoodShortageMortality * Math.max(0, 1 - food / 0.8);
+    const healthCoverage = state.lastEconomy?.states[siteId].healthcare?.coverage ?? 0;
+    const baselineMortality = deathRate * (1 - healthcareMortalityReduction * healthCoverage);
     const populationAfter = population + Math.round(
-      population * (birthRate - deathRate - additionalMortality) * fractionOfYear,
+      population * (birthRate - baselineMortality - additionalMortality) * fractionOfYear,
     );
     const change = populationAfter - population;
     changes[siteId] = change;

@@ -116,7 +116,8 @@ export function measureCampaign(
     employed += goods.reduce((sum, good) => sum + site.industries[good].employed, 0) +
       site.builders + site.regulars + site.conscripts +
       (site.constructionMaintenance?.workers ?? 0) +
-      (site.universityStaff ?? 0) + (site.administrationStaff ?? 0) + (site.office?.staff ?? 0) + (site.subsistence?.employed ?? 0);
+      (site.universityStaff ?? 0) + (site.administrationStaff ?? 0) + (site.office?.staff ?? 0) +
+      (site.healthcare?.staff ?? 0) + (site.subsistence?.employed ?? 0);
     food += population * (site.foodFulfillment ?? 0);
     governance += population * (site.office?.coverage ?? 0);
   }
