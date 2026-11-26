@@ -25,6 +25,7 @@ import { syncOccupation } from "./occupation.ts";
 import { diplomaticTieSchema } from "./diplomatic-ties.ts";
 import { routeTransport, tradeDeliverySchema, tradeRouteKey, tradeRouteSchema } from "./trade.ts";
 import { convoyCargoCapacity } from "./transport.ts";
+import { fleetReportSchema } from "./fleet.ts";
 import { achievementKey, achievementRecordSchema } from "./achievements.ts";
 import type { AchievementRecord } from "./achievements.ts";
 const storeName = "saves";
@@ -237,9 +238,11 @@ const countryReport = z.object({
   officeUpkeep: uint.optional(),
   tradeTariff: uint.optional(),
   tradeSeaCargo: uint.optional(),
+  fleet: fleetReportSchema.optional(),
 }).refine((country) => (country.officeUpkeep ?? 0) + militaryProcurementCost(country.military.procurement) +
   (country.construction === undefined ? 0 : constructionSpending(country.construction.public)) +
-  (country.constructionMaintenance === undefined ? 0 : constructionSpending(country.constructionMaintenance)) <= country.upkeep);
+  (country.constructionMaintenance === undefined ? 0 : constructionSpending(country.constructionMaintenance)) +
+  (country.fleet?.spending ?? 0) <= country.upkeep);
 const siteReport = z.object({
   industries: z.object({ grain: industry, cloth: industry, ...byIndustrialGood(() =>
     industry.default({ employed: 0, output: 0, wages: 0 })) }),
@@ -465,15 +468,18 @@ export function parseSave(scenario: Scenario, save: unknown): GameState {
     const queued = [...state.countryEconomies[id].queue, ...n.privateQueue];
     for (const p of queued)
       if (state.ownerByStateId[p.stateId] !== id || p.weeksLeft > projects[p.good].weeks ||
-        (p.good === "port" && !scenario.states[p.stateId].coastal) ||
+        ((p.good === "port" || p.good === "shipGoods") && !scenario.states[p.stateId].coastal) ||
         (p.levels !== undefined && (!isGood(p.good) || isIndustrialGood(p.good) || p.levels !== commercialLevels[p.good]))) invalid();
     if (data.version !== saveVersion && header.data.weeklyConstruction !== true) {
       const account = state.countryEconomies[id];
       account.treasury += account.queue.reduce((sum, project) => sum + unusedPrepaidConstruction(project), 0);
       n.investment += n.privateQueue.reduce((sum, project) => sum + unusedPrepaidConstruction(project), 0);
     }
+    const order = n.fleet.order;
+    if (order && (state.ownerByStateId[order.stateId] !== id || !scenario.states[order.stateId]?.coastal)) invalid();
     if (state.lastEconomy) {
-      const { military: m, tradeSeaCargo } = state.lastEconomy.countries[id];
+      const { military: m, tradeSeaCargo, fleet } = state.lastEconomy.countries[id];
+      if (fleet?.port && !scenario.states[fleet.port]?.coastal) invalid();
       if (m.grainDrawn > Math.min(m.grainDemand, m.grainTransport)) invalid();
       if ((m.seaCargoUsed ?? 0) + (tradeSeaCargo ?? 0) > n.convoys * convoyCargoCapacity) invalid();
     }
@@ -484,6 +490,7 @@ export function parseSave(scenario: Scenario, save: unknown): GameState {
     if (governance?.integration && governance.integration.startedAtTick > elapsedTicks(state)) invalid();
     if (stability && Object.values(stability.lastIncident).some((day) => day > state.elapsedDays)) invalid();
     if (!local.industrial && goods.some((good) => local.buildings[good] > 0)) invalid();
+    if (local.buildings.shipGoods > 0 && !scenario.states[id].coastal) invalid();
     if (pops.reduce((sum, p) => sum + p.people, 0) !== local.population) invalid();
     for (const p of pops) {
       if (

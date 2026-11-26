@@ -138,6 +138,11 @@ const baseSiteSchema = z.object({
 });
 const siteSchema = baseSiteSchema.extend({ name: z.string(), buildings: worldCounts, capacity: worldCounts });
 const rawWorld = z.record(z.string(), baseSiteSchema).parse(worldData);
+const openingShipyards = new Map<string, string>();
+for (const [id, site] of Object.entries(rawWorld).sort(([, a], [, b]) => b.population - a.population)) {
+  const owner = sourceStates.get(id)?.countryId;
+  if (site.coastal && owner && !openingShipyards.has(owner)) openingShipyards.set(owner, id);
+}
 const productiveFarmDistricts = new Set([
   "Northern_Anhui", "Sichuan", "Punjab", "Zhejiang", "South_Bengal", "North_Bengal", "Iowa", "Indiana",
   "Flanders", "Venetia", "Lombardy", "Henan", "Jiangsu", "Bihar", "Kiev", "Normandy",
@@ -166,7 +171,7 @@ export const atlas = z.record(z.string(), siteSchema).parse(
     return [id, {
       ...state, name: (stateNames as Record<string, string>)[id],
       capacity: { ...convertCommercialLevels(state.capacity), wood, iron, coal, tools, paper, services, food, fiber,
-        dailyGoods, luxury, steel: 3, arms: 3, ammo: 3 },
+        dailyGoods, luxury, steel: 3, arms: 3, ammo: 3, shipGoods: state.coastal ? 3 : 0 },
       buildings: {
         ...regionalBuildings,
         wood: owned ? Math.min(wood, Math.max(1, Math.ceil(state.population / 24_000))) : 0,
@@ -180,6 +185,7 @@ export const atlas = z.record(z.string(), siteSchema).parse(
         dailyGoods: owned && state.buildings.cloth > 0 && state.population >= 16_000 ? 1 : 0,
         luxury: owned && state.buildings.cloth > 0 && state.population >= 32_000 ? 1 : 0,
         steel: openingSteel,
+        shipGoods: openingShipyards.get(sourceStates.get(id)?.countryId ?? "") === id ? 1 : 0,
         arms: owned ? 1 : 0,
         ammo: owned ? 1 : 0,
       },

@@ -8,7 +8,8 @@ import type { ByGood } from "./industry.ts";
 import type { MarketFill } from "./market.ts";
 import { marketOf } from "./market.ts";
 import { GameRuleError } from "./rules.ts";
-import { connectedRailway, convoyCargoCapacity, portCapacity, seaVoyageCargoCost } from "./transport.ts";
+import { connectedRailway, portCapacity, seaVoyageCargoCost } from "./transport.ts";
+import { effectiveConvoyCapacity } from "./fleet.ts";
 import { unrestEffects } from "./unrest.ts";
 
 const units = z.int().nonnegative();
@@ -195,7 +196,7 @@ export function settleTrade(
       Math.floor(route.toCapacity * rail * targetTransport) - railTo,
     ));
     const usedAtSea = seaCargo.get(importer) ?? 0;
-    const spaceAtSea = state.nations[importer].convoys * convoyCargoCapacity - (militaryCargo.get(importer) ?? 0) - usedAtSea;
+    const spaceAtSea = effectiveConvoyCapacity(state.nations[importer]) - (militaryCargo.get(importer) ?? 0) - usedAtSea;
     const freightFrom = portFreight.get(from) ?? 0, freightTo = portFreight.get(to) ?? 0;
     const transport = mode === "sea" ? Math.min(
       portCapacity(route.fromCapacity, sourceSite) - (militaryPortUse.get(from) ?? 0) - freightFrom,
