@@ -96,7 +96,8 @@ export function influenceBudget(state: GameState, countryId: string) {
     sum + (treaty.a === countryId || treaty.b === countryId ? treatyInfluence[treaty.kind] : 0), 0);
   const offers = (state.treatyOffers ?? []).reduce((sum, offer) => sum + (offer.from === countryId ? treatyInfluence[offer.kind] : 0), 0) +
     (state.aidOffers ?? []).filter((offer) => offer.from === countryId).length;
-  return { capacity, used: treaties + offers, available: Math.max(0, capacity - treaties - offers) };
+  const claims = (state.territorialClaims ?? []).filter((claim) => claim.claimantId === countryId).length;
+  return { capacity, used: treaties + offers + claims, available: Math.max(0, capacity - treaties - offers - claims) };
 }
 
 function opposingParties(state: GameState, a: string, b: string) {

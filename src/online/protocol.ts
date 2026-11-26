@@ -25,6 +25,7 @@ const id = z.string().regex(/^[\w-]{1,64}$/);
 const seq = z.int().nonnegative();
 const commandSchema = z.discriminatedUnion("type", [
   z.strictObject({ type: z.literal("claimState"), stateId: id }),
+  z.strictObject({ type: z.literal(["declareTerritorialClaim", "renounceTerritorialClaim"]), stateId: id, countryId: id }),
   z.strictObject({ type: z.literal("setLocalGovernance"), countryId: id, stateId: id, mode: z.enum(governanceModes) }),
   z.strictObject({ type: z.literal(["startIntegration", "cancelIntegration"]), countryId: id, stateId: id }),
   z.strictObject({ type: z.literal("negotiateLocalUnrest"), countryId: id, stateId: id }),

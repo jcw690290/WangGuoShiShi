@@ -14,7 +14,7 @@ import type { SaveSlot, SaveSummary } from "./game/storage.ts";
 import { difficultyLevels, difficultyNames, difficultySchema } from "./game/settings.ts";
 import type { Difficulty } from "./game/settings.ts";
 import { canSettleVictory, completeGuideStep, defaultEndYear, endYearSchema } from "./game/campaign.ts";
-import { CLAIM_COST, claimError } from "./game/territory.ts";
+import { CLAIM_COST, claimError, territorialClaimError } from "./game/territory.ts";
 import { StateMap } from "./map/StateMap.tsx";
 import { capitals } from "./map/capitals.ts";
 import { countryColor } from "./map/cartography.ts";
@@ -95,6 +95,12 @@ export function App({ scenario, geometry, initialSaves, initialSaveNotice }: {
       ? (Object.keys(game.ownerByStateId).find((id) => game.ownerByStateId[id] === player) ?? null)
       : null);
   const owner = site ? game.ownerByStateId[site] : null;
+  const claims = site ? (game.territorialClaims ?? []).filter((claim) => claim.stateId === site) : [];
+  const hasClaim = claims.some((claim) => claim.claimantId === player);
+  const declaration = player && site && owner !== player ? {
+    type: hasClaim ? "renounceTerritorialClaim" as const : "declareTerritorialClaim" as const,
+    countryId: player, stateId: site,
+  } : null;
   const countryNames = useMemo(() => Object.fromEntries(Object.entries(scenario.countries)
     .map(([id, country]) => [id, countryDisplayName(country, game.nations[id])])), [scenario.countries, game.nations]);
   const occupation = game.occupation;
@@ -540,6 +546,21 @@ export function App({ scenario, geometry, initialSaves, initialSaveNotice }: {
                     {!owner && " · 占领后加入本国市场"}
                   </p>
                 )}
+                {claims.map((claim) => (
+                  <p key={claim.claimantId}>
+                    {countryNames[claim.claimantId]}的外交宣称
+                    {claim.recognizedBy.length > 0 && ` · 承认方 ${claim.recognizedBy.map((id) => countryNames[id]).join("、")}`}
+                  </p>
+                ))}
+                {declaration && (() => {
+                  const reason = territorialClaimError(scenario, game, declaration);
+                  return (
+                    <button className="build" disabled={locked || finished || reason !== undefined} title={reason}
+                      onClick={() => send(declaration)}>
+                      {hasClaim ? "撤回本国领土宣称" : "登记领土宣称 · 1 外交影响力"}
+                    </button>
+                  );
+                })()}
                 {site && !owner && (
                   <div className="claim-territory">
                     <p>无主领土可直接占领，无需宣战。一次支付 {silver(CLAIM_COST)}，立即获得州归属、人口和建设权限。</p>
