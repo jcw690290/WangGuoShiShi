@@ -8,13 +8,13 @@ import { count, silver } from "./format.ts";
 import { projectEconomy } from "./game/economy.ts";
 import { campaignEndDate, createGame, dispatch, elapsedTicks, getGameDate, isScenarioFinished, spanDays, TICKS_PER_DAY } from "./game/engine.ts";
 import type { GameCommand, Span } from "./game/engine.ts";
-import { planWar } from "./game/diplomacy.ts";
+import { planWar, settlementChallengeError } from "./game/diplomacy.ts";
 import { archiveAchievements, archiveEnding, autoSaveSlot, autoSaveSlots, listGameSaves, loadGame, loadRecentGame, manualSaveSlots, saveGame, saveSlotSchema } from "./game/storage.ts";
 import type { SaveSlot, SaveSummary } from "./game/storage.ts";
 import { difficultyLevels, difficultyNames, difficultySchema } from "./game/settings.ts";
 import type { Difficulty } from "./game/settings.ts";
 import { canSettleVictory, completeGuideStep, defaultEndYear, endYearSchema } from "./game/campaign.ts";
-import { CLAIM_COST, claimError, settlementAt, territorialClaimError, territoryType } from "./game/territory.ts";
+import { CLAIM_COST, claimError, settlementAt, settlementContested, territorialClaimError, territoryType } from "./game/territory.ts";
 import { StateMap } from "./map/StateMap.tsx";
 import { capitals } from "./map/capitals.ts";
 import { countryColor } from "./map/cartography.ts";
@@ -101,6 +101,8 @@ export function App({ scenario, geometry, initialSaves, initialSaveNotice }: {
   const settlementBlock = site && player && !owner && !settlement ? claimError(scenario, game, site, player) : undefined;
   const claims = site ? (game.territorialClaims ?? []).filter((claim) => claim.stateId === site) : [];
   const hasClaim = claims.some((claim) => claim.claimantId === player);
+  const challenge = player && site && hasClaim && settlement && settlement.countryId !== player ?
+    { type: "challengeTerritorialSettlement" as const, countryId: player, stateId: site } : null;
   const declaration = player && site && owner !== player ? {
     type: hasClaim ? "renounceTerritorialClaim" as const : "declareTerritorialClaim" as const,
     countryId: player, stateId: site,
@@ -571,10 +573,16 @@ export function App({ scenario, geometry, initialSaves, initialSaveNotice }: {
                         行政来源 {atlas[settlement.anchorId].name} · 进度 {Math.floor(settlement.progress * 100)}%</p>
                       {game.lastEconomy && <p>上周来源州行政覆盖 {Math.round((game.lastEconomy.states[settlement.anchorId].office?.coverage ?? 0) * 100)}%</p>}
                       <progress aria-label="领土项目进度" max={1} value={settlement.progress} />
-                      {player === settlement.countryId && <button className="build" disabled={locked || finished}
+                      {settlementContested(game, site) && <p role="status">项目因地区博弈暂停。</p>}
+                      {player === settlement.countryId && <button className="build" disabled={locked || finished || settlementContested(game, site)}
                         onClick={() => send({ type: "cancelTerritorialSettlement", countryId: player, stateId: site })}>
                         终止 {atlas[site].name} 项目
                       </button>}
+                      {challenge && (() => {
+                        const reason = settlementChallengeError(scenario, game, challenge.countryId, challenge.stateId);
+                        return <button className="build" disabled={locked || finished || reason !== undefined} title={reason}
+                          onClick={() => send(challenge)}>对领土项目提出异议</button>;
+                      })()}
                     </> : player && <>
                       <button className="build" disabled={locked || finished || settlementBlock !== undefined} title={settlementBlock}
                         onClick={() => send({ type: "claimState", countryId: player, stateId: site })}>

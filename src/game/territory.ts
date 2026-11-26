@@ -28,6 +28,8 @@ export type TerritorialSettlementCommand =
   | { type: "cancelTerritorialSettlement"; stateId: string; countryId: string };
 export const settlementAt = (state: GameState, stateId: string) =>
   state.territorialSettlements?.find((project) => project.stateId === stateId);
+export const settlementContested = (state: GameState, stateId: string) =>
+  state.borderDispute?.settlementStateId === stateId && state.borderDispute.phase !== "resolved";
 export const territorialClaimSchema = z.object({
   stateId: z.string(), claimantId: z.string(), declaredDay: z.int().nonnegative(), recognizedBy: z.array(z.string()),
 }).refine((claim) => !claim.recognizedBy.includes(claim.claimantId) &&
@@ -46,8 +48,9 @@ export function territorialClaimError(scenario: Scenario, state: GameState, cmd:
   if (cmd.type === "renounceTerritorialClaim") {
     if (!claim) return "本国没有登记该宣称";
     const dispute = state.borderDispute;
-    if (dispute && dispute.phase !== "resolved" && dispute.claimantId === countryId && dispute.targetStateId === stateId &&
-        dispute.goals.includes("recognition")) return "进行中的承认条款需要保留该宣称";
+    if (dispute && dispute.phase !== "resolved" && dispute.claimantId === countryId &&
+        (dispute.settlementStateId === stateId || (dispute.targetStateId === stateId && dispute.goals.includes("recognition"))))
+      return "进行中的地区博弈需要保留该宣称";
     return;
   }
   const site = scenario.states[stateId];
@@ -130,6 +133,7 @@ export function applyTerritorialSettlement(scenario: Scenario, state: GameState,
   if (cmd.type === "cancelTerritorialSettlement") {
     const project = settlementAt(state, stateId);
     if (!project || project.countryId !== countryId) throw new GameRuleError("没有可取消的本国领土项目");
+    if (settlementContested(state, stateId)) throw new GameRuleError("请在外交博弈或和约中处理这项异议");
     return { ...state, territorialSettlements: state.territorialSettlements!.filter((item) => item !== project) };
   }
   const error = claimError(scenario, state, stateId, countryId);
@@ -198,7 +202,7 @@ export function advanceTerritorialSettlements(scenario: Scenario, state: GameSta
     const { countryId, anchorId, stateId, mode, sea, startedDay } = project;
     const laws = state.nations[countryId].laws;
     if (state.ownerByStateId[anchorId] !== countryId || state.occupation?.stateId === anchorId ||
-        !governanceModeAllowed(mode, laws) || state.elapsedDays === startedDay) {
+        !governanceModeAllowed(mode, laws) || state.elapsedDays === startedDay || settlementContested(state, stateId)) {
       uncompleted.push(project);
       continue;
     }

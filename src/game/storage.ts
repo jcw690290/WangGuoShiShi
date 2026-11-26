@@ -22,7 +22,7 @@ import { industryOwnershipSchema, ownershipAmountsSchema, ownershipKinds, owners
 import { aidOfferSchema, foreignObligationSchema, foreignPairKey, foreignRelationSchema, foreignTreatySchema, treatyOfferSchema } from "./foreign-relations.ts";
 import { barracksCapacity, battalionSize, battalionTrainingDays, equipmentDetails } from "./military.ts";
 import { injuredPersonnel, replacementTrainingDays } from "./military-health.ts";
-import { territorialClaim, territorialClaimSchema, territorialSettlementSchema } from "./territory.ts";
+import { settlementAt, territorialClaim, territorialClaimSchema, territorialSettlementSchema } from "./territory.ts";
 import { seaVoyageCargoCost } from "./transport.ts";
 import { buildingCapacity, militaryProcurementCost, projects, unusedPrepaidConstruction } from "./economy.ts";
 import { constructionMaintenanceSchema, constructionReportSchema, constructionStockSchema, constructionSpending, constructionWage } from "./construction.ts";
@@ -710,6 +710,14 @@ export function parseSave(scenario: Scenario, save: unknown): GameState {
     )
       invalid();
     const executed = d.agreedPeace?.goals ?? d.goals;
+    if (d.settlementStateId !== undefined) {
+      if (!Object.hasOwn(scenario.states, d.settlementStateId) || d.goals[0] !== "haltSettlement") invalid();
+      if (d.phase !== "resolved") {
+        const project = settlementAt(state, d.settlementStateId);
+        if (!project || project.countryId !== d.defenderId || project.anchorId !== d.targetStateId ||
+            !territorialClaim(state, d.claimantId, d.settlementStateId)) invalid();
+      }
+    } else if (d.goals.includes("haltSettlement")) invalid();
     if (d.goals.includes("recognition")) {
       if (d.goals.includes("cession") || d.goals.includes("annex")) invalid();
       const claim = territorialClaim(state, d.claimantId, d.targetStateId);
