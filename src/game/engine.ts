@@ -38,6 +38,7 @@ import { applyTradePolicy, tariffBands, tariffRate, tariffRates } from "./trade-
 import type { TradePolicyCommand } from "./trade-policy.ts";
 import { civicLawOf } from "./civic-policy.ts";
 import { powerDistribution } from "./constitution.ts";
+import { projectOwnership } from "./ownership.ts";
 export { DAY_MS, elapsedTicks, TICKS_PER_DAY } from "./time.ts";
 
 export interface GameState {
@@ -414,7 +415,8 @@ function applyCommand(
       const error = constructionError(scenario, state, id, stateId, good, privateBuild);
       if (error) throw new GameRuleError(error);
       const cost = projectDeposit(good), { weeks } = projects[good],
-        job = { stateId, good, weeksLeft: weeks };
+        job = { stateId, good, weeksLeft: weeks,
+          ...(isGood(good) ? { ownership: projectOwnership(good, state.nations[id].laws, privateBuild === true) } : {}) };
       if (privateBuild && isGood(good)) {
         const n = state.nations[id];
         return {

@@ -17,6 +17,7 @@ import { laborLawCategory, startingLaborLaws } from "./labor.ts";
 import { isTaxLaw, taxLaws, taxReceiptSchema } from "./taxation.ts";
 import { isTradeLaw, tradeLaws } from "./trade-policy.ts";
 import { startingStateForm } from "./constitution.ts";
+import { industryOwnershipSchema, ownershipAmountsSchema, ownershipKinds, ownershipSchema } from "./ownership.ts";
 import { buildingCapacity, militaryProcurementCost, projects, unusedPrepaidConstruction } from "./economy.ts";
 import { constructionMaintenanceSchema, constructionReportSchema, constructionStockSchema, constructionSpending, constructionWage } from "./construction.ts";
 import { nationSchema, siteSocialSchema, projectTypes } from "./society.ts";
@@ -239,6 +240,7 @@ const countryReport = z.object({
   constructionMaintenance: constructionMaintenanceSchema.optional(),
   tribute: uint,
   upkeep: uint,
+  publicIndustryIncome: uint.optional(),
   interestPaid: uint.optional(),
   universityWages: uint.optional(),
   administrationWages: uint.optional(),
@@ -293,6 +295,7 @@ const siteReport = z.object({
   access: fraction,
   localPrices: goodsNumbers,
   dividends: uint,
+  ownershipIncome: ownershipAmountsSchema.optional(),
   investment: uint,
 }).refine((site) => site.power === undefined ||
   site.power.delivered <= Math.min(site.industries.electricity.output, site.power.requested)
@@ -315,11 +318,13 @@ export function parseSave(scenario: Scenario, save: unknown): GameState {
     countries = z.enum(Object.keys(scenario.countries));
   // A valid map ID is optional until claimed; enum-keyed records require every ID.
   const activeSite = z.string().refine((id) => Object.hasOwn(scenario.states, id));
-  const project = z.object({ stateId: sites, good: z.enum(projectTypes), weeksLeft: z.number().positive(), levels: uint.positive().optional() });
+  const project = z.object({ stateId: sites, good: z.enum(projectTypes), weeksLeft: z.number().positive(),
+    levels: uint.positive().optional(), ownership: ownershipSchema.optional() });
   const lastPopulation = z.object({ day: uint.positive(), changes: z.record(activeSite, cash) }).nullable();
   const stateEconomy = z.object({ population: z.int().positive(), buildings: goodsNumbers, localQuotes: quotes.optional(),
     industrial: industrialAccountSchema.optional(), basicBudget: uint, discretionaryBudget: uint.optional(), cropland: uint.optional(),
     constructionStock: constructionStockSchema.optional(), localTreasury: uint.optional(),
+    ownership: industryOwnershipSchema.optional(),
     commercialRecipes: z.literal(true).optional(),
     inheritedArmamentCapacity: z.object({ arms: uint.optional(), ammo: uint.optional() }).optional() });
   const legacyBudgets = z.record(activeSite, stateEconomy.extend({ basicBudget: uint.optional() })
@@ -424,6 +429,13 @@ export function parseSave(scenario: Scenario, save: unknown): GameState {
     Object.values(scenario.states).some((s) => s.ownerId !== null && !Object.hasOwn(state.ownerByStateId, s.id))
   ) invalid();
   if (data.version >= 9 && owned.some((id) => state.stateEconomies[id].commercialRecipes !== true)) invalid();
+  for (const id of owned) {
+    const { ownership, buildings } = state.stateEconomies[id];
+    if (ownership && goods.some((good) => {
+      const levels = ownership[good];
+      return levels && ownershipKinds.reduce((total, kind) => total + levels[kind], 0) !== buildings[good];
+    })) invalid();
+  }
   let migratedArmaments = false;
   if (data.version !== saveVersion && data.version !== 11 && data.version !== 10) for (const [id, site] of Object.entries(data.state.societies)) {
     if (site.arsenal === undefined && site.ammunition === undefined) continue;
@@ -509,6 +521,7 @@ export function parseSave(scenario: Scenario, save: unknown): GameState {
     const queued = [...state.countryEconomies[id].queue, ...n.privateQueue];
     for (const p of queued)
       if (state.ownerByStateId[p.stateId] !== id || p.weeksLeft > projects[p.good].weeks ||
+        (p.ownership !== undefined && !isGood(p.good)) ||
         ((p.good === "port" || p.good === "shipGoods") && !scenario.states[p.stateId].coastal) ||
         (p.levels !== undefined && (!isGood(p.good) || isIndustrialGood(p.good) || p.levels !== commercialLevels[p.good]))) invalid();
     if (data.version !== saveVersion && header.data.weeklyConstruction !== true) {

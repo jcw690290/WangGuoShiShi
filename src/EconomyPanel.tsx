@@ -23,6 +23,7 @@ import { bondedRuralWorkers, ruralPopulation } from "./game/labor.ts";
 import { exciseGoods, taxBandNames, taxBands, taxPolicy } from "./game/taxation.ts";
 import { tariffBandNames, tariffBands, tariffRate, tariffRates, tradeLaw } from "./game/trade-policy.ts";
 import { authorityBudget, countryDisplayName, localNegotiationAuthority } from "./game/constitution.ts";
+import { ownedLevels, ownershipKinds, ownershipNames } from "./game/ownership.ts";
 
 function cultureName(scenario: Scenario, id: string) {
   const separator = id.indexOf("-");
@@ -165,6 +166,7 @@ function StateIndustry({
         {goods.map((good) => {
           const industry = industries[good];
           const jobs = activity[good];
+          const owned = ownedLevels(good, local.buildings[good], local.ownership);
           const problem = isOwnState ? constructionError(scenario, game, playerId, stateId, good) : undefined;
           return (
             <li key={good}>
@@ -172,6 +174,7 @@ function StateIndustry({
                 <strong>{industry.name}</strong>{" "}
                 <span>
                   {local.buildings[good]} / {buildingCapacity(site, local, good)} 级
+                  {ownershipKinds.filter((kind) => owned[kind] > 0).map((kind) => ` · ${ownershipNames[kind]} ${owned[kind]}`).join("")}
                 </span>
                 <p>
                   {jobs.electric && "电动生产 · "}就业 {count(jobs.employed)} 人 · 周产出 {count(jobs.output)} · 本地价{" "}
@@ -256,6 +259,8 @@ function StateIndustry({
         {snapshot.industrial && <details>
           <summary>工业库存与周转资金</summary>
           <p>周转金 {silver(snapshot.industrial.capital)} · 销售 {silver(snapshot.industrial.sales)} · 采购 {silver(snapshot.industrial.spent)} · 可分配结余 {silver(snapshot.industrial.distributed)}</p>
+          {snapshot.ownershipIncome && <p>收益实付 · {ownershipKinds.map((kind) =>
+            `${ownershipNames[kind]} ${silver(snapshot.ownershipIncome![kind])}`).join(" · ")}</p>}
           <div className="economy-table">
             <table>
               <thead><tr><th scope="col">商品</th><th scope="col">消耗</th><th scope="col">采购</th><th scope="col">余量</th></tr></thead>
@@ -458,6 +463,10 @@ export function EconomyPanel({ scenario, game, playerId, selectedId, report, bus
               <dt>周投资注入</dt>
               <dd>{silver(report.countries[marketId].investment)}</dd>
             </div>
+            {countryReport.publicIndustryIncome !== undefined && <div>
+              <dt>国有收益入库</dt>
+              <dd>{silver(countryReport.publicIndustryIncome)}</dd>
+            </div>}
             <div>
               <dt>周必要公共支出</dt>
               <dd>{silver(upkeep)}</dd>

@@ -8,6 +8,7 @@ import { isTradeLaw } from "./trade-policy.ts";
 import { civicLawCategory, civicLawOf, civicPolicy } from "./civic-policy.ts";
 import { constitutionLawCategory, representationLaw, stateForm } from "./constitution.ts";
 import { governanceLaw, isGovernanceLaw } from "./governance.ts";
+import { economicLaw, isEconomicLaw } from "./ownership.ts";
 import { groups, influence, literacyOf, reformConditions, reformWork, techs, unrestOf } from "./society.ts";
 import type { Group, Law, Nation, SiteSocial, Tech } from "./society.ts";
 
@@ -83,6 +84,8 @@ export const lawEffect: Record<Law, string> = {
   工资税改革: "沿用 14% 工资税与 5% 经营所得税",
   干预主义: "私人建造份额 50%，基础再投资比例 25%",
   自由放任: "私人建造份额 75%，基础再投资比例 40%",
+  国家主导: "投资池建造份额 20%，私人和土地所有收益基础再投资 10%",
+  合作经济: "投资池建造份额 50%，其新项目为合作所有，合作收益再投资 15%",
   平等公民权: "接纳所有文化",
   信仰自由: "接纳所有信仰",
   普选制: "上、中、下层政治权重为 1.5、1.2、1，权威力减少 20",
@@ -135,7 +138,7 @@ export const lawEffect: Record<Law, string> = {
 function exclusiveLawCategory(law: Law) {
   return institutionLawDetails(law)?.kind ?? laborLawCategory(law) ?? civicLawCategory(law) ?? constitutionLawCategory(law) ??
     (isTaxLaw(law) ? "tax" : isTradeLaw(law) ? "trade" : isGovernanceLaw(law) ? "governance" :
-      law === "自由放任" || law === "干预主义" ? "economy" :
+      isEconomicLaw(law) ? "economy" :
       law === "小农自耕" || law === "地主租佃" ? "land" : undefined);
 }
 export type PoliticsCommand =
@@ -169,6 +172,7 @@ export function politicsError(state: GameState, command: PoliticsCommand) {
     if (nation.reform !== null || nation.laws.includes(command.law) ||
         currentConstitution === command.law ||
         (isGovernanceLaw(command.law) && governanceLaw(nation.laws) === command.law) ||
+        (isEconomicLaw(command.law) && economicLaw(nation.laws) === command.law) ||
         (civicCategory && civicLawOf(nation.laws, civicCategory) === command.law)) return "已有议案或该法已生效";
     const institution = institutionLawDetails(command.law);
     const modernTax = isTaxLaw(command.law) && command.law !== "传统土地身份税" && command.law !== "工资税改革";
