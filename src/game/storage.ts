@@ -5,7 +5,8 @@ import { disputeSchema, participants } from "./diplomacy.ts";
 import { createGame, DAY_MS, elapsedTicks, getGameDate, isPopulationMonth, TICKS_PER_DAY } from "./engine.ts";
 import type { GameState } from "./engine.ts";
 import { byIndustrialGood, commercialLevels, goods, industries, isGood, isIndustrialGood, isLocalGood } from "./industry.ts";
-import { initialIndustrialAccount, industrialAccountSchema, industrialReportSchema } from "./industrial.ts";
+import { initialIndustrialAccount, industrialAccountSchema, industrialReportSchema,
+  industrySubsidyLimit, industrySubsidyReportSchema } from "./industrial.ts";
 import { officeReportSchema } from "./administration.ts";
 import { byInstitution, institutionLawDetails, institutionLawKinds, institutionLawOptions,
   institutionReportSchema, welfareReliefSchema } from "./institutions.ts";
@@ -241,6 +242,7 @@ const countryReport = z.object({
   tribute: uint,
   upkeep: uint,
   publicIndustryIncome: uint.optional(),
+  industrySubsidiesPaid: uint.optional(),
   interestPaid: uint.optional(),
   universityWages: uint.optional(),
   administrationWages: uint.optional(),
@@ -274,6 +276,7 @@ const siteReport = z.object({
   construction: constructionReportSchema.optional(),
   constructionMaintenance: constructionMaintenanceSchema.optional(),
   industrial: industrialReportSchema.optional(),
+  industrySubsidy: industrySubsidyReportSchema.optional(),
   office: officeReportSchema.optional(),
   localFiscal: z.object({ balance: uint, retainedTax: uint, publicSpending: uint }).optional(),
   healthcare: institutionReportSchema.healthcare.optional(),
@@ -337,6 +340,7 @@ export function parseSave(scenario: Scenario, save: unknown): GameState {
     stateEconomies: z.record(activeSite, stateEconomy),
     countryEconomies: z.record(countries, z.object({
       treasury: cash, queue: z.array(project), referenceQuotes: quotes.optional(), fiscal: fiscalAccountSchema.optional(),
+      industrySubsidies: z.record(activeSite, industrySubsidyLimit.positive()).optional(),
     })),
     societies: z.record(activeSite, siteSocialSchema),
     nations: z.record(countries, nationSchema),
@@ -494,6 +498,9 @@ export function parseSave(scenario: Scenario, save: unknown): GameState {
     for (const kind of institutionLawKinds) levels[kind] = Math.max(levels[kind], state.societies[stateId][kind]);
   }
   for (const [id, n] of Object.entries(state.nations)) {
+    const subsidies = state.countryEconomies[id].industrySubsidies;
+    if (subsidies && Object.keys(subsidies).some((stateId) => state.ownerByStateId[stateId] !== id ||
+      state.stateEconomies[stateId].industrial === undefined)) invalid();
     n.startingStateForm ??= startingStateForm(id);
     if (!n.laws.some(isTaxLaw)) n.laws.push(taxLaws[0]);
     if (!n.laws.some(isTradeLaw)) n.laws.push(tradeLaws[0]);

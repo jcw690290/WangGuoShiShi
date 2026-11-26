@@ -39,6 +39,7 @@ import type { TradePolicyCommand } from "./trade-policy.ts";
 import { civicLawOf } from "./civic-policy.ts";
 import { powerDistribution } from "./constitution.ts";
 import { projectOwnership } from "./ownership.ts";
+import { industrySubsidyLimit } from "./industrial.ts";
 export { DAY_MS, elapsedTicks, TICKS_PER_DAY } from "./time.ts";
 
 export interface GameState {
@@ -76,6 +77,7 @@ export type GameCommand =
   | { type: (typeof institutionCommands)[Institution]; countryId: string; stateId: string; level: number }
   | { type: "setTaxBand"; countryId: string; band: Nation["taxBand"] }
   | { type: "setExciseGoods"; countryId: string; goods: Nation["exciseGoods"] }
+  | { type: "setIndustrySubsidy"; countryId: string; stateId: string; limit: number }
   | { type: "advanceTick" | "advanceWeek" | "advanceDay" | "advanceHalfYear" }
   | PoliticsCommand
   | GovernanceCommand
@@ -397,6 +399,18 @@ function applyCommand(
     }
     case "claimState":
       return applyClaim(scenario, state, cmd.stateId);
+    case "setIndustrySubsidy": {
+      const { countryId, stateId, limit } = cmd;
+      if (state.ownerByStateId[stateId] !== countryId) throw new GameRuleError("只能补贴本国州的产业");
+      if (!industrySubsidyLimit.safeParse(limit).success) throw new GameRuleError("产业补贴上限须为非负整数");
+      if (limit > 0 && (!state.stateEconomies[stateId].industrial || state.occupation?.stateId === stateId))
+        throw new GameRuleError("现有产业可在本国实际控制时申请补贴");
+      const country = state.countryEconomies[countryId];
+      const industrySubsidies = { ...country.industrySubsidies };
+      if (limit > 0) industrySubsidies[stateId] = limit;
+      else delete industrySubsidies[stateId];
+      return { ...state, countryEconomies: { ...state.countryEconomies, [countryId]: { ...country, industrySubsidies } } };
+    }
     case "setLocalGovernance":
     case "startIntegration":
     case "cancelIntegration":

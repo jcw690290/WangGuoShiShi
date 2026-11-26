@@ -3,6 +3,14 @@ import { byGood, byIndustrialGood, goods, industrialGoods, industries } from "./
 import type { ByIndustrialGood, Good, ScenarioLevels } from "./industry.ts";
 import { baseOrdinaryWage } from "./labor.ts";
 
+export const industrySubsidyLimit = z.int().nonnegative();
+export const industrySubsidyReportSchema = z.object({
+  limit: industrySubsidyLimit.positive(),
+  shortfall: industrySubsidyLimit,
+  paid: industrySubsidyLimit,
+}).refine(({ limit, shortfall, paid }) => paid <= Math.min(limit, shortfall));
+export type IndustrySubsidyReport = z.infer<typeof industrySubsidyReportSchema>;
+
 export const inputs = {
   grain: { tools: 1 },
   cloth: { fiber: 70, tools: 1 },

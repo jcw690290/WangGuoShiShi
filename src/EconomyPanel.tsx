@@ -75,6 +75,7 @@ function StateIndustry({
     snapshot = report.states[stateId];
   const governance = governanceOf(society);
   const nation = game.nations[owner];
+  const subsidyLimit = game.countryEconomies[owner].industrySubsidies?.[stateId] ?? 0;
   const civic = civicPolicy(nation.laws);
   const boundWorkers = bondedRuralWorkers(ruralPopulation(society.pops), society.laborParticipation, nation.laws);
   const order = nation.fleet.order;
@@ -259,6 +260,18 @@ function StateIndustry({
         {snapshot.industrial && <details>
           <summary>工业库存与周转资金</summary>
           <p>周转金 {silver(snapshot.industrial.capital)} · 销售 {silver(snapshot.industrial.sales)} · 采购 {silver(snapshot.industrial.spent)} · 可分配结余 {silver(snapshot.industrial.distributed)}</p>
+          {snapshot.industrySubsidy && <p>周转金缺口 {silver(snapshot.industrySubsidy.shortfall)} · 实付产业补贴 {silver(snapshot.industrySubsidy.paid)}</p>}
+          {isOwnState && <form className="diplomacy-actions" onSubmit={(event) => {
+            event.preventDefault();
+            const limit = Number(new FormData(event.currentTarget).get("limit"));
+            send({ type: "setIndustrySubsidy", countryId: playerId, stateId, limit });
+          }}>
+            <label>每周补贴上限
+              <input key={`${stateId}:${subsidyLimit}`} name="limit" type="number" min="0" step="1" defaultValue={subsidyLimit} required />
+            </label>
+            <button className="build" type="submit" disabled={busy}>保存补贴上限</button>
+            <small>{occupied ? "军事占领期间暂停补贴，可填 0 撤销。" : "填 0 可撤销。补贴在必要财政支出后支付。"}</small>
+          </form>}
           {snapshot.ownershipIncome && <p>收益实付 · {ownershipKinds.map((kind) =>
             `${ownershipNames[kind]} ${silver(snapshot.ownershipIncome![kind])}`).join(" · ")}</p>}
           <div className="economy-table">
@@ -466,6 +479,10 @@ export function EconomyPanel({ scenario, game, playerId, selectedId, report, bus
             {countryReport.publicIndustryIncome !== undefined && <div>
               <dt>国有收益入库</dt>
               <dd>{silver(countryReport.publicIndustryIncome)}</dd>
+            </div>}
+            {(countryReport.industrySubsidiesPaid ?? 0) > 0 && <div>
+              <dt>产业补贴实付</dt>
+              <dd>{silver(countryReport.industrySubsidiesPaid!)}</dd>
             </div>}
             <div>
               <dt>周必要公共支出</dt>
