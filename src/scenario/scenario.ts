@@ -21,6 +21,7 @@ interface ScenarioState {
   name: string;
   label: [number, number];
   ownerId: string | null;
+  startingOffices?: number;
   population: number;
   neighbors: string[];
   terrain?: "平原" | "森林" | "山地";
@@ -203,7 +204,7 @@ export const scenario: Scenario = {
     Object.entries(atlas).map(([id, site]) => {
       const source = sourceStates.get(id);
       if (source && !countryIds.has(source.countryId)) throw new Error("州归属无效：" + id);
-      return [id, { ...site, id, ownerId: source ? source.countryId : null }];
+      return [id, { ...site, id, ownerId: source ? source.countryId : null, startingOffices: source ? 1 : 0 }];
     }),
   ),
 };

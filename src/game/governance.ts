@@ -8,11 +8,11 @@ import type { Difficulty } from "./settings.ts";
 export const governanceModes = ["PROVINCE", "FRONTIER", "COLONIAL", "INDIRECT"] as const;
 export type GovernanceMode = (typeof governanceModes)[number];
 export const governanceRules = {
-  PROVINCE: { name: "正式州", centralTax: 100, militaryShare: 1 },
-  FRONTIER: { name: "边疆辖区", centralTax: 80, militaryShare: 1 },
-  COLONIAL: { name: "殖民辖区", centralTax: 65, militaryShare: 0.75 },
-  INDIRECT: { name: "间接辖区", centralTax: 30, militaryShare: 0.25 },
-} satisfies Record<GovernanceMode, { name: string; centralTax: number; militaryShare: number }>;
+  PROVINCE: { name: "正式州", centralTax: 100, militaryShare: 1, administrationCost: 1 },
+  FRONTIER: { name: "边疆辖区", centralTax: 80, militaryShare: 1, administrationCost: 1.2 },
+  COLONIAL: { name: "殖民辖区", centralTax: 65, militaryShare: 0.75, administrationCost: 1.1 },
+  INDIRECT: { name: "间接辖区", centralTax: 30, militaryShare: 0.25, administrationCost: 0.6 },
+} satisfies Record<GovernanceMode, { name: string; centralTax: number; militaryShare: number; administrationCost: number }>;
 
 export const integrationDuration = 60;
 export const administrationWage = 150;
@@ -34,8 +34,9 @@ export const governanceOf = (site: SiteSocial) => site.governance ?? initialProv
 const administrationDemand: Record<Difficulty, number> = {
   relaxed: 0.8, standard: 1, challenging: 1.15, extreme: 1.3,
 };
+export const administrationDemandMultiplier = (difficulty: Difficulty) => administrationDemand[difficulty];
 export const integrationStaffNeeded = (population: number, difficulty: Difficulty) =>
-  Math.ceil((20 + population / 50_000) * administrationDemand[difficulty]);
+  Math.ceil((20 + population / 50_000) * administrationDemandMultiplier(difficulty));
 
 export type GovernanceCommand =
   | { type: "setLocalGovernance"; countryId: string; stateId: string; mode: GovernanceMode }
