@@ -7,7 +7,8 @@ import type { GameState } from "./engine.ts";
 import { byIndustrialGood, commercialLevels, goods, industries, isGood, isIndustrialGood, isLocalGood } from "./industry.ts";
 import { initialIndustrialAccount, industrialAccountSchema, industrialReportSchema } from "./industrial.ts";
 import { officeReportSchema } from "./administration.ts";
-import { institutionReportSchema, welfareReliefSchema } from "./institutions.ts";
+import { byInstitution, institutionLawDetails, institutionLawKinds, institutionLawOptions,
+  institutionReportSchema, welfareReliefSchema } from "./institutions.ts";
 import { basicPurchasesSchema, extrasReportSchema, openingBasicBudget, substituteOrdersSchema } from "./households.ts";
 import { reservedCropland, subsistenceReportSchema } from "./subsistence.ts";
 import { migrateCommercialProduction } from "./commercialMigration.ts";
@@ -466,7 +467,17 @@ export function parseSave(scenario: Scenario, save: unknown): GameState {
   }
   if (state.lastEconomy?.trade?.some(({ from, to, mode, good }) => isLocalGood(good) || !routeTransport(scenario, from, to, mode) ||
       !Object.hasOwn(state.ownerByStateId, from) || !Object.hasOwn(state.ownerByStateId, to))) invalid();
+  const configuredLevels = Object.fromEntries(Object.keys(state.nations).map((id) => [id, byInstitution(() => 1)]));
+  for (const stateId of owned) {
+    const levels = configuredLevels[state.ownerByStateId[stateId]];
+    for (const kind of institutionLawKinds) levels[kind] = Math.max(levels[kind], state.societies[stateId][kind]);
+  }
   for (const [id, n] of Object.entries(state.nations)) {
+    // Saves made before institution laws preserve their configured service levels.
+    for (const kind of institutionLawKinds) {
+      if (!n.laws.some((law) => institutionLawDetails(law)?.kind === kind))
+        n.laws.push(institutionLawOptions[kind][configuredLevels[id][kind] - 1]);
+    }
     const fiscal = state.countryEconomies[id].fiscal;
     if (fiscal && fiscal.week.day > state.elapsedDays) invalid();
     if (
