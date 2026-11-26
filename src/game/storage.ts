@@ -6,7 +6,7 @@ import { createGame, DAY_MS, elapsedTicks, getGameDate, isPopulationMonth, TICKS
 import type { GameState } from "./engine.ts";
 import { byIndustrialGood, commercialLevels, goods, industries, isGood, isIndustrialGood, isLocalGood } from "./industry.ts";
 import { initialIndustrialAccount, industrialAccountSchema, industrialReportSchema,
-  industrySubsidyLimit, industrySubsidyReportSchema } from "./industrial.ts";
+  industrialRetrofits, industrySubsidyLimit, industrySubsidyReportSchema, isIndustrialRetrofit } from "./industrial.ts";
 import { officeReportSchema } from "./administration.ts";
 import { byInstitution, institutionLawDetails, institutionLawKinds, institutionLawOptions,
   institutionReportSchema, welfareReliefSchema } from "./institutions.ts";
@@ -632,11 +632,20 @@ export function parseSave(baseScenario: Scenario, save: unknown): GameState {
       invalid();
     if (Boolean(n.overlord) !== Boolean(n.subjectType)) invalid();
     const queued = [...state.countryEconomies[id].queue, ...n.privateQueue];
-    for (const p of queued)
+    const retrofits = new Set<string>();
+    for (const p of queued) {
       if (state.ownerByStateId[p.stateId] !== id || p.weeksLeft > projects[p.good].weeks ||
         (p.ownership !== undefined && !isGood(p.good)) ||
         ((p.good === "port" || p.good === "shipGoods") && !scenario.states[p.stateId].coastal) ||
         (p.levels !== undefined && (!isGood(p.good) || isIndustrialGood(p.good) || p.levels !== commercialLevels[p.good]))) invalid();
+      if (isIndustrialRetrofit(p.good)) {
+        const key = JSON.stringify([p.stateId, p.good]);
+        const { good, technology } = industrialRetrofits[p.good];
+        if (retrofits.has(key) || state.societies[p.stateId][p.good] !== 0 ||
+            state.stateEconomies[p.stateId].buildings[good] === 0 || n.knowledge[technology] !== 100) invalid();
+        retrofits.add(key);
+      }
+    }
     if (data.version !== saveVersion && header.data.weeklyConstruction !== true) {
       const account = state.countryEconomies[id];
       account.treasury += account.queue.reduce((sum, project) => sum + unusedPrepaidConstruction(project), 0);

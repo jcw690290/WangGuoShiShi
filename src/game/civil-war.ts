@@ -7,7 +7,7 @@ import type { CountryEconomy } from "./economy.ts";
 import type { GameState } from "./engine.ts";
 import type { FiscalAccount } from "./fiscal.ts";
 import { GameRuleError } from "./rules.ts";
-import { supporters, type Nation } from "./society.ts";
+import { supporters, techs, type Nation } from "./society.ts";
 
 export const civilSides = ["government", "opposition"] as const;
 const civilSide = z.enum(civilSides);
@@ -196,10 +196,13 @@ export function endCivilWar(state: GameState, winner: CivilSide): GameState {
   const government = nations[id], economy = countryEconomies[id];
   const oppositionWon = winner === "opposition";
   const policy = oppositionWon ? opposition : government;
+  const knowledge = { ...policy.knowledge };
+  for (const tech of techs) knowledge[tech] = Math.max(government.knowledge[tech], opposition.knowledge[tech]);
   const category = constitutionLawCategory(demand);
   const owned = Object.fromEntries(Object.entries(state.ownerByStateId).map(([site, owner]) => [site, owner === rebel ? id : owner]));
   nations[id] = {
     ...policy,
+    knowledge, research: policy.research && knowledge[policy.research] < 100 ? policy.research : null,
     laws: oppositionWon ? [...policy.laws.filter((law) => constitutionLawCategory(law) !== category), demand] : policy.laws,
     reform: oppositionWon ? null : policy.reform, reformProgress: oppositionWon ? 0 : policy.reformProgress,
     interests: government.interests, marketLeader: government.marketLeader, tradePartners: government.tradePartners,
