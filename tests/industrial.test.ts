@@ -134,7 +134,8 @@ test("副食品、纤维、日用品与奢侈品按实物产出，家庭从已�
   const second = dispatch(map, first, { type: "advanceWeek" });
   const local = second.lastEconomy!.states[stateId];
   const extras = local.householdExtras!;
-  assert.equal(extras.budget, available);
+  assert.ok(extras.budget > 0 && extras.budget <= available);
+  assert.equal(extras.budget + local.householdBasicPurchases!.budget, available + first.stateEconomies[stateId].basicBudget);
   assert.ok(extras.spending > 0 && extras.spending <= available);
   assert.ok(extras.delivered.luxury > 0 && extras.delivered.luxury <= extras.orders.luxury);
   assert.equal(local.householdConsumption!.luxury, extras.delivered.luxury);
