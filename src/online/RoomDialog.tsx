@@ -116,7 +116,9 @@ export function RoomDialog({
                   void act(() => connection!.selectCountry(country));
                 }}>
                   <option value="" disabled>选择国家</option>
-                  {Object.values(scenario.countries).map((country) => <option
+                  {Object.values(scenario.countries)
+                    .filter((country) => country.selectable !== false || country.id === seat!.country)
+                    .map((country) => <option
                     key={country.id}
                     value={country.id}
                     disabled={room.members.some((member) => member.user !== connection!.user && member.country === country.id)}
@@ -125,7 +127,7 @@ export function RoomDialog({
               </label>
               <p>{host ? "至少两位玩家选国后即可开局。" : "选国后等待房主开局。"}</p>
               {host && <button className="advance" disabled={busy || !view.leased || room.members.length < 2 ||
-                room.members.some((member) => member.country === null)}
+                room.members.some((member) => member.country === null || scenario.countries[member.country].selectable === false)}
                 onClick={() => void act(() => connection!.start(room, seat!.country!))}>开始联机</button>}
             </>
           )}

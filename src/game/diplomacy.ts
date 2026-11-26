@@ -3,6 +3,8 @@ import { z } from "zod";
 import type { Scenario } from "../scenario/scenario.ts";
 import type { GameState } from "./engine.ts";
 import type { EconomyReport } from "./economy.ts";
+import { ruleTuning } from "./settings.ts";
+import { syncOccupation } from "./occupation.ts";
 
 export const goals = ["cession", "reparations", "puppet", "vassal", "protectorate", "annex"] as const;
 export type Goal = (typeof goals)[number];
@@ -39,6 +41,7 @@ export const disputeSchema = z.object({
   phase: z.enum(["escalation", "bargaining", "countdown", "war", "resolved"]),
   since: z.int().nonnegative(),
   goals: z.array(z.enum(goals)).min(1),
+  unacceptedGoals: z.array(z.enum(goals)).nonempty().optional(),
   maneuvers: z.int().nonnegative(),
   allies: z.array(z.string()),
   promises: z.array(z.string()),
@@ -51,6 +54,11 @@ export const disputeSchema = z.object({
   outcome: z.enum(["victory", "withdrawal", "statusQuo"]).nullable(),
 });
 export type BorderDispute = z.infer<typeof disputeSchema>;
+export function infamyLevel(infamy: number) {
+  return infamy < 25 ? "常规警惕" : infamy < 50 ? "合作受阻" : infamy < 75 ? "联合风险" : "遏制风险";
+}
+
+export const swayCost = (infamy: number) => infamy < 25 ? 1 : infamy < 75 ? 2 : 3;
 export type BorderCommand =
   | { type: "declareInterest"; countryId: string; targetStateId: string }
   | { type: "demandBorder"; countryId: string; targetStateId: string; goal: Goal }
@@ -88,14 +96,12 @@ export function canReach(
     site &&
     Object.hasOwn(state.ownerByStateId, target) &&
     state.ownerByStateId[target] !== id &&
-    (state.nations[state.ownerByStateId[target]].infamy > 100 ||
-      landBorder(scenario, state, id, target) ||
+    (landBorder(scenario, state, id, target) ||
       (site.coastal && (hasPort ?? holdings(scenario, state, id).some((s) => s.coastal))))
   );
 }
 export function interested(scenario: Scenario, state: GameState, id: string, target: string) {
   return (
-    state.nations[state.ownerByStateId[target]].infamy > 100 ||
     landBorder(scenario, state, id, target) ||
     state.nations[id].interests.includes(target)
   );
@@ -107,6 +113,7 @@ export function attacking(d: BorderDispute, id: string) {
   return id === d.claimantId || d.allies.includes(id);
 }
 function treaty(state: GameState, d: BorderDispute, victory: boolean, withdrawal = false): GameState {
+  const { occupation: released, ...world } = state;
   const ownerByStateId = { ...state.ownerByStateId },
     countryEconomies = { ...state.countryEconomies },
     nations = { ...state.nations };
@@ -155,7 +162,7 @@ function treaty(state: GameState, d: BorderDispute, victory: boolean, withdrawal
     }
   }
   return {
-    ...state,
+    ...world,
     ownerByStateId,
     countryEconomies,
     nations,
@@ -271,8 +278,10 @@ export function applyBorderCommand(scenario: Scenario, state: GameState, cmd: Bo
       !interested(scenario, state, cmd.allyId, d.targetStateId)
     )
       throw new GameRuleError("第三国需要在目标地区拥有利益");
+    const cost = swayCost(n.infamy);
+    if (d.maneuvers < cost) throw new GameRuleError("恶名提高了拉拢成本，博弈点不足");
     return patch({
-      maneuvers: d.maneuvers - 1,
+      maneuvers: d.maneuvers - cost,
       allies: [...d.allies, cmd.allyId],
       promises: [...d.promises, cmd.allyId],
     });
@@ -280,7 +289,10 @@ export function applyBorderCommand(scenario: Scenario, state: GameState, cmd: Bo
   if (cmd.type === "backDown") {
     if (d.phase === "war" || (id !== d.claimantId && id !== d.defenderId))
       throw new GameRuleError("无法在此阶段让步");
-    return treaty(state, d, id === d.defenderId, id === d.claimantId);
+    if (id === d.claimantId) return treaty(state, d, false, true);
+    const [primary, ...extras] = d.goals;
+    const concession = extras.length ? { ...d, goals: [primary], unacceptedGoals: extras } : d;
+    return treaty(state, concession, true);
   }
   if (d.phase !== "war") throw new GameRuleError("尚未进入战争");
   if (cmd.type === "signTreaty" || cmd.type === "armistice") {
@@ -412,7 +424,7 @@ export function advanceFront(scenario: Scenario, state: GameState, report: Econo
     }
   }
   const progress = Math.max(0, Math.min(100, d.progress + delta));
-  return { ...state, borderDispute: { ...d, progress, lastChange: progress - d.progress } };
+  return syncOccupation(scenario, { ...state, borderDispute: { ...d, progress, lastChange: progress - d.progress } });
 }
 export function aiDiplomacy(
   scenario: Scenario,
@@ -421,8 +433,10 @@ export function aiDiplomacy(
 ): BorderCommand[] {
   const d = state.borderDispute;
   if (!d || d.phase === "resolved") {
-    // Limit AI plays to one at a time. Give the player a full opening month to make the first demand.
-    if (state.elapsedDays % 56 !== 0) return [];
+    // Limit AI plays to one at a time, with at least four opening weeks for the player.
+    const { aiAggression } = ruleTuning(state.settings);
+    const interval = Math.max(4, Math.round(8 / aiAggression)) * 7;
+    if (state.elapsedDays < 28 || state.elapsedDays % interval !== 0) return [];
     const sites = Object.values(scenario.states).filter((s) => Object.hasOwn(state.ownerByStateId, s.id));
     for (let offset = 0; offset < sites.length; offset++) {
       const site = sites[(state.rng + offset) % sites.length],

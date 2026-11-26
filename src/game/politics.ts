@@ -1,10 +1,9 @@
 import { GameRuleError } from "./rules.ts";
 import type { GameState } from "./engine.ts";
 import type { EconomyReport } from "./economy.ts";
-import { groups, influence, literacyOf, reformConditions, techs } from "./society.ts";
+import { groups, influence, literacyOf, reformConditions, reformWork, techs, unrestOf } from "./society.ts";
 import type { Group, Law, Nation, SiteSocial, Tech } from "./society.ts";
 
-export const wageTaxReform = { baseRate: 10, rate: 14, weeks: 2 };
 export const textileResearch = { outputBonus: 25, weeks: 4 };
 export const researchCategory = {
   纺织工艺: "生产",
@@ -13,7 +12,8 @@ export const researchCategory = {
   机械织造: "生产",
   运输调度: "军事",
   高等教育: "社会",
-};
+} as const;
+const categories = ["生产", "军事", "社会"] as const;
 const prerequisite: Partial<Record<Tech, Tech>> = {
   机械织造: "纺织工艺",
   运输调度: "野战后勤",
@@ -23,21 +23,30 @@ export function availableTech(n: Nation, t: Tech) {
   const prior = prerequisite[t];
   return n.knowledge[t] < 100 && (!prior || n.knowledge[prior] === 100);
 }
+export function researchCost(tech: Tech, year: number) {
+  const advanced = prerequisite[tech] !== undefined;
+  const referenceYear = advanced ? 1850 : 1820;
+  const base = advanced ? 10_000 : 4_000;
+  return Math.round(base * (1 + 0.02 * Math.max(0, referenceYear - year)));
+}
+export function researchCapacity(staff: number, literacy: number) {
+  return { innovation: staff / 10, cap: 30 + 1.7 * literacy };
+}
 export const techEffect: Record<Tech, string> = {
   纺织工艺: "布匹产出 +25%",
   机械织造: "布匹产出再增加 15%",
   野战后勤: "有效战力 +25%",
   运输调度: "前线运输容量 +30%",
-  公共教育: "人口识字率每周额外增长",
-  高等教育: "提高大学的识字率增益",
+  公共教育: "有教育覆盖的州每月增加识字率",
+  高等教育: "教育覆盖带来的识字率增益提高",
 };
 export const lawEffect: Record<Law, string> = {
   工资税改革: "工资税从 10% 提高至 14%",
-  干预主义: "私人建造份额 50%，业主投资比例 32%",
-  自由放任: "私人建造份额 75%，业主投资比例 48%",
+  干预主义: "私人建造份额 50%，基础再投资比例 25%",
+  自由放任: "私人建造份额 75%，基础再投资比例 40%",
   平等公民权: "接纳所有文化",
   信仰自由: "接纳所有信仰",
-  普选制: "政治权力按人数计权",
+  普选制: "扩大基层参与，上／中／下层权重为 1.5／1.2／1",
   出版自由: "解除科技扩散的审查折减",
 };
 export type PoliticsCommand =
@@ -65,8 +74,9 @@ export function politicsError(state: GameState, command: PoliticsCommand) {
       return "已有研究、缺少前置技术或已经掌握该技术";
   } else {
     if (nation.reform !== null || nation.laws.includes(command.law)) return "已有议案或该法已生效";
-    const power = influence(ownedSocieties(state, id), id, nation);
-    if (!reformConditions(nation, power, command.law).speed)
+    const sites = ownedSocieties(state, id);
+    const power = influence(sites, id, nation);
+    if (!reformConditions(nation, power, command.law, unrestOf(sites.flatMap((site) => site.pops))).speed)
       return "需要政府集团或政治运动支持，并达到 25 合法性";
   }
 }
@@ -84,13 +94,18 @@ export function applyPolitics(state: GameState, command: PoliticsCommand): GameS
     nations: { ...state.nations, [command.countryId]: { ...state.nations[command.countryId], ...change } },
   };
 }
-export function advancePolitics(state: GameState, report: EconomyReport): GameState {
+export function advancePolitics(state: GameState, report: EconomyReport, year: number, yearFraction: number): GameState {
   const known = techs.filter((t) => Object.values(state.nations).some((n) => n.knowledge[t] === 100));
   const nations: Record<string, Nation> = {};
   const locals: Record<string, SiteSocial[]> = Object.fromEntries(
     Object.keys(state.nations).map((id) => [id, []]),
   );
-  for (const [id, site] of Object.entries(state.societies)) locals[state.ownerByStateId[id]].push(site);
+  const staff = Object.fromEntries(Object.keys(state.nations).map((id) => [id, 0]));
+  for (const [id, site] of Object.entries(state.societies)) {
+    const owner = state.ownerByStateId[id];
+    locals[owner].push(site);
+    staff[owner] += report.states[id].universityStaff!;
+  }
   for (const [id, previous] of Object.entries(state.nations)) {
     const nation = {
       ...previous,
@@ -101,22 +116,23 @@ export function advancePolitics(state: GameState, report: EconomyReport): GameSt
       people = sites.flatMap((s) => s.pops);
     if (people.length) {
       const literacy = literacyOf(people);
-      const innovation = 24 + sites.reduce((s, v) => s + v.university * 4, 0);
-      const cap = 12 + literacy * 0.48;
+      const { innovation, cap } = researchCapacity(staff[id], literacy);
+      const spreading = categories.map((category) => known.find((tech) =>
+        researchCategory[tech] === category && availableTech(previous, tech),
+      )).filter((tech) => tech !== undefined);
+      const spillover = spreading.length > 0 ? Math.max(0, innovation - cap) * 0.5 / spreading.length : 0;
       for (const tech of techs) {
-        const diffusion =
-          known.includes(tech) && availableTech(previous, tech)
-            ? (1.2 + literacy * 0.16 + Math.max(0, innovation - cap) * 0.4) *
-              (nation.laws.includes("出版自由") ? 1 : 0.65)
-            : 0;
-        nation.diffusion[tech] = Math.min(100, diffusion);
-        const gain = diffusion + (nation.research === tech ? Math.min(innovation, cap) : 0);
-        nation.knowledge[tech] = Math.min(100, nation.knowledge[tech] + gain);
+        const cost = researchCost(tech, year);
+        const diffusion = spreading.includes(tech)
+          ? (5 + 0.15 * literacy + spillover) * (nation.laws.includes("出版自由") ? 1 : 0.65) : 0;
+        const active = nation.research === tech ? Math.min(innovation, cap) : 0;
+        nation.diffusion[tech] = Math.min(100 - nation.knowledge[tech], 100 * diffusion / cost);
+        nation.knowledge[tech] = Math.min(100, nation.knowledge[tech] + nation.diffusion[tech] + 100 * active / cost);
         if (nation.research === tech && nation.knowledge[tech] === 100) nation.research = null;
       }
       if (nation.reform) {
-        nation.reformProgress += reformConditions(nation, influence(sites, id, nation), nation.reform).speed;
-        if (nation.reformProgress >= wageTaxReform.weeks) {
+        nation.reformProgress += reformConditions(nation, influence(sites, id, nation), nation.reform, unrestOf(people)).speed;
+        if (nation.reformProgress >= reformWork - 1e-9) {
           const reform = nation.reform;
           const retained = nation.laws.filter(
             (l) =>
@@ -128,7 +144,7 @@ export function advancePolitics(state: GameState, report: EconomyReport): GameSt
         }
       }
     }
-    nation.infamy = Math.max(0, nation.infamy - 0.1);
+    nation.infamy = Math.max(0, nation.infamy - 2 * yearFraction);
     nations[id] = nation;
   }
   return { ...state, nations };

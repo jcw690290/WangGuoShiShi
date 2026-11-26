@@ -3,7 +3,7 @@ import { test } from "node:test";
 import { createGame, dispatch } from "../src/game/engine.ts";
 import type { GameState, GameCommand } from "../src/game/engine.ts";
 import { projectEconomy } from "../src/game/economy.ts";
-import { planWar } from "../src/game/diplomacy.ts";
+import { infamyLevel, planWar, swayCost } from "../src/game/diplomacy.ts";
 import { parseSave, saveVersion } from "../src/game/storage.ts";
 import { borderScenario as scenario } from "../src/scenario/scenario.ts";
 const a = "country_01",
@@ -16,7 +16,7 @@ const demand = (s: GameState) =>
 const week = (s: GameState) => send(s, { type: "advanceWeek" });
 const load = (s: GameState) =>
   parseSave(scenario, { version: saveVersion, scenarioId: scenario.id, state: structuredClone(s) });
-test("接壤利益校验、三阶段时限、追加要求与和平让步移交州及队列", () => {
+test("接壤利益校验、三阶段时限与和平让步仅执行核心要求", () => {
   let g = start();
   assert.throws(
     () => send(g, { type: "demandBorder", countryId: a, targetStateId: "Annam", goal: "cession" }),
@@ -35,12 +35,22 @@ test("接壤利益校验、三阶段时限、追加要求与和平让步移交�
   assert.equal(signed.ownerByStateId.Tonkin, a);
   assert.equal(signed.borderDispute!.outcome, "victory");
   assert.ok(signed.countryEconomies[b].queue.every((p) => p.stateId !== targetStateId));
-  assert.ok(signed.countryEconomies[b].treasury < paid);
+  assert.equal(signed.countryEconomies[b].treasury, paid);
+  assert.deepEqual(signed.borderDispute!.goals, ["cession"]);
+  assert.deepEqual(signed.borderDispute!.unacceptedGoals, ["reparations"]);
   assert.deepEqual(signed.stateEconomies.Tonkin, g.stateEconomies.Tonkin);
   assert.equal(signed.lastEconomy, null);
   assert.deepEqual(week(load(signed)), week(signed));
   assert.equal(projectEconomy(signed).states.Tonkin.conscripts, 0);
   assert.throws(() => load({ ...signed, ownerByStateId: g.ownerByStateId }), /无效/);
+});
+test("恶名分段提高合作成本，并以日历一年 2 点衰减", () => {
+  assert.deepEqual([24, 25, 50, 75, 125].map(infamyLevel),
+    ["常规警惕", "合作受阻", "联合风险", "遏制风险", "遏制风险"]);
+  assert.deepEqual([24, 25, 50, 75, 125].map(swayCost), [1, 2, 2, 3, 3]);
+  const game = start();
+  game.nations[a].infamy = 125;
+  assert.equal(week(game).nations[a].infamy, 125 - 2 * (7 / 366));
 });
 test("常备军和平支薪，征兵占用产业工人；战线受命令和补给约束", () => {
   let g = demand(start());
@@ -117,16 +127,27 @@ test("同盟成员共享市场并能退出，傀儡交贡金，吞并恶名四�
 test("同盟内技术人口迁往接纳其身份的国家，迁入与迁出人数相等", () => {
   let g = send(start(), { type: "joinUnion", countryId: b, leaderId: a });
   g.nations[a].laws.push("平等公民权", "信仰自由");
-  const moved = week(g);
-  const arrivals = Object.entries(moved.societies)
-    .filter(([id]) => moved.ownerByStateId[id] === a)
-    .flatMap(([, s]) => s.pops)
-    .filter((p) => p.culture === "地方文化-Tonkin" && p.occupation === "工程师");
-  assert.ok(arrivals.reduce((sum, p) => sum + p.people, 0) > 0);
+  const countEngineers = (state: GameState, country: string) => Object.entries(state.societies)
+    .filter(([id]) => state.ownerByStateId[id] === country)
+    .flatMap(([, site]) => site.pops)
+    .filter((p) => p.culture === "地方文化-Tonkin" && p.occupation === "工程师")
+    .reduce((sum, p) => sum + p.people, 0);
+  while (g.elapsedDays < 30) g = send(g, { type: "advanceDay" });
+  assert.equal(countEngineers(g, a), 0);
+  const closed = structuredClone(g);
+  closed.nations[a].laws = closed.nations[a].laws.filter((law) => law !== "信仰自由");
+  const baseline = send(closed, { type: "advanceDay" });
+  const moved = send(g, { type: "advanceDay" });
+  const arrivals = countEngineers(moved, a);
+  assert.ok(arrivals > 0);
+  assert.equal(countEngineers(baseline, b) - countEngineers(moved, b), arrivals);
   assert.deepEqual(load(moved), moved);
 });
-test("战争进度到达和约门槛后移交州，结束占领及征兵", () => {
-  let g = demand(start());
+test("补足粮食后推进到和约门槛，移交州并结束征兵", () => {
+  let g = send(start(), { type: "queueConstruction", countryId: a, stateId: "Yunnan", good: "grain" });
+  for (let i = 0; i < 7 && g.countryEconomies[a].queue.length; i++) g = week(g);
+  assert.equal(g.stateEconomies.Yunnan.buildings.grain, scenario.states.Yunnan.buildings.grain + 1);
+  g = demand(g);
   for (let i = 0; i < 4; i++) g = week(g);
   g = send(g, { type: "promoteGeneral", countryId: a });
   g = send(g, { type: "mobilize", countryId: a });
@@ -134,7 +155,22 @@ test("战争进度到达和约门槛后移交州，结束占领及征兵", () =>
   for (let i = 0; i < 60 && g.borderDispute!.progress < scenario.borderDispute.cessionProgress; i++)
     g = week(g);
   assert.ok(g.borderDispute!.progress >= scenario.borderDispute.cessionProgress);
+  assert.deepEqual(g.occupation, { stateId: targetStateId, controllerId: a });
+  assert.equal(g.ownerByStateId[targetStateId], b);
+  assert.deepEqual(load(g), g);
+  const { occupation, ...legacy } = g;
+  assert.deepEqual(load(legacy), g);
+  assert.throws(() => load({ ...g, occupation: { ...occupation!, controllerId: b } }), /数据无效/);
+  const priorTax = projectEconomy(legacy, planWar(scenario, legacy));
+  const occupiedTax = projectEconomy(g, planWar(scenario, g));
+  assert.ok(occupiedTax.countries[b].tax < priorTax.countries[b].tax);
+  assert.equal(occupiedTax.countries[a].tax, priorTax.countries[a].tax);
+  assert.throws(() => send(g, { type: "queueConstruction", countryId: b, stateId: targetStateId, good: "infrastructure" }), /军事占领/);
+  const armistice = send(load(g), { type: "armistice", countryId: a });
+  assert.equal(armistice.occupation, undefined);
+  assert.equal(armistice.ownerByStateId[targetStateId], b);
   const signed = send(load(g), { type: "signTreaty", countryId: a });
+  assert.equal(signed.occupation, undefined);
   assert.equal(signed.ownerByStateId.Tonkin, a);
   assert.equal(signed.lastEconomy, null);
   assert.deepEqual(week(load(signed)), week(signed));

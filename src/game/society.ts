@@ -1,10 +1,29 @@
 import { z } from "zod";
 import type { Scenario } from "../scenario/scenario.ts";
+import type { RuleTuning } from "./settings.ts";
+import { startingLivingStandard, updateLivingStandard } from "./households.ts";
 
 export const occupations = ["农民", "劳工", "工程师", "军官", "教士", "店主", "资本家", "贵族"] as const;
 export type Occupation = (typeof occupations)[number];
 export const groups = ["乡民", "工会", "知识分子", "武装部队", "教会", "小市民", "实业家", "地主"] as const;
 export type Group = (typeof groups)[number];
+const occupationSupport: Record<Occupation, readonly (readonly [Group, number])[]> = {
+  农民: [["乡民", 0.70], ["地主", 0.20], ["教会", 0.10]],
+  劳工: [["工会", 0.55], ["小市民", 0.15], ["教会", 0.15], ["武装部队", 0.05], ["实业家", 0.05], ["乡民", 0.05]],
+  工程师: [["知识分子", 0.40], ["工会", 0.30], ["实业家", 0.20], ["小市民", 0.10]],
+  军官: [["武装部队", 0.80], ["小市民", 0.10], ["地主", 0.10]],
+  教士: [["教会", 0.80], ["地主", 0.10], ["知识分子", 0.10]],
+  店主: [["小市民", 0.65], ["实业家", 0.20], ["教会", 0.15]],
+  资本家: [["实业家", 0.85], ["知识分子", 0.10], ["地主", 0.05]],
+  贵族: [["地主", 0.85], ["教会", 0.10], ["武装部队", 0.05]],
+};
+const votingWeights = {
+  autocracy: { 上层: 6, 中层: 2, 下层: 0.2 },
+  limited: { 上层: 4, 中层: 2, 下层: 0.6 },
+  universal: { 上层: 1.5, 中层: 1.2, 下层: 1 },
+};
+export const distributionName = { autocracy: "专制", limited: "有限选举", universal: "普选" };
+const limitedVoteCountries = new Set(["country_02", "country_04", "country_07", "country_08", "country_12", "country_13", "country_16"]);
 export const socialTags = {
   农民: ["下层", "乡民"],
   劳工: ["下层", "工会"],
@@ -22,6 +41,7 @@ export const popSchema = z.object({
   religion: z.string(),
   people: z.int().nonnegative(),
   wealth: z.number().nonnegative(),
+  livingStandard: z.number().min(1).max(30).default(startingLivingStandard),
   literacy: percent,
   radicals: percent,
 });
@@ -85,6 +105,7 @@ export const subjectTypes = ["protectorate", "puppet", "vassal"] as const;
 export const tributeRate = { protectorate: 0.1, puppet: 0.15, vassal: 0.2 };
 export const nationSchema = z.object({
   government: z.array(z.enum(groups)).min(1),
+  startingRepresentation: z.literal("limited").optional(),
   laws: z.array(z.enum(laws)),
   reform: z.enum(laws).nullable(),
   reformProgress: z.number().nonnegative(),
@@ -122,6 +143,7 @@ export function initSiteSociety(site: Scenario["states"][string]): SiteSocial {
         culture: foreign ? "地方文化-" + site.id : site.ownerId ?? "本地文化-" + site.id,
         religion: foreign ? "地方信仰-" + site.id : site.ownerId ?? "本地信仰-" + site.id,
         wealth: rank * rank * 4,
+        livingStandard: startingLivingStandard,
         literacy: 12 * rank + (hash(site.id) % 10),
         radicals: 0,
       });
@@ -145,6 +167,7 @@ export function initSociety(scenario: Scenario) {
     if (site.ownerId !== null) societies[site.id] = initSiteSociety(site);
   for (const id of Object.keys(scenario.countries)) {
     nations[id] = {
+      ...(limitedVoteCountries.has(id) ? { startingRepresentation: "limited" as const } : {}),
       government: ["地主", "乡民"],
       laws: [],
       reform: null,
@@ -174,20 +197,28 @@ export function accepted(pop: Pop, id: string, nation: Nation) {
     (nation.laws.includes("信仰自由") || pop.religion === id)
   );
 }
-export function literacyOf(pops: Pop[]) {
+function populationAverage(pops: Pop[], metric: "literacy" | "livingStandard" | "radicals") {
   const people = pops.reduce((n, p) => n + p.people, 0);
-  return people ? pops.reduce((n, p) => n + p.people * p.literacy, 0) / people : 0;
+  return people ? pops.reduce((n, p) => n + p.people * p[metric], 0) / people : 0;
 }
+export const literacyOf = (pops: Pop[]) => populationAverage(pops, "literacy");
+export const livingStandardOf = (pops: Pop[]) => populationAverage(pops, "livingStandard");
+export const unrestOf = (pops: Pop[]) => populationAverage(pops, "radicals");
+export function powerDistribution(nation: Nation): keyof typeof votingWeights {
+  return nation.laws.includes("普选制") ? "universal" : nation.startingRepresentation ?? "autocracy";
+}
+
 export function influence(locals: SiteSocial[], id: string, nation: Nation) {
   const points = Object.fromEntries(groups.map((g) => [g, 0])) as Record<Group, number>;
+  const weights = votingWeights[powerDistribution(nation)];
   let sum = 0;
   for (const { pops } of locals)
     for (const pop of pops) {
       const weight =
         pop.people *
-        (nation.laws.includes("普选制") ? 1 : Math.max(1, pop.wealth)) *
+        weights[socialTags[pop.occupation][0]] *
         (accepted(pop, id, nation) ? 1 : 0.05);
-      points[socialTags[pop.occupation][1]] += weight;
+      for (const [group, support] of occupationSupport[pop.occupation]) points[group] += weight * support;
       sum += weight;
     }
   for (const g of groups) points[g] = sum ? (100 * points[g]) / sum : 0;
@@ -208,42 +239,46 @@ export function approval(nation: Nation, g: Group) {
     nation.laws.reduce((n, l) => n + (supporters[l].includes(g) ? 4 : -1), 0)
   );
 }
-export function reformConditions(nation: Nation, power: Record<Group, number>, law: Law) {
+export const reformWork = 2;
+export const baselineReformWeeks = 26;
+const recognizedSuccessors: Group[] = ["地主", "教会", "武装部队"];
+export function reformConditions(nation: Nation, power: Record<Group, number>, law: Law, resistance = 0) {
   const government = nation.government;
-  const divisions =
-    (government.includes("地主") && government.includes("工会") ? 16 : 0) +
-    (government.includes("教会") && government.includes("知识分子") ? 16 : 0);
-  const legitimacy = Math.max(
-    0,
-    Math.min(
-      100,
-      Math.round(25 + government.reduce((n, g) => n + power[g], 0) - divisions - 4 * (government.length - 1)),
-    ),
-  );
+  const conflict =
+    (government.includes("地主") && government.includes("工会") ? 50 : 0) +
+    (government.includes("教会") && government.includes("知识分子") ? 50 : 0);
+  const governmentPower = government.reduce((sum, group) => sum + power[group], 0);
+  const institutionalSupport = groups.reduce((sum, group) => {
+    const policyApproval = approval(nation, group) - (government.includes(group) ? 8 : 0);
+    return sum + power[group] * Math.max(0, Math.min(1, 0.5 + policyApproval / 20));
+  }, 0);
+  const mandateGroups = powerDistribution(nation) === "autocracy" ? recognizedSuccessors
+    : [...groups].sort((a, b) => power[b] - power[a]).slice(0, government.length);
+  const mandate = 100 * government.filter((group) => mandateGroups.includes(group)).length / government.length;
+  const legitimacy = Math.round(Math.max(0, Math.min(100,
+    0.45 * institutionalSupport + 0.35 * governmentPower + 0.20 * mandate - 0.30 * conflict,
+  )));
   const support = supporters[law].reduce((n, g) => n + power[g], 0);
   const backed = government.some((g) => supporters[law].includes(g)) || support >= 25;
-  return { legitimacy, support, backed, speed: !backed || legitimacy < 25 ? 0 : legitimacy < 50 ? 0.5 : 1 };
+  const pace = Math.max(0.25, 1 + (legitimacy - 50) / 50 + (support - 50) / 50 - resistance / 100);
+  const weeks = Math.max(8, Math.min(104, Math.round(baselineReformWeeks / pace)));
+  return { legitimacy, support, backed, weeks, resistance, speed: backed && legitimacy >= 25 ? reformWork / weeks : 0 };
 }
 export function evolvePops(
   site: SiteSocial,
   id: string,
   nation: Nation,
-  growth: number,
-  grainPrice: number,
-  grainWages: number,
-  clothWages: number,
-  dividends: number,
-  textileJobs: number,
+  week: {
+    grainPrice: number; grainWages: number; clothWages: number; universityWages: number;
+    dividends: number; textileJobs: number; standardTarget: number;
+  },
+  tuning: RuleTuning,
 ) {
+  const { grainPrice, grainWages, clothWages, universityWages, dividends, textileJobs, standardTarget } = week;
   const totals = Object.fromEntries(
     occupations.map((o) => [o, site.pops.reduce((s, p) => s + (p.occupation === o ? p.people : 0), 0)]),
   ) as Record<Occupation, number>;
-  const birthWeight = (p: Pop) =>
-    p.people * (growth >= 0 ? 1 + Math.min(p.wealth, 50) / 40 : 1 / (1 + p.wealth / 40));
-  const weight = site.pops.reduce((s, p) => s + birthWeight(p), 0);
-  let cumulative = 0,
-    assigned = 0;
-  const pops = site.pops.map((p, i) => {
+  const pops = site.pops.map((p) => {
     const isAccepted = accepted(p, id, nation);
     const income =
       p.occupation === "农民"
@@ -252,33 +287,24 @@ export function evolvePops(
           ? clothWages
           : socialTags[p.occupation][0] === "上层"
             ? dividends / 2
-            : totals[p.occupation] * 4;
+            : totals[p.occupation] * 4 + (p.occupation === "工程师" ? universityWages : 0);
     const living = Math.max(
       0.5,
       (((income / Math.max(1, totals[p.occupation])) * 0.3) / (grainPrice / 100)) * (isAccepted ? 1 : 0.65),
     );
     const wealth = Math.max(0.5, p.wealth * 0.96 + Math.min(150, living) * 0.04);
-    const literacy = Math.min(
-      100,
-      p.literacy +
-        0.006 * wealth +
-        (nation.knowledge["高等教育"] === 100 ? 0.08 : 0.03) * site.university +
-        (nation.knowledge["公共教育"] === 100 ? 0.12 : 0),
-    );
+    const suffering = wealth < 4 + p.literacy / 12 + (nation.knowledge["公共教育"] === 100 ? 1 : 0);
     const radicals = Math.max(
       0,
       Math.min(
         100,
         p.radicals +
-          (wealth < 4 + p.literacy / 12 + (nation.knowledge["公共教育"] === 100 ? 1 : 0) ? 0.25 : -0.18) +
-          (isAccepted ? 0 : 0.12),
+          (suffering ? 0.25 * tuning.radicalGrowth : -0.18 * tuning.radicalRelief) +
+          (isAccepted ? 0 : 0.12 * tuning.radicalGrowth),
       ),
     );
-    cumulative += birthWeight(p);
-    const share = i === site.pops.length - 1 ? growth : Math.round((growth * cumulative) / weight);
-    const change = share - assigned;
-    assigned = share;
-    return { ...p, wealth, literacy, radicals, people: p.people + change };
+    const livingStandard = updateLivingStandard(p.livingStandard, standardTarget);
+    return { ...p, wealth, radicals, livingStandard };
   });
   // Fill workshop vacancies from rural households of the same identity.
   const targetLabourers = Math.ceil(textileJobs / 0.4);

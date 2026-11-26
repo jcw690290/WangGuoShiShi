@@ -36,6 +36,7 @@ test("仅能在外交博弈中追加吞并自己的附属国，且消耗博弈�
   assert.throws(() => send(annex, addAnnex), /无效目标/);
 
   const signed = send(annex, { type: "backDown", countryId: defenderId });
-  assert.equal(signed.ownerByStateId.Tonkin, claimantId);
-  assert.equal(signed.ownerByStateId.Annam, claimantId);
+  assert.equal(signed.ownerByStateId.Tonkin, defenderId);
+  assert.equal(signed.ownerByStateId.Annam, defenderId);
+  assert.deepEqual(signed.borderDispute!.unacceptedGoals, ["annex"]);
 });

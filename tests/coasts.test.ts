@@ -35,6 +35,7 @@ test("开放海岸、海岛及细海峡另一侧的海岸提供出海口", () =>
 test("日本只能对有出海口的加拿大州声明利益并提出跨海割地要求", () => {
   const countryId = "country_29";
   const game = dispatch(scenario, createGame(scenario), { type: "selectCountry", countryId });
+  game.nations[game.ownerByStateId.Alberta].infamy = 125;
   assert.throws(
     () => dispatch(scenario, game, { type: "declareInterest", countryId, targetStateId: "Alberta" }),
     /需要接壤或双方沿海的目标州/,
@@ -43,4 +44,19 @@ test("日本只能对有出海口的加拿大州声明利益并提出跨海割�
   const interested = dispatch(scenario, game, { type: "declareInterest", countryId, targetStateId });
   const disputed = dispatch(scenario, interested, { type: "demandBorder", countryId, targetStateId, goal: "cession" });
   assert.equal(disputed.borderDispute?.targetStateId, targetStateId);
+});
+
+test("高恶名拉拢要求足够博弈点，并只扣成功命令的费用", () => {
+  const countryId = "country_29", allyId = "country_08", targetStateId = "British_Columbia";
+  let game = dispatch(scenario, createGame(scenario), { type: "selectCountry", countryId });
+  game = dispatch(scenario, game, { type: "declareInterest", countryId, targetStateId });
+  game = dispatch(scenario, game, { type: "demandBorder", countryId, targetStateId, goal: "cession" });
+  game = dispatch(scenario, game, { type: "advanceWeek" });
+  const cmd = { type: "sway", countryId, allyId } as const;
+  game.nations[countryId].infamy = 75;
+  assert.throws(() => dispatch(scenario, game, cmd), /博弈点不足/);
+  game.nations[countryId].infamy = 50;
+  const helped = dispatch(scenario, game, cmd);
+  assert.equal(helped.borderDispute!.maneuvers, game.borderDispute!.maneuvers - 2);
+  assert.ok(helped.borderDispute!.allies.includes(allyId));
 });

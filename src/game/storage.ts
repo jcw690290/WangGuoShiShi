@@ -1,8 +1,8 @@
 import { openDB } from "idb";
-import type { DBSchema } from "idb";
+import type { DBSchema, IDBPDatabase } from "idb";
 import { z } from "zod";
 import { disputeSchema, participants } from "./diplomacy.ts";
-import { DAY_MS, TICKS_PER_DAY } from "./engine.ts";
+import { DAY_MS, elapsedTicks, getGameDate, isPopulationMonth, TICKS_PER_DAY } from "./engine.ts";
 import type { GameState } from "./engine.ts";
 import { byGood, goods } from "./industry.ts";
 import { projects } from "./economy.ts";
@@ -10,32 +10,93 @@ import { nationSchema, siteSocialSchema, projectTypes } from "./society.ts";
 import { importRegionalSave } from "./legacySave.ts";
 import { borderScenario } from "../scenario/scenario.ts";
 import type { Scenario } from "../scenario/scenario.ts";
+import { initialSettings, settingsSchema, validDifficultyHistory } from "./settings.ts";
+import { campaignSchema, endingSchema } from "./campaign.ts";
+import type { EndingRecord } from "./campaign.ts";
+import { fiscalAccountSchema } from "./fiscal.ts";
+import { syncOccupation } from "./occupation.ts";
 const storeName = "saves";
-const slot = "local";
-export const saveVersion = 6;
+const indexName = "saveIndex";
+const archiveName = "endings";
+export const saveVersion = 8;
+export const manualSaveSlots = ["local", "manual-2", "manual-3", "manual-4", "manual-5"] as const;
+export const autoSaveSlots = ["auto-1", "auto-2", "auto-3"] as const;
+export const saveSlotSchema = z.enum([...manualSaveSlots, ...autoSaveSlots]);
+export type SaveSlot = z.infer<typeof saveSlotSchema>;
+const summarySchema = z.object({
+  slot: saveSlotSchema,
+  savedAt: z.int().nonnegative(),
+  countryId: z.string().nullable(),
+  date: z.iso.date().nullable(),
+});
+export type SaveSummary = z.infer<typeof summarySchema>;
 
 interface SaveDatabase extends DBSchema {
-  saves: { key: typeof slot; value: unknown };
+  saves: { key: SaveSlot; value: unknown };
+  saveIndex: { key: SaveSlot; value: unknown };
+  endings: { key: string; value: unknown };
 }
 
 function openSaves() {
-  return openDB<SaveDatabase>("wang-guo-shi-shi", 1, {
-    upgrade(db) {
-      db.createObjectStore(storeName);
+  return openDB<SaveDatabase>("wang-guo-shi-shi", 3, {
+    upgrade(db, previous) {
+      if (previous === 0) db.createObjectStore(storeName);
+      if (previous < 2) db.createObjectStore(indexName);
+      db.createObjectStore(archiveName);
     },
   });
 }
 
-export async function saveGame(scenario: Scenario, state: GameState): Promise<void> {
+async function readSaveIndex(db: IDBPDatabase<SaveDatabase>): Promise<SaveSummary[]> {
+  const tx = db.transaction([storeName, indexName]);
+  const [rows, legacy] = await Promise.all([
+    tx.objectStore(indexName).getAll(),
+    tx.objectStore(storeName).getKey("local"),
+  ]);
+  const entries = rows.map((row) => summarySchema.parse(row));
+  if (legacy !== undefined && !entries.some(({ slot }) => slot === "local"))
+    entries.push({ slot: "local", savedAt: 0, countryId: null, date: null });
+  return entries.sort((a, b) => b.savedAt - a.savedAt);
+}
+
+export async function listGameSaves(): Promise<SaveSummary[]> {
   const db = await openSaves();
   try {
-    await db.put(storeName, { version: saveVersion, scenarioId: scenario.id, state }, slot);
+    return await readSaveIndex(db);
   } finally {
     db.close();
   }
 }
 
-export async function loadGame(scenario: Scenario): Promise<GameState | undefined> {
+export function autoSaveSlot(date: Date) {
+  return autoSaveSlots[date.getUTCMonth() % autoSaveSlots.length];
+}
+
+export async function saveGame(scenario: Scenario, state: GameState, slot: SaveSlot, replace: boolean) {
+  if (state.playerCountryId === null) throw new Error("请先选择国家");
+  const summary: SaveSummary = {
+    slot, savedAt: Date.now(), countryId: state.playerCountryId,
+    date: getGameDate(scenario, state).toISOString().slice(0, 10),
+  };
+  const db = await openSaves();
+  try {
+    const tx = db.transaction([storeName, indexName], "readwrite");
+    if (!replace && await tx.objectStore(storeName).getKey(slot) !== undefined) {
+      await tx.done;
+      throw new Error("该存档槽已有存档。请刷新列表并确认覆盖。");
+    }
+    await Promise.all([
+      tx.objectStore(storeName).put({ version: saveVersion, scenarioId: scenario.id, state }, slot),
+      tx.objectStore(indexName).put(summary, slot),
+      tx.done,
+    ]);
+    return summary;
+  } finally {
+    db.close();
+  }
+}
+
+export async function loadGame(scenario: Scenario, slot: SaveSlot): Promise<GameState | undefined> {
   const db = await openSaves();
   try {
     const save = await db.get(storeName, slot);
@@ -46,12 +107,57 @@ export async function loadGame(scenario: Scenario): Promise<GameState | undefine
   }
 }
 
+export async function loadRecentGame(scenario: Scenario) {
+  const db = await openSaves();
+  try {
+    let lastError: unknown;
+    let skipped = 0;
+    for (const { slot } of await readSaveIndex(db)) {
+      const saved = await db.get(storeName, slot);
+      if (saved === undefined) continue;
+      try {
+        return { state: parseSave(scenario, saved), slot, skipped };
+      } catch (error) {
+        lastError = error;
+        skipped++;
+      }
+    }
+    if (skipped > 0) throw new Error("没有可读取的存档", { cause: lastError });
+  } finally {
+    db.close();
+  }
+}
+
+export async function archiveEnding(ending: EndingRecord) {
+  const db = await openSaves();
+  try {
+    await db.put(archiveName, ending, ending.campaignId);
+  } finally {
+    db.close();
+  }
+}
+
+export async function listEndings() {
+  const db = await openSaves();
+  try {
+    return (await db.getAll(archiveName)).map((entry) => endingSchema.parse(entry))
+      .sort((a, b) => b.date.localeCompare(a.date));
+  } finally {
+    db.close();
+  }
+}
+
 const uint = z.int().nonnegative(),
   cash = z.int(),
   fraction = z.number().min(0).max(1);
 const goodsNumbers = z.object(byGood(() => uint));
-const market = z.object({ demand: uint, supply: uint, price: z.int().positive() });
-const industry = z.object({ employed: uint, output: uint, wages: uint });
+const quotes = z.object(byGood(() => z.number().positive()));
+const market = z.object({
+  demand: uint, supply: uint, price: z.int().positive(), traded: uint.optional(), targetPrice: z.int().positive().optional(),
+})
+  .refine((good) => good.traded === undefined || good.traded <= Math.min(good.supply, good.demand));
+const industry = z.object({ employed: uint, output: uint, wages: uint, sold: uint.optional(), bought: uint.optional() })
+  .refine((good) => good.sold === undefined || good.sold <= good.output);
 const issue = z.object({ demand: uint, delivered: uint }).refine((i) => i.delivered <= i.demand);
 const military = z.object({
   regulars: uint,
@@ -74,19 +180,27 @@ const countryReport = z.object({
   capacity: z.number().nonnegative(),
   tribute: uint,
   upkeep: uint,
+  interestPaid: uint.optional(),
+  universityWages: uint.optional(),
 });
 const siteReport = z.object({
   industries: z.object(byGood(() => industry)),
-  populationChange: cash,
+  populationChange: cash.optional(),
+  foodFulfillment: fraction.optional(),
+  householdConsumption: goodsNumbers.optional(),
+  consumptionIndex: z.number().nonnegative().optional(),
   conscripts: uint,
   regulars: uint,
+  universityStaff: z.number().nonnegative().optional(),
   builders: uint,
   armourers: uint,
   access: fraction,
   localPrices: goodsNumbers,
   dividends: uint,
   investment: uint,
-});
+}).refine((site) => site.householdConsumption === undefined
+  ? site.consumptionIndex === undefined
+  : site.consumptionIndex !== undefined && site.foodFulfillment !== undefined);
 export function parseSave(scenario: Scenario, save: unknown): GameState {
   const header = z.object({ version: z.int(), scenarioId: z.string() }).safeParse(save);
   if (!header.success) throw new Error("存档数据无效");
@@ -95,13 +209,14 @@ export function parseSave(scenario: Scenario, save: unknown): GameState {
       header.data.scenarioId === borderScenario.id && scenario.id === "world-1820"
         ? borderScenario
         : scenario;
-    return importRegionalSave(source, scenario, save);
+    return syncOccupation(scenario, importRegionalSave(source, scenario, save));
   }
   const sites = z.enum(Object.keys(scenario.states)),
     countries = z.enum(Object.keys(scenario.countries));
   // A valid map ID is optional until claimed; enum-keyed records require every ID.
   const activeSite = z.string().refine((id) => Object.hasOwn(scenario.states, id));
   const project = z.object({ stateId: sites, good: z.enum(projectTypes), weeksLeft: z.number().positive() });
+  const lastPopulation = z.object({ day: uint.positive(), changes: z.record(activeSite, cash) }).nullable();
   const stateSchema = z.object({
     elapsedDays: uint.max(Math.floor((8.64e15 - Date.parse(scenario.startDate)) / DAY_MS)),
     playerCountryId: countries,
@@ -109,33 +224,63 @@ export function parseSave(scenario: Scenario, save: unknown): GameState {
     ownerByStateId: z.record(activeSite, countries),
     stateEconomies: z.record(
       activeSite,
-      z.object({ population: z.int().positive(), buildings: goodsNumbers }),
+      z.object({ population: z.int().positive(), buildings: goodsNumbers, localQuotes: quotes.optional() }),
     ),
-    countryEconomies: z.record(countries, z.object({ treasury: cash, queue: z.array(project) })),
+    countryEconomies: z.record(countries, z.object({
+      treasury: cash, queue: z.array(project), referenceQuotes: quotes.optional(), fiscal: fiscalAccountSchema.optional(),
+    })),
     societies: z.record(activeSite, siteSocialSchema),
     nations: z.record(countries, nationSchema),
     borderDispute: disputeSchema.nullable(),
+    occupation: z.object({ stateId: sites, controllerId: countries }).optional(),
     lastEconomy: z
       .object({ states: z.record(activeSite, siteReport), countries: z.record(countries, countryReport) })
       .nullable(),
+    lastPopulation: lastPopulation.optional(),
   });
   const scenarioId = z.literal(scenario.id);
+  const timedStateSchema = stateSchema.extend({ tickInDay: uint.max(TICKS_PER_DAY - 1) });
+  const settingsStateSchema = timedStateSchema.extend({ settings: settingsSchema });
   const schema = z
     .discriminatedUnion("version", [
       z.object({ version: z.literal(5), scenarioId, state: stateSchema }),
+      z.object({ version: z.literal(6), scenarioId, state: timedStateSchema }),
+      z.object({ version: z.literal(7), scenarioId, state: settingsStateSchema }),
       z.object({
         version: z.literal(saveVersion),
         scenarioId,
-        state: stateSchema.extend({ tickInDay: uint.max(TICKS_PER_DAY - 1) }),
+        state: settingsStateSchema.extend({ lastPopulation, campaign: campaignSchema.optional() }),
       }),
     ])
     .safeParse(save);
   if (!schema.success) throw new Error("存档数据无效或版本不兼容", { cause: schema.error });
-  const state = schema.data.version === 5 ? { ...schema.data.state, tickInDay: 0 } : schema.data.state;
+  const data = schema.data;
+  const state: GameState = data.version === saveVersion ? data.state : {
+    ...data.state,
+    tickInDay: data.version === 5 ? 0 : data.state.tickInDay,
+    settings: data.version === 7 ? data.state.settings : initialSettings("standard"),
+    lastPopulation: data.state.lastPopulation ?? null,
+  };
+  if (!validDifficultyHistory(state.settings, elapsedTicks(state))) throw new Error("存档难度记录无效");
   function invalid(): never {
     throw new Error("存档中的人口、工程、外交或归属数据无效");
   }
   const owned = Object.keys(state.ownerByStateId);
+  const campaign = state.campaign;
+  if (campaign) {
+    const ending = campaign.ending;
+    if (
+      Date.UTC(campaign.endYear, 0, 1) <= Date.parse(scenario.startDate) ||
+      (ending !== null && (ending.campaignId !== campaign.id || ending.countryId !== state.playerCountryId ||
+        Date.parse(ending.date) > getGameDate(scenario, state).getTime()))
+    ) invalid();
+  }
+  const population = state.lastPopulation;
+  if (population && (
+    population.day > state.elapsedDays ||
+    !isPopulationMonth(scenario, { ...state, elapsedDays: population.day, tickInDay: 0 }) ||
+    Object.keys(population.changes).some((id) => !Object.hasOwn(state.ownerByStateId, id))
+  )) invalid();
   const sameSites = (record: object) =>
     Object.keys(record).length === owned.length && owned.every((id) => Object.hasOwn(record, id));
   if (
@@ -145,6 +290,8 @@ export function parseSave(scenario: Scenario, save: unknown): GameState {
     Object.values(scenario.states).some((s) => s.ownerId !== null && !Object.hasOwn(state.ownerByStateId, s.id))
   ) invalid();
   for (const [id, n] of Object.entries(state.nations)) {
+    const fiscal = state.countryEconomies[id].fiscal;
+    if (fiscal && fiscal.week.day > state.elapsedDays) invalid();
     if (
       (n.marketLeader &&
         (!state.nations[n.marketLeader] ||
@@ -191,6 +338,10 @@ export function parseSave(scenario: Scenario, save: unknown): GameState {
       parties.some((id) => !state.nations[id]) ||
       new Set(parties).size !== parties.length ||
       d.since > state.elapsedDays ||
+      (d.unacceptedGoals !== undefined && (
+        d.phase !== "resolved" || d.outcome !== "victory" || d.goals.length !== 1 ||
+        new Set([...d.goals, ...d.unacceptedGoals]).size !== d.goals.length + d.unacceptedGoals.length
+      )) ||
       [...d.advance, ...d.mobilized, ...d.raid].some((id) => !parties.includes(id)) ||
       d.promises.some((id) => !d.allies.includes(id))
     )
@@ -198,5 +349,7 @@ export function parseSave(scenario: Scenario, save: unknown): GameState {
     const transferred = d.outcome === "victory" && (d.goals.includes("cession") || d.goals.includes("annex"));
     if (state.ownerByStateId[d.targetStateId] !== (transferred ? d.claimantId : d.defenderId)) invalid();
   }
-  return state;
+  const controlled = syncOccupation(scenario, state);
+  if (state.occupation && controlled !== state) invalid();
+  return controlled;
 }

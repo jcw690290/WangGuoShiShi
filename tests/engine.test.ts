@@ -4,7 +4,7 @@ import { advanceDay, createGame, dispatch, getGameDate, spanDays } from "../src/
 import type { GameState, GameCommand } from "../src/game/engine.ts";
 import { projectEconomy, constructionError } from "../src/game/economy.ts";
 import { parseSave, saveVersion } from "../src/game/storage.ts";
-import { influence, reformConditions } from "../src/game/society.ts";
+import { influence, reformConditions, reformWork } from "../src/game/society.ts";
 import type { Scenario } from "../src/scenario/scenario.ts";
 const scenario: Scenario = {
   id: "test",
@@ -88,7 +88,7 @@ test("政府队列付款、所有权与容量校验，完工带来就业、产�
   assert.ok(report.states.border.industries.cloth.wages > 0);
   assert.ok(report.countries.first.tax > 0);
   assert.ok(
-    report.countries.first.market.cloth.price < projectEconomy(old).countries.first.market.cloth.price,
+    report.countries.first.market.cloth.targetPrice! < projectEconomy(old).countries.first.market.cloth.targetPrice!,
   );
   assert.equal(report.states.border.regulars, 100);
 });
@@ -127,19 +127,29 @@ test("投资池与国库单独扣款，两类工程共享建造力，闲置份�
   assert.ok(g.lastEconomy!.countries.first.investment > 0);
   assert.match(constructionError(scenario, g, "first", "border", "university", true)!, /私人资金/);
 });
-test("职业、财富与接纳影响八个集团；合法性不足暂停，低合法性减半", () => {
+test("职业支持分配与选举权重改变八个集团，合法性和激进度影响审议", () => {
   const g = start(),
     n = g.nations.first,
     site = g.societies.border;
   const before = influence([site], "first", n);
-  site.pops.find((p) => p.occupation === "工程师")!.wealth *= 5;
-  const after = influence([site], "first", n);
-  assert.ok(after["知识分子"] > before["知识分子"]);
-  assert.ok(Math.abs(Object.values(after).reduce((a, b) => a + b) - 100) < 1e-9);
-  n.government = ["知识分子"];
-  assert.equal(reformConditions(n, after, "出版自由").speed, 0.5);
+  const farmer = site.pops.find((p) => p.occupation === "农民")!;
+  const ruralOnly = influence([{ ...site, pops: [farmer] }], "first", n);
+  assert.ok(Math.abs(ruralOnly["乡民"] - 70) < 1e-9);
+  assert.ok(Math.abs(ruralOnly["地主"] - 20) < 1e-9);
+  assert.ok(Math.abs(ruralOnly["教会"] - 10) < 1e-9);
+  assert.ok(Math.abs(Object.values(before).reduce((a, b) => a + b) - 100) < 1e-9);
+  const limited = influence([site], "first", { ...n, startingRepresentation: "limited" });
+  assert.ok(limited["乡民"] > before["乡民"]);
+  const sample = { 乡民: 30, 工会: 0, 知识分子: 0, 武装部队: 30, 教会: 0, 小市民: 0, 实业家: 0, 地主: 40 };
+  n.laws = [];
+  n.government = ["地主", "武装部队"];
+  const supported = reformConditions(n, sample, "普选制");
+  assert.equal(supported.legitimacy, 67);
+  assert.ok(supported.weeks >= 8 && supported.weeks <= 104);
+  assert.equal(supported.speed, reformWork / supported.weeks);
+  assert.ok(reformConditions(n, sample, "普选制", 70).weeks > supported.weeks);
   n.government = ["知识分子", "教会"];
-  assert.equal(reformConditions(n, before, "出版自由").speed, 0);
+  assert.equal(reformConditions(n, sample, "出版自由").speed, 0);
   n.laws = ["平等公民权", "信仰自由", "普选制"];
   const votes = influence([site], "first", n);
   assert.ok(votes["乡民"] > before["乡民"]);
@@ -147,20 +157,26 @@ test("职业、财富与接纳影响八个集团；合法性不足暂停，低�
 test("改革和研究进入下一期结算，科技只有在外国掌握之后才扩散", () => {
   let g = start();
   g = send(g, { type: "setGovernment", countryId: "first", government: ["地主", "乡民", "实业家"] });
+  g.societies.border.university = 1;
+  g.nations.first.knowledge["纺织工艺"] = 99.9;
   g = send(g, { type: "proposeLaw", countryId: "first", law: "工资税改革" });
   g = send(g, { type: "startResearch", countryId: "first", tech: "纺织工艺" });
   assert.throws(() => send(g, { type: "proposeLaw", countryId: "first", law: "工资税改革" }), /议案/);
   g = week(g);
   assert.equal(g.nations.first.knowledge["野战后勤"], 0);
-  while (!g.nations.first.laws.includes("工资税改革")) g = week(g);
+  for (let i = 0; i < 30 && g.nations.first.knowledge["纺织工艺"] < 100; i++) g = week(g);
+  assert.equal(g.nations.first.knowledge["纺织工艺"], 100);
+  assert.equal(g.lastEconomy!.countries.first.clothOutputBonus, 0);
+  g = week(g);
+  assert.equal(g.lastEconomy!.countries.first.clothOutputBonus, 25);
+  for (let i = 0; i < 104 && !g.nations.first.laws.includes("工资税改革"); i++) g = week(g);
+  assert.ok(g.nations.first.laws.includes("工资税改革"));
   assert.equal(g.lastEconomy!.countries.first.wageTaxRate, 10);
   g = week(g);
   assert.equal(g.lastEconomy!.countries.first.wageTaxRate, 14);
-  while (g.nations.first.knowledge["纺织工艺"] < 100) g = week(g);
-  assert.equal(g.lastEconomy!.countries.first.clothOutputBonus, 0);
-  assert.equal(week(g).lastEconomy!.countries.first.clothOutputBonus, 25);
-  g.nations.second.knowledge["公共教育"] = 100;
-  assert.ok(week(g).nations.first.diffusion["公共教育"] > 0);
+  const contact = start();
+  contact.nations.second.knowledge["公共教育"] = 100;
+  assert.ok(week(contact).nations.first.diffusion["公共教育"] > 0);
 });
 test("第一版存档保留日期和实际归属，损坏的存档在输入边界拒绝", () => {
   const legacy = {

@@ -57,8 +57,11 @@ export function applyPlayerCommand(scenario: Scenario, state: GameState, country
 }
 
 export async function encodeSnapshot(scenario: Scenario, state: GameState) {
-  const { tickInDay, ...world } = state;
+  const { tickInDay, settings, ...world } = state;
+  if (state.campaign) throw new GameRuleError("单机战役不能作为联机快照");
   if (tickInDay !== 0) throw new GameRuleError("联机快照必须在日界提交");
+  if (settings.difficulty !== "standard" || settings.difficultyHistory.length !== 1 || settings.tuning)
+    throw new GameRuleError("联机房间使用标准规则");
   // Protocol 1 clients share the existing whole-day snapshot format.
   const envelope = JSON.stringify({ version: 5, scenarioId: scenario.id, state: world });
   const stream = new Blob([envelope]).stream().pipeThrough(new CompressionStream("gzip"));
