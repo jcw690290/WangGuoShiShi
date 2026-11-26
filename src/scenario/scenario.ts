@@ -1,5 +1,6 @@
 import { z } from "zod";
-import type { ByGood } from "../game/industry.ts";
+import { industrialGoods } from "../game/industry.ts";
+import type { ScenarioLevels } from "../game/industry.ts";
 import type { DiplomaticTie } from "../game/diplomatic-ties.ts";
 import gameData from "../../resources/1820_game_data.json" with { type: "json" };
 import demoData from "./qing-vietnam.json" with { type: "json" };
@@ -25,8 +26,8 @@ interface ScenarioState {
   terrain?: "平原" | "森林" | "山地";
   coastal?: boolean;
   grainTransport: number;
-  capacity: ByGood<number>;
-  buildings: ByGood<number>;
+  capacity: ScenarioLevels;
+  buildings: ScenarioLevels;
 }
 
 export interface Scenario {
@@ -117,8 +118,10 @@ export const borderScenario: Scenario = {
   ),
 };
 
-const siteSchema = z.object({
-  name: z.string(),
+const worldCounts = counts.extend({
+  wood: z.int().nonnegative(), iron: z.int().nonnegative(), coal: z.int().nonnegative(), tools: z.int().nonnegative(),
+});
+const baseSiteSchema = z.object({
   label: z.tuple([z.number(), z.number()]),
   neighbors: z.array(z.string()),
   grainTransport: z.int().positive(),
@@ -128,10 +131,29 @@ const siteSchema = z.object({
   terrain: z.enum(["平原", "森林", "山地"]),
   coastal: z.boolean(),
 });
+const siteSchema = baseSiteSchema.extend({ name: z.string(), buildings: worldCounts, capacity: worldCounts });
+const rawWorld = z.record(z.string(), baseSiteSchema).parse(worldData);
 export const atlas = z.record(z.string(), siteSchema).parse(
-  Object.fromEntries(Object.entries(worldData).map(([id, state]) => [
-    id, { ...state, name: (stateNames as Record<string, string>)[id] },
-  ])),
+  Object.fromEntries(Object.entries(rawWorld).map(([id, state]) => {
+    // The available 1820 map has terrain and population but no mineral survey.
+    const resource = Math.floor(state.label[0] * 3 + state.label[1] * 7);
+    const wood = state.terrain === "森林" ? 10 : 4;
+    const iron = resource % 5 === 0 || state.terrain === "山地" ? 6 : 0;
+    const coal = resource % 7 === 0 || state.terrain === "山地" ? 5 : 0;
+    const tools = state.population >= 12_000 ? 5 : 1;
+    const owned = sourceStates.has(id);
+    return [id, {
+      ...state, name: (stateNames as Record<string, string>)[id],
+      capacity: { ...state.capacity, wood, iron, coal, tools },
+      buildings: {
+        ...state.buildings,
+        wood: owned ? Math.min(wood, Math.max(1, Math.ceil(state.population / 24_000))) : 0,
+        iron: owned && iron > 0 ? 1 : 0,
+        coal: owned && coal > 0 ? 1 : 0,
+        tools: owned && state.buildings.cloth > 0 && state.population >= 18_000 ? 1 : 0,
+      },
+    }];
+  })),
 );
 const countries = z
   .array(countrySchema.extend({ id: z.string(), stateCount: z.int().positive() }))
@@ -145,7 +167,8 @@ if (
     ([id, site]) =>
       site.neighbors.every((other) => other !== id && atlas[other]?.neighbors.includes(id)) &&
       site.buildings.grain <= site.capacity.grain &&
-      site.buildings.cloth <= site.capacity.cloth,
+      site.buildings.cloth <= site.capacity.cloth &&
+      industrialGoods.every((good) => site.buildings[good] <= site.capacity[good]),
   )
 ) {
   throw new Error("世界剧本的国家、邻接或容量数据无效");

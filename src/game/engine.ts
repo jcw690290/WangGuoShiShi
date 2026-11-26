@@ -4,7 +4,7 @@ import type { Difficulty, GameSettings, RuleTuning } from "./settings.ts";
 import type { Scenario } from "../scenario/scenario.ts";
 import { advanceFront, aiDiplomacy, applyBorderCommand, planWar, tickDiplomacy } from "./diplomacy.ts";
 import type { BorderCommand, BorderDispute } from "./diplomacy.ts";
-import { chooseConstruction, chooseUniversity, constructionError, projects, settleEconomy } from "./economy.ts";
+import { chooseConstruction, chooseUniversity, constructionError, initialStateEconomy, projects, settleEconomy } from "./economy.ts";
 import type { Building, CountryEconomy, EconomyReport, StateEconomy } from "./economy.ts";
 import { advancePolitics, applyPolitics, availableTech, politicsError } from "./politics.ts";
 import type { PoliticsCommand } from "./politics.ts";
@@ -26,6 +26,7 @@ import type { TradeCommand, TradeRoute } from "./trade.ts";
 import { advanceAchievements } from "./achievements.ts";
 import { chooseLocalNegotiation, negotiateLocalUnrest } from "./unrest.ts";
 import type { LocalUnrestCommand } from "./unrest.ts";
+import { isGood } from "./industry.ts";
 export { DAY_MS, elapsedTicks, TICKS_PER_DAY } from "./time.ts";
 
 export interface GameState {
@@ -89,7 +90,7 @@ export function createGame(scenario: Scenario, seed = 1820, difficulty: Difficul
     stateEconomies: Object.fromEntries(
       owned.map((s) => [
         s.id,
-        { population: s.population, buildings: { ...s.buildings } },
+        initialStateEconomy(s),
       ]),
     ),
     countryEconomies: Object.fromEntries(
@@ -260,7 +261,7 @@ function applyCommand(
       if (error) throw new GameRuleError(error);
       const { cost, weeks } = projects[good],
         job = { stateId, good, weeksLeft: weeks };
-      if (privateBuild && (good === "grain" || good === "cloth")) {
+      if (privateBuild && isGood(good)) {
         const n = state.nations[id];
         return {
           ...state,
