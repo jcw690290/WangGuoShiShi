@@ -2,7 +2,8 @@ import { GameRuleError } from "./rules.ts";
 import { z } from "zod";
 import { diplomaticTie, removeDiplomaticTies } from "./diplomatic-ties.ts";
 import { newFrontier } from "./governance.ts";
-import { connectedRailway, convoyCargoCapacity, raidedConvoyCargoCapacity } from "./transport.ts";
+import { connectedRailway, convoyCargoCapacity, portCapacity, raidedConvoyCargoCapacity } from "./transport.ts";
+import type { MaritimeTerminal } from "./transport.ts";
 import { unrestEffects } from "./unrest.ts";
 import type { Scenario } from "../scenario/scenario.ts";
 import type { GameState } from "./engine.ts";
@@ -363,6 +364,7 @@ interface SupplyRoute {
   mobilized: boolean;
   overseas: boolean;
   raided: boolean;
+  maritimeTerminals?: MaritimeTerminal[][];
 }
 export interface WarPlan {
   routes: Record<string, SupplyRoute>;
@@ -383,15 +385,27 @@ export function planWar(scenario: Scenario, state: GameState): WarPlan | undefin
   const line = new Set(frontLine(scenario, state, d).map((site) => site.id));
   for (const id of participants(d)) {
     const sites = holdings(scenario, state, id);
+    const ports = sites.filter((site) => site.coastal && state.occupation?.stateId !== site.id)
+      .map((site) => ({ stateId: site.id, capacity: portCapacity(site.grainTransport, state.societies[site.id]) }))
+      .sort((left, right) => right.capacity - left.capacity);
     const fronts = sites.filter((s) =>
       id === d.defenderId ? line.has(s.id) : s.neighbors.includes(d.targetStateId),
     );
-    const starts = !fronts.length ? sites.filter((s) => s.coastal).slice(0, 1) : fronts;
-    const recruitmentStates = new Set(starts.map((s) => s.id)),
-      connectedStates = new Set(recruitmentStates);
-    for (const site of connectedStates)
-      for (const next of scenario.states[site].neighbors)
-        if (state.ownerByStateId[next] === id) connectedStates.add(next);
+    const starts = fronts.length > 0 ? fronts : ports.slice(0, 1).map((port) => scenario.states[port.stateId]);
+    const recruitmentStates = new Set(starts.map((site) => site.id));
+    function connected(seeds: Iterable<string>) {
+      const reachable = new Set(seeds);
+      for (const site of reachable)
+        for (const next of scenario.states[site].neighbors)
+          if (state.ownerByStateId[next] === id && state.occupation?.stateId !== next) reachable.add(next);
+      return reachable;
+    }
+    const connectedStates = connected(recruitmentStates);
+    // Supplies from a disconnected front must cross the sea. The home depot is the
+    // most populous original state still held; an occupation never relocates that depot.
+    const homeland =
+      sites.filter((s) => s.ownerId === id).sort((a, b) => b.population - a.population)[0] ?? sites[0];
+    const overseas = !fronts.length || !connectedStates.has(homeland.id);
     let grainTransport = starts.reduce(
       (n, s) => {
         const site = state.societies[s.id];
@@ -399,25 +413,34 @@ export function planWar(scenario: Scenario, state: GameState): WarPlan | undefin
           if (state.ownerByStateId[neighbor] !== id || state.occupation?.stateId === neighbor) return bonus;
           return Math.max(bonus, connectedRailway(site.railway, state.societies[neighbor].railway));
         }, 0);
-        return n + Math.floor(s.grainTransport * (site.infrastructure + rail) * unrestEffects(site.stability).transport);
+        const terminal = overseas && s.coastal && state.occupation?.stateId !== s.id ? site.port : 0;
+        return n + Math.floor(s.grainTransport * (site.infrastructure + rail + terminal) * unrestEffects(site.stability).transport);
       },
       0,
     );
-    // Supplies from a disconnected front must cross the sea. The home depot is the
-    // most populous original state still held; an occupation never relocates that depot.
-    const homeland =
-      sites.filter((s) => s.ownerId === id).sort((a, b) => b.population - a.population)[0] ?? sites[0];
-    const overseas = !fronts.length || !connectedStates.has(homeland.id);
     const raided = overseas && d.raid.some((x) => attacking(d, x) !== attacking(d, id) &&
       holdings(scenario, state, x).some((site) => site.coastal));
     if (state.nations[id].knowledge["运输调度"] === 100) grainTransport = Math.floor(grainTransport * 1.3);
+    let maritimeTerminals: MaritimeTerminal[][] | undefined;
     if (overseas) {
+      const frontPorts = ports.filter((port) => connectedStates.has(port.stateId));
+      maritimeTerminals = [frontPorts];
+      if (fronts.length > 0) {
+        const home = connected(state.occupation?.stateId === homeland.id ? [] : [homeland.id]);
+        const homePorts = ports.filter((port) => home.has(port.stateId));
+        maritimeTerminals.unshift(homePorts);
+        if (homePorts.length > 0 && frontPorts.length > 0) {
+          for (const site of home) connectedStates.add(site);
+        }
+      }
       grainTransport = Math.min(
         grainTransport,
         state.nations[id].convoys * (raided ? raidedConvoyCargoCapacity : convoyCargoCapacity),
+        ...maritimeTerminals.map((group) => group.reduce((sum, port) => sum + port.capacity, 0)),
       );
     }
-    routes[id] = { recruitmentStates, connectedStates, grainTransport, mobilized: d.mobilized.includes(id), overseas, raided };
+    routes[id] = { recruitmentStates, connectedStates, grainTransport, mobilized: d.mobilized.includes(id), overseas, raided,
+      ...(maritimeTerminals ? { maritimeTerminals } : {}) };
   }
   return { ...scenario.borderDispute, routes };
 }

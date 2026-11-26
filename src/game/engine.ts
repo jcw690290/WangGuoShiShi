@@ -4,7 +4,7 @@ import type { Difficulty, GameSettings, RuleTuning } from "./settings.ts";
 import type { Scenario } from "../scenario/scenario.ts";
 import { advanceFront, aiDiplomacy, applyBorderCommand, planWar, tickDiplomacy } from "./diplomacy.ts";
 import type { BorderCommand, BorderDispute } from "./diplomacy.ts";
-import { chooseConstruction, chooseRailway, chooseUniversity, constructionError,
+import { chooseConstruction, choosePort, chooseRailway, chooseUniversity, constructionError,
   initialStateEconomy, projectDeposit, projectOpeningCapital, projects, settleEconomy } from "./economy.ts";
 import type { Building, CountryEconomy, EconomyReport, StateEconomy } from "./economy.ts";
 import { advancePolitics, applyPolitics, availableTech, politicsError } from "./politics.ts";
@@ -163,7 +163,7 @@ export function advanceTick(
     const { market } = settled.lastEconomy.countries[id];
     if (!humanCountries.has(id)) {
       const job = chooseUniversity(scenario, result, id) ?? chooseRailway(scenario, result, id, settled.lastEconomy) ??
-        chooseConstruction(scenario, result, id, market);
+        choosePort(scenario, result, id, settled.lastEconomy) ?? chooseConstruction(scenario, result, id, market);
       if (result.elapsedDays % 28 === 0) {
         const integration = chooseIntegration(result, id);
         if (integration) result = applyGovernanceCommand(result, integration);

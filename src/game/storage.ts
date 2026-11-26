@@ -262,6 +262,8 @@ const siteReport = z.object({
   universityStaff: z.number().nonnegative().optional(),
   administrationStaff: z.number().nonnegative().optional(),
   freightWages: uint.optional(),
+  portTradeCargo: uint.optional(),
+  portMilitaryCargo: uint.optional(),
   builders: uint,
   access: fraction,
   localPrices: goodsNumbers,
@@ -463,6 +465,7 @@ export function parseSave(scenario: Scenario, save: unknown): GameState {
     const queued = [...state.countryEconomies[id].queue, ...n.privateQueue];
     for (const p of queued)
       if (state.ownerByStateId[p.stateId] !== id || p.weeksLeft > projects[p.good].weeks ||
+        (p.good === "port" && !scenario.states[p.stateId].coastal) ||
         (p.levels !== undefined && (!isGood(p.good) || isIndustrialGood(p.good) || p.levels !== commercialLevels[p.good]))) invalid();
     if (data.version !== saveVersion && header.data.weeklyConstruction !== true) {
       const account = state.countryEconomies[id];
@@ -491,6 +494,7 @@ export function parseSave(scenario: Scenario, save: unknown): GameState {
         invalid();
     }
     const queue = [...state.countryEconomies[owner].queue, ...state.nations[owner].privateQueue];
+    if (state.societies[id].port > 0 && !scenario.states[id].coastal) invalid();
     const openingCropland = scenario.states[id].cropland;
     if (openingCropland !== undefined || local.cropland !== undefined) {
       const reserved = reservedCropland(local.buildings, queue.filter((project) => project.stateId === id));

@@ -11,7 +11,7 @@ import { affinityLevel, culturalAffinityOf } from "./game/culture.ts";
 import { governanceModes, governanceOf, governanceRules, integrationDuration, integrationStaffNeeded } from "./game/governance.ts";
 import type { GovernanceMode } from "./game/governance.ts";
 import { TradePanel } from "./TradePanel.tsx";
-import { convoyCargoCapacity } from "./game/transport.ts";
+import { convoyCargoCapacity, portCapacity } from "./game/transport.ts";
 import { incidentNames, unrestEffects } from "./game/unrest.ts";
 import { basicEquivalentSupply, extraGoods } from "./game/households.ts";
 
@@ -103,6 +103,11 @@ function StateIndustry({
           <dt>市场接入</dt>
           <dd>{Math.round(snapshot.access * 100)}%</dd>
         </div>
+        {site.coastal && <div>
+          <dt>港口每周吞吐</dt>
+          <dd>{count(portCapacity(site.grainTransport, society))}</dd>
+          <small>商运 {count(snapshot.portTradeCargo ?? 0)} · 军需 {count(snapshot.portMilitaryCargo ?? 0)}</small>
+        </div>}
         <div>
           <dt>生活水平</dt>
           <dd>{livingStandardOf(society.pops).toFixed(1)}</dd>
@@ -194,7 +199,7 @@ function StateIndustry({
           </div>
         </details>}
         <div className="diplomacy-actions">
-          {facilityTypes.map((g) => (
+          {facilityTypes.filter((g) => g !== "port" || site.coastal).map((g) => (
             <button
               key={g}
               className="build"
