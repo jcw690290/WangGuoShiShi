@@ -87,9 +87,7 @@ test("同一口岸共享运力、文化熟悉度降低运费，停运和交战�
 
 test("世界开局俄罗斯可在奥卢通过陆路获得诺尔兰剩余的布匹", () => {
   const countryId = "country_09";
-  const initial = dispatch(world, createGame(world, 1820, "standard", {
-    id: "f2a10071-5c11-4b3e-a1ec-d56607cee5b8", endYear: 1936, tutorialEnabled: false,
-  }), { type: "selectCountry", countryId });
+  const initial = dispatch(world, createGame(world), { type: "selectCountry", countryId });
   const approved = dispatch(world, initial, { type: "openTradeRoute", countryId, from: "Norrland", to: "Oulu",
     good: "cloth", limit: 500 });
   const settled = dispatch(world, approved, { type: "advanceWeek" });
