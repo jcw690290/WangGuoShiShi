@@ -3,6 +3,7 @@ import { z } from "zod";
 import { diplomaticTie, removeDiplomaticTies } from "./diplomatic-ties.ts";
 import { newFrontier } from "./governance.ts";
 import { connectedRailway, convoyCargoCapacity, portCapacity, raidedConvoyCargoCapacity } from "./transport.ts";
+import { effectiveConvoyCapacity } from "./fleet.ts";
 import type { MaritimeTerminal } from "./transport.ts";
 import { unrestEffects } from "./unrest.ts";
 import type { Scenario } from "../scenario/scenario.ts";
@@ -142,6 +143,8 @@ function treaty(state: GameState, d: BorderDispute, victory: boolean, withdrawal
       };
       nations[b] = {
         ...nations[b],
+        fleet: { ...nations[b].fleet, order: nations[b].fleet.order &&
+          ownerByStateId[nations[b].fleet.order.stateId] === b ? nations[b].fleet.order : null },
         investment: nations[b].investment + nations[b].privateQueue.reduce((sum, p) =>
           sum + (ownerByStateId[p.stateId] === b ? 0 : projectOpeningCapital(p)), 0),
         privateQueue: nations[b].privateQueue.filter((p) => ownerByStateId[p.stateId] === b),
@@ -435,7 +438,7 @@ export function planWar(scenario: Scenario, state: GameState): WarPlan | undefin
       }
       grainTransport = Math.min(
         grainTransport,
-        state.nations[id].convoys * (raided ? raidedConvoyCargoCapacity : convoyCargoCapacity),
+        effectiveConvoyCapacity(state.nations[id], raided ? raidedConvoyCargoCapacity : convoyCargoCapacity),
         ...maritimeTerminals.map((group) => group.reduce((sum, port) => sum + port.capacity, 0)),
       );
     }

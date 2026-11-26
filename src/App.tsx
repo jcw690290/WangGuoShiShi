@@ -100,7 +100,7 @@ export function App({ scenario, geometry, initialSaves, initialSaveNotice }: {
     ? { ...game.ownerByStateId, [occupation.stateId]: occupation.controllerId }
     : game.ownerByStateId, [mapLayer, game.ownerByStateId, occupation]);
   const report = useMemo(
-    () => governmentOpen ? game.lastEconomy ?? projectEconomy(game, planWar(scenario, game)) : null,
+    () => governmentOpen ? game.lastEconomy ?? projectEconomy(game, planWar(scenario, game), scenario) : null,
     [governmentOpen, game.lastEconomy, game.ownerByStateId, game.countryEconomies, game.stateEconomies,
       game.nations, game.societies, game.borderDispute, scenario],
   );

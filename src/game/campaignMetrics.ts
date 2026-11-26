@@ -24,7 +24,7 @@ function civilianOutput(report: EconomyReport, holdings: readonly string[]) {
       subsistence.produced.wood * industries.wood.basePrice;
     for (const good of goods) total += activity[good].output * industries[good].basePrice;
     if (industrial) for (const good of industrialGoods) total -= industrial.used[good] * industries[good].basePrice;
-    for (const line of ["cloth", "tools", "paper", "dailyGoods", "luxury", "steel", "arms", "ammo"] as const) {
+    for (const line of ["cloth", "tools", "paper", "dailyGoods", "luxury", "steel", "arms", "ammo", "shipGoods"] as const) {
       const recipe: Partial<Record<(typeof industrialGoods)[number], number>> = inputs[line];
       const inputsCost = industrialGoods.reduce((sum, good) =>
         sum + Math.ceil(activity[line].employed * (recipe[good] ?? 0) / industries[line].jobs) * industries[good].basePrice, 0);

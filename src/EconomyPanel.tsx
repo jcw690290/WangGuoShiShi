@@ -11,7 +11,8 @@ import { affinityLevel, culturalAffinityOf } from "./game/culture.ts";
 import { governanceModes, governanceOf, governanceRules, integrationDuration, integrationStaffNeeded } from "./game/governance.ts";
 import type { GovernanceMode } from "./game/governance.ts";
 import { TradePanel } from "./TradePanel.tsx";
-import { convoyCargoCapacity, portCapacity } from "./game/transport.ts";
+import { portCapacity } from "./game/transport.ts";
+import { effectiveConvoyCapacity, maxConvoyOrder, shipGoodsPerConvoy } from "./game/fleet.ts";
 import { incidentNames, unrestEffects } from "./game/unrest.ts";
 import { basicEquivalentSupply, extraGoods } from "./game/households.ts";
 
@@ -63,6 +64,8 @@ function StateIndustry({
     society = game.societies[stateId],
     snapshot = report.states[stateId];
   const governance = governanceOf(society);
+  const order = game.nations[owner].fleet.order;
+  const movesOrder = order !== null && order.stateId !== stateId;
   const rule = governanceRules[governance.mode];
   const occupied = game.occupation?.stateId === stateId;
   const integrationActive = governance.integration !== null;
@@ -172,6 +175,16 @@ function StateIndustry({
         })}
       </ul>
       <div className="control-block">
+        {site.coastal && isOwnState && <div className="diplomacy-actions">
+          <button className="build" disabled={busy || occupied || (!movesOrder && order?.remaining === maxConvoyOrder)}
+            onClick={() => send({ type: "setConvoyOrder", countryId: playerId, stateId,
+              operation: movesOrder ? "move" : "add" })}>
+            {movesOrder ? "把商船订单转至本港" : "订造一艘商船"}
+            <small>{shipGoodsPerConvoy} 单位船舶制品{order?.stateId === stateId && ` · 待交付 ${order.remaining} 艘`}</small>
+          </button>
+          {order?.stateId === stateId && <button className="build" disabled={busy}
+            onClick={() => send({ type: "setConvoyOrder", countryId: playerId, stateId, operation: "cancel" })}>取消商船订单</button>}
+        </div>}
         {snapshot.subsistence && <details>
           <summary>自给农业 · {snapshot.subsistence.rentRate > 0 ? "地主租佃" : "小农自耕"}</summary>
           <p>耕地 {count(snapshot.subsistence.cropland)} · 商品农业占用 {count(snapshot.subsistence.occupied)} · 自给就业 {count(snapshot.subsistence.employed)} 人</p>
@@ -327,7 +340,8 @@ function StateIndustry({
 export function EconomyPanel({ scenario, game, playerId, selectedId, report, busy, send, onPopulationOpen }: Props) {
   const marketId = selectedId === null ? playerId : game.ownerByStateId[selectedId];
   const country = scenario.countries[marketId];
-  const { market, tax, wageTaxRate, upkeep, tribute, officeUpkeep, military } = report.countries[marketId];
+  const { market, tax, wageTaxRate, upkeep, tribute, officeUpkeep, military, fleet, tradeSeaCargo } = report.countries[marketId];
+  const nation = game.nations[marketId];
   const { tributeReceived, balance } = weeklyBudgets(game.nations, report)[marketId];
   const countryLiving = useMemo(() => livingStandardOf(Object.entries(game.societies)
     .filter(([stateId]) => game.ownerByStateId[stateId] === marketId).flatMap(([, site]) => site.pops)),
@@ -380,10 +394,12 @@ export function EconomyPanel({ scenario, game, playerId, selectedId, report, bus
               <dt>实收进口关税</dt>
               <dd>{silver(report.countries[marketId].tradeTariff!)}</dd>
             </div>}
-            {report.countries[marketId].tradeSeaCargo !== undefined && <div>
-              <dt>船队总运力</dt>
-              <dd>{count(game.nations[marketId].convoys * convoyCargoCapacity)}</dd>
-              <small>商用 {count(report.countries[marketId].tradeSeaCargo!)} · 军需 {count(report.countries[marketId].military.seaCargoUsed ?? 0)}</small>
+            {fleet?.port && <div>
+              <dt>商船可用运力</dt>
+              <dd>{count(effectiveConvoyCapacity(nation))} · {count(nation.convoys)} 艘 · 船况 {nation.fleet.condition}%</dd>
+              <small>商运 {count(tradeSeaCargo ?? 0)} · 军需 {count(military.seaCargoUsed ?? 0)}</small>
+              <small>{scenario.states[fleet.port].name} · 到货 {count(fleet.delivered)}/{count(fleet.ordered)} · 实付 {silver(fleet.spending)} ·
+                维护 {count(fleet.maintained)}/{count(fleet.maintenanceDue)} · 交付 {count(fleet.commissioned)} 艘</small>
             </div>}
             <div>
               <dt>贡金收入 / 上缴</dt>

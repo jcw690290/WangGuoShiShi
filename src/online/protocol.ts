@@ -28,6 +28,7 @@ const commandSchema = z.discriminatedUnion("type", [
     mode: z.enum(tradeModes).optional() }),
   z.strictObject({ type: z.literal("queueConstruction"), countryId: id, stateId: id, good: z.enum(projectTypes), privateBuild: z.boolean().optional() }),
   z.strictObject({ type: z.literal("cancelConstruction"), countryId: id, index: seq, stateId: id, good: z.enum(projectTypes), privateBuild: z.boolean().optional() }),
+  z.strictObject({ type: z.literal("setConvoyOrder"), countryId: id, stateId: id, operation: z.enum(["add", "move", "cancel"]) }),
   z.strictObject({ type: z.literal("setGovernment"), countryId: id, government: z.array(z.enum(groups)).max(groups.length) }),
   z.strictObject({ type: z.literal("proposeLaw"), countryId: id, law: z.enum(laws) }),
   z.strictObject({ type: z.literal("startResearch"), countryId: id, tech: z.enum(techs) }),

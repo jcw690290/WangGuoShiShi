@@ -6,6 +6,7 @@ import { initialCulturalAffinity } from "./culture.ts";
 import { localGovernanceSchema } from "./governance.ts";
 import { emptyStability, stabilitySchema } from "./unrest.ts";
 import { goods } from "./industry.ts";
+import { initialFleet, merchantFleetSchema } from "./fleet.ts";
 
 export const occupations = ["农民", "劳工", "工程师", "军官", "教士", "店主", "资本家", "贵族"] as const;
 export type Occupation = (typeof occupations)[number];
@@ -140,6 +141,7 @@ export const nationSchema = z.object({
   interests: z.array(z.string()),
   prestige: z.int(),
   convoys: z.int().nonnegative(),
+  fleet: merchantFleetSchema.default(initialFleet),
   morale: percent,
   generalRank: z.int().min(1).max(5),
 });
@@ -206,6 +208,7 @@ export function initSociety(scenario: Scenario) {
       interests: [],
       prestige: 100,
       convoys: 4,
+      fleet: initialFleet(),
       generalRank: 1,
       morale: 100,
     };

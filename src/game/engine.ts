@@ -27,7 +27,8 @@ import type { TradeCommand, TradeRoute } from "./trade.ts";
 import { advanceAchievements } from "./achievements.ts";
 import { chooseLocalNegotiation, negotiateLocalUnrest } from "./unrest.ts";
 import type { LocalUnrestCommand } from "./unrest.ts";
-import { isGood } from "./industry.ts";
+import { industries, isGood } from "./industry.ts";
+import { effectiveConvoyCapacity, maxConvoyOrder, shipGoodsPerConvoy } from "./fleet.ts";
 export { DAY_MS, elapsedTicks, TICKS_PER_DAY } from "./time.ts";
 
 export interface GameState {
@@ -60,6 +61,7 @@ export type GameCommand =
   | { type: "claimState"; stateId: string }
   | { type: "queueConstruction"; countryId: string; stateId: string; good: Building; privateBuild?: boolean }
   | { type: "cancelConstruction"; countryId: string; index: number; stateId: string; good: Building; privateBuild?: boolean }
+  | { type: "setConvoyOrder"; countryId: string; stateId: string; operation: "add" | "move" | "cancel" }
   | { type: "advanceTick" | "advanceWeek" | "advanceDay" | "advanceHalfYear" }
   | PoliticsCommand
   | GovernanceCommand
@@ -154,7 +156,7 @@ export function advanceTick(
       monthly || result.borderDispute !== state.borderDispute || result.ownerByStateId !== state.ownerByStateId);
   }
   const yearFraction = fiscalWeekFraction(date);
-  const weekly = settleEconomy(next, planWar(scenario, next), yearFraction);
+  const weekly = settleEconomy(next, planWar(scenario, next), yearFraction, scenario);
   const settled = monthly ? settlePopulationMonth(scenario, weekly, date) : weekly;
   let result = advancePolitics(advanceFront(scenario, settled, settled.lastEconomy), settled.lastEconomy, date.getUTCFullYear(), yearFraction);
   result.rng = (Math.imul(result.rng, 1664525) + 1013904223) >>> 0;
@@ -171,6 +173,14 @@ export function advanceTick(
         if (agreement) result = negotiateLocalUnrest(result, agreement);
       }
       if (job) result = applyCommand(scenario, result, { type: "queueConstruction", countryId: id, ...job });
+      const report = settled.lastEconomy.countries[id];
+      const port = report.fleet?.port;
+      const occupiedCargo = (report.military.seaCargoUsed ?? 0) + (report.tradeSeaCargo ?? 0);
+      if (result.elapsedDays % 28 === 0 && port && result.occupation?.stateId !== port && !result.nations[id].fleet.order &&
+          occupiedCargo > 0 && occupiedCargo >= effectiveConvoyCapacity(next.nations[id]) * 0.8 &&
+          result.countryEconomies[id].treasury >= shipGoodsPerConvoy * industries.shipGoods.basePrice * 1.75) {
+        result = applyCommand(scenario, result, { type: "setConvoyOrder", countryId: id, stateId: port, operation: "add" });
+      }
       const n = result.nations[id];
       const pending = techs.filter((t) => availableTech(n, t));
       if (!n.research && pending.length)
@@ -306,6 +316,21 @@ function applyCommand(
           ...c, treasury: c.treasury + returned, queue: c.queue.filter((_, i) => i !== index),
         } },
       };
+    }
+    case "setConvoyOrder": {
+      const { countryId: id, stateId, operation } = cmd;
+      if (state.ownerByStateId[stateId] !== id || !scenario.states[stateId]?.coastal)
+        throw new GameRuleError("只能在本国沿海州安排商船");
+      if (operation !== "cancel" && state.occupation?.stateId === stateId) throw new GameRuleError("该港口处于军事占领中");
+      const nation = state.nations[id];
+      const current = nation.fleet.order;
+      if (operation === "move" && current === null || operation === "cancel" && current?.stateId !== stateId)
+        throw new GameRuleError("该商船订单已变更");
+      if (operation === "add" && current && (current.stateId !== stateId || current.remaining >= maxConvoyOrder))
+        throw new GameRuleError("请检查订单所在港口和数量上限");
+      const order = operation === "cancel" ? null :
+        { stateId, remaining: (current?.remaining ?? 0) + (operation === "add" ? 1 : 0) };
+      return { ...state, nations: { ...state.nations, [id]: { ...nation, fleet: { ...nation.fleet, order } } } };
     }
     case "setGovernment":
     case "proposeLaw":
