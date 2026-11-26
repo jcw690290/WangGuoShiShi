@@ -9,6 +9,7 @@ import type { GameState } from "./engine.ts";
 import { goods, industrialGoods, industries } from "./industry.ts";
 import { inputs } from "./industrial.ts";
 import { accepted, governmentLegitimacy, influence } from "./society.ts";
+import { basicEquivalentSupply, essentialGoods } from "./households.ts";
 
 export const campaignBaselineSchema = z.object({ outputPerPerson: z.number().nonnegative(), army: z.number().nonnegative() });
 type CampaignBaseline = z.infer<typeof campaignBaselineSchema>;
@@ -115,9 +116,12 @@ export function measureCampaign(
   if (held.every((id) => report.states[id].office !== undefined)) metrics.GOV = governance / people;
   if (held.every((id) => report.states[id].householdBasicOrders !== undefined &&
       report.states[id].householdConsumption !== undefined)) {
-    metrics.BASIC_CONSUMPTION = Math.min(...goods.filter((good) => industries[good].demandPerPerson > 0).map((good) => {
-      const total = held.reduce((sum, id) => sum + report.states[id].householdConsumption![good] -
-        (good === "services" ? report.states[id].householdExtras?.delivered.services ?? 0 : 0), 0);
+    const equivalents = held.map((id) => {
+      const site = report.states[id];
+      return basicEquivalentSupply(site.householdConsumption!, site.householdExtras?.delivered);
+    });
+    metrics.BASIC_CONSUMPTION = Math.min(...essentialGoods.map((good) => {
+      const total = equivalents.reduce((sum, amounts) => sum + amounts[good], 0);
       const required = held.reduce((sum, id) => sum + report.states[id].householdBasicOrders![good], 0);
       return required > 0 ? Math.min(1, total / required) : 1;
     }));

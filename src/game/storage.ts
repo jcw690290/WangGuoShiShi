@@ -7,7 +7,7 @@ import type { GameState } from "./engine.ts";
 import { byIndustrialGood, goods, industrialGoods, industries } from "./industry.ts";
 import { industrialAccountSchema, industrialReportSchema } from "./industrial.ts";
 import { officeReportSchema } from "./administration.ts";
-import { extrasReportSchema } from "./households.ts";
+import { extrasReportSchema, substituteOrdersSchema } from "./households.ts";
 import { projects } from "./economy.ts";
 import { nationSchema, siteSocialSchema, projectTypes } from "./society.ts";
 import { importRegionalSave } from "./legacySave.ts";
@@ -238,6 +238,7 @@ const siteReport = z.object({
   foodFulfillment: fraction.optional(),
   householdConsumption: goodsNumbers.optional(),
   householdBasicOrders: goodsNumbers.optional(),
+  householdSubstituteOrders: substituteOrdersSchema.optional(),
   householdExtras: extrasReportSchema.optional(),
   constructionGoods: goodsNumbers.optional(),
   industrial: industrialReportSchema.optional(),
