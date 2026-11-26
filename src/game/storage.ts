@@ -649,12 +649,20 @@ export function parseSave(scenario: Scenario, save: unknown): GameState {
         new Set([...d.goals, ...d.unacceptedGoals]).size !== d.goals.length + d.unacceptedGoals.length
       )) ||
       [...d.advance, ...d.mobilized, ...d.raid].some((id) => !parties.includes(id)) ||
+      (d.retreating !== undefined && ((d.phase !== "war" && d.phase !== "resolved") ||
+        new Set(d.retreating).size !== d.retreating.length ||
+        d.retreating.some((id) => !parties.includes(id) || d.advance.includes(id)))) ||
       (d.losses !== undefined && ((d.phase !== "war" && d.phase !== "resolved") ||
         Object.keys(d.losses).some((id) => !parties.includes(id)))) ||
       d.promises.some((id) => !d.allies.includes(id))
     )
       invalid();
     const executed = d.agreedPeace?.goals ?? d.goals;
+    const objectives = [d.targetStateId, ...scenario.states[d.targetStateId].neighbors];
+    for (const [id, order] of Object.entries(d.frontOrders ?? {})) {
+      if (!parties.includes(id) || (d.phase !== "war" && d.phase !== "resolved") ||
+          (order.objective !== null && !objectives.includes(order.objective))) invalid();
+    }
     const transferred = d.outcome === "victory" && (executed.includes("cession") || executed.includes("annex"));
     if (state.ownerByStateId[d.targetStateId] !== (transferred ? d.claimantId : d.defenderId)) invalid();
     for (const [id, order] of Object.entries(d.mobilization ?? {})) {

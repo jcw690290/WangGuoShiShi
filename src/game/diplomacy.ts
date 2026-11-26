@@ -63,6 +63,14 @@ const mobilizationPlanSchema = z.object({
   origins: z.array(z.string()).nonempty().refine((sites) => new Set(sites).size === sites.length),
 }).refine(({ orderedDay, readyDay }) =>
   [0, 1, 2].some((delay) => readyDay - orderedDay === mobilizationBaseDays + delay * mobilizationDelayDays));
+export const supplyPriorities = ["front", "balanced", "civilian"] as const;
+export const supplyPriorityDetails = {
+  front: { name: "前线优先", share: 1 },
+  balanced: { name: "军民兼顾", share: 0.8 },
+  civilian: { name: "保障民用", share: 0.55 },
+} as const;
+const frontOrderSchema = z.object({ objective: z.string().nullable(), priority: z.enum(supplyPriorities) });
+type FrontOrder = z.infer<typeof frontOrderSchema>;
 
 export const disputeSchema = z.object({
   targetStateId: z.string(),
@@ -83,6 +91,8 @@ export const disputeSchema = z.object({
   mobilization: z.record(z.string(), mobilizationPlanSchema).optional(),
   losses: z.record(z.string(), warLossesSchema).optional(),
   advance: z.array(z.string()),
+  retreating: z.array(z.string()).optional(),
+  frontOrders: z.record(z.string(), frontOrderSchema).optional(),
   raid: z.array(z.string()),
   progress: z.int().min(0).max(100),
   lastChange: z.int().nullable(),
@@ -101,6 +111,7 @@ export type BorderCommand =
   | { type: "sway"; countryId: string; allyId: string }
   | { type: "proposePeace"; countryId: string; goals: Goal[]; commercial: boolean }
   | { type: "acceptPeace" | "rejectPeace"; countryId: string }
+  | ({ type: "setFrontOrder"; countryId: string } & FrontOrder)
   | { type: "endDiplomaticTie"; countryId: string; partnerId: string }
   | {
       type:
@@ -108,6 +119,7 @@ export type BorderCommand =
         | "mobilize"
         | "orderAdvance"
         | "orderDefend"
+        | "orderRetreat"
         | "raid"
         | "signTreaty"
         | "armistice"
@@ -433,6 +445,12 @@ export function applyBorderCommand(scenario: Scenario, state: GameState, cmd: Bo
     return treaty(state, concession, true);
   }
   if (d.phase !== "war") throw new GameRuleError("尚未进入战争");
+  if (cmd.type === "setFrontOrder") {
+    const { objective, priority } = cmd;
+    if (objective !== null && !frontObjectives(scenario, state, d, id).some((site) => site.id === objective))
+      throw new GameRuleError("该战区当前无法到达");
+    return patch({ frontOrders: { ...d.frontOrders, [id]: { objective, priority } } });
+  }
   if (cmd.type === "signTreaty" || cmd.type === "armistice") {
     if ((id !== d.claimantId && id !== d.defenderId) || d.lastChange === null)
       throw new GameRuleError("尚无法签署和约");
@@ -464,6 +482,7 @@ export function applyBorderCommand(scenario: Scenario, state: GameState, cmd: Bo
   }
   return patch({
     advance: [...d.advance.filter((x) => x !== id), ...(cmd.type === "orderAdvance" ? [id] : [])],
+    retreating: [...(d.retreating ?? []).filter((x) => x !== id), ...(cmd.type === "orderRetreat" ? [id] : [])],
   });
 }
 export function tickDiplomacy(scenario: Scenario, state: GameState,
@@ -498,6 +517,8 @@ export function tickDiplomacy(scenario: Scenario, state: GameState,
   );
 }
 interface SupplyRoute {
+  objective: string;
+  priorityShare: number;
   recruitmentStates: Set<string>;
   connectedStates: Set<string>;
   draftOrigins: Set<string>;
@@ -524,19 +545,31 @@ export function frontLine(scenario: Scenario, state: GameState, d: BorderDispute
   const next = site.neighbors.filter((id) => state.ownerByStateId[id] === d.defenderId);
   return next.length ? next.map((id) => scenario.states[id]) : [site];
 }
+export function frontObjectives(scenario: Scenario, state: GameState, d: BorderDispute, countryId: string) {
+  const sites = holdings(scenario, state, countryId);
+  const departurePort = sites.some((site) => site.coastal && state.occupation?.stateId !== site.id);
+  const target = scenario.states[d.targetStateId];
+  return [...new Set([target, ...frontLine(scenario, state, d)])].filter((site) =>
+    state.ownerByStateId[site.id] === countryId || sites.some((own) => own.neighbors.includes(site.id)) ||
+    (site.coastal && departurePort));
+}
 export function planWar(scenario: Scenario, state: GameState): WarPlan | undefined {
   const d = state.borderDispute;
   if (d?.phase !== "war") return;
   const routes: Record<string, SupplyRoute> = {};
   const line = new Set(frontLine(scenario, state, d).map((site) => site.id));
   for (const id of participants(d)) {
+    const order = d.frontOrders?.[id];
+    const requested = order?.objective;
+    const focus = requested && frontObjectives(scenario, state, d, id).some((site) => site.id === requested) ? requested : null;
+    const objective = focus ?? (id === d.defenderId ? line.values().next().value! : d.targetStateId);
+    const priorityShare = supplyPriorityDetails[order?.priority ?? "front"].share;
     const sites = holdings(scenario, state, id);
     const ports = sites.filter((site) => site.coastal && state.occupation?.stateId !== site.id)
       .map((site) => ({ stateId: site.id, capacity: portCapacity(site.grainTransport, state.societies[site.id]) }))
       .sort((left, right) => right.capacity - left.capacity);
-    const fronts = sites.filter((s) =>
-      id === d.defenderId ? line.has(s.id) : s.neighbors.includes(d.targetStateId),
-    );
+    const defenseLine = focus ? new Set([focus]) : line;
+    const fronts = sites.filter((s) => id === d.defenderId ? defenseLine.has(s.id) : s.neighbors.includes(objective));
     const starts = fronts.length > 0 ? fronts : ports.slice(0, 1).map((port) => scenario.states[port.stateId]);
     const recruitmentStates = new Set(starts.map((site) => site.id));
     function connected(seeds: Iterable<string>) {
@@ -590,19 +623,25 @@ export function planWar(scenario: Scenario, state: GameState): WarPlan | undefin
     const draftOrigins = new Set((callUp?.origins ?? (mobilized ? [...recruitmentStates] : []))
       .filter((siteId) => state.occupation?.stateId !== siteId));
     const draftReady = mobilized && (!callUp || callUp.readyDay <= state.elapsedDays);
-    const deployedDrafts = new Set(draftReady ? [...draftOrigins].filter((siteId) => connectedStates.has(siteId)) : []);
-    routes[id] = { recruitmentStates, connectedStates, draftOrigins, draftReady, deployedDrafts, grainTransport, mobilized, overseas, raided,
-      ...(maritimeTerminals ? { maritimeTerminals } : {}) };
+    if (d.retreating?.includes(id)) {
+      routes[id] = {
+        objective, priorityShare, recruitmentStates: new Set(), connectedStates: new Set(),
+        draftOrigins, draftReady, deployedDrafts: new Set(), grainTransport: 0, mobilized, overseas: false, raided: false,
+      };
+    } else {
+      const deployedDrafts = new Set(draftReady ? [...draftOrigins].filter((siteId) => connectedStates.has(siteId)) : []);
+      routes[id] = { objective, priorityShare, recruitmentStates, connectedStates, draftOrigins, draftReady, deployedDrafts,
+        grainTransport, mobilized, overseas, raided, ...(maritimeTerminals ? { maritimeTerminals } : {}) };
+    }
   }
   return { ...scenario.borderDispute, routes };
 }
 export function advanceFront(scenario: Scenario, state: GameState, report: EconomyReport): GameState {
   const d = state.borderDispute;
   if (d?.phase !== "war") return state;
-  const target = frontLine(scenario, state, d)[0];
-  const width =
-    ({ 山地: 180, 森林: 350, 平原: 650 } as const)[target.terrain ?? "平原"] *
-    state.societies[target.id].infrastructure;
+  const frontWidth = (target: string) =>
+    ({ 山地: 180, 森林: 350, 平原: 650 } as const)[scenario.states[target].terrain ?? "平原"] * state.societies[target].infrastructure;
+  const width = frontWidth(frontLine(scenario, state, d)[0].id);
   const plan = planWar(scenario, state)!;
   const randomFraction = (key: string) => ((Math.imul(state.rng ^ hash(key), 1664525) + 1013904223) >>> 0) / 2 ** 32;
   const deployed = (id: string) => {
@@ -614,18 +653,20 @@ export function advanceFront(scenario: Scenario, state: GameState, report: Econo
       const conscripts = district.deployedConscripts!;
       const regulars = roster.reduce((sum, unit) => sum + unit.trained, 0);
       const effective = roster.reduce((sum, unit) => sum + unit.trained * battalionDetails[unit.kind][role] / 10, conscripts);
-      return { siteId, regulars, conscripts, effective };
+      const cavalry = roster.reduce((sum, unit) => sum + (unit.kind === "cavalry" ? unit.trained : 0), 0);
+      return { siteId, regulars, conscripts, effective, cavalry };
     });
     const soldiers = origins.reduce((sum, x) => sum + x.regulars + x.conscripts, 0);
     const effective = origins.reduce((sum, x) => sum + x.effective, 0);
     const nation = state.nations[id], military = report.countries[id].military;
-    const available = Math.min(soldiers, 300 * nation.generalRank);
-    const landing = attacking(d, id) && !landBorder(scenario, state, id, d.targetStateId) ? 0.65 : 1;
+    const available = Math.min(soldiers, 300 * nation.generalRank, frontWidth(route.objective));
+    const landing = attacking(d, id) && !landBorder(scenario, state, id, route.objective) ? 0.65 : 1;
     const logistics = nation.knowledge["野战后勤"] === 100 ? 1.25 : 1;
     const random = 0.9 + randomFraction(id) * 0.2;
     const power = soldiers === 0 ? 0 :
       available * effective / soldiers * military.readiness * (nation.morale / 100) * landing * logistics * random;
-    return { id, origins, soldiers, available, power, supply: military.supplyRatio! };
+    const mobility = soldiers === 0 ? 0 : origins.reduce((sum, x) => sum + x.cavalry, 0) / soldiers;
+    return { id, origins, soldiers, available, power, mobility, supply: military.supplyRatio! };
   };
   const left = [d.claimantId, ...d.allies],
     right = [d.defenderId, ...d.defenders];
@@ -633,14 +674,17 @@ export function advanceFront(scenario: Scenario, state: GameState, report: Econo
     const forces = ids.map(deployed);
     const committed = forces.reduce((sum, force) => sum + force.available, 0);
     const frontage = committed === 0 ? 0 : Math.min(1, width / committed);
-    return { forces, committed, frontage, power: forces.reduce((sum, force) => sum + force.power, 0) * frontage };
+    const mobility = committed === 0 ? 0 : forces.reduce((sum, force) => sum + force.mobility * force.available, 0) / committed;
+    return { forces, committed, frontage, mobility, power: forces.reduce((sum, force) => sum + force.power, 0) * frontage };
   };
   const attackers = side(left), defenders = side(right);
   const diff = attackers.power - defenders.power;
   const offensive = d.advance.some((id) => left.includes(id) || right.includes(id));
   let delta = 0;
-  if ((diff > 0 && left.some((id) => d.advance.includes(id))) || (diff < 0 && right.some((id) => d.advance.includes(id))))
-    delta = Math.sign(diff) * Math.max(1, Math.floor(Math.abs(diff) / scenario.borderDispute.strengthPerPoint));
+  if ((diff > 0 && left.some((id) => d.advance.includes(id))) || (diff < 0 && right.some((id) => d.advance.includes(id)))) {
+    const mobility = diff > 0 ? attackers.mobility : defenders.mobility;
+    delta = Math.sign(diff) * Math.max(1, Math.floor(Math.abs(diff) * (1 + 0.25 * mobility) / scenario.borderDispute.strengthPerPoint));
+  }
 
   const contested = offensive && attackers.committed > 0 && defenders.committed > 0;
   const result = { ...state, societies: { ...state.societies }, stateEconomies: { ...state.stateEconomies } };
@@ -717,7 +761,9 @@ export function aiDiplomacy(
   for (const id of participants(d).filter((i) => !humanCountries.has(i))) {
     if (!d.mobilized.includes(id) && mobilizationOrigins(state, plan.routes[id]).length)
       orders.push({ type: "mobilize", countryId: id });
-    if (!d.advance.includes(id)) orders.push({ type: "orderAdvance", countryId: id });
+    const cautious = state.elapsedDays - d.since >= 28 && warWillingness(state, d, id) <= 25;
+    if (cautious && d.advance.includes(id)) orders.push({ type: "orderDefend", countryId: id });
+    if (!cautious && !d.advance.includes(id)) orders.push({ type: "orderAdvance", countryId: id });
   }
   if (!humanCountries.has(d.claimantId) && d.progress >= scenario.borderDispute.cessionProgress)
     orders.push({ type: "signTreaty", countryId: d.claimantId });

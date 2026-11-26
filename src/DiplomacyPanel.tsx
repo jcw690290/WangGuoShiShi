@@ -5,6 +5,7 @@ import {
   canDemandGoal,
   canReach,
   frontLine,
+  frontObjectives,
   goalNames,
   goals,
   holdings,
@@ -13,6 +14,8 @@ import {
   participants,
   peaceTermsError,
   swayCost,
+  supplyPriorities,
+  supplyPriorityDetails,
   warWillingness,
 } from "./game/diplomacy.ts";
 import type { BorderDispute, Goal } from "./game/diplomacy.ts";
@@ -85,6 +88,33 @@ function ArmyRoster({ scenario, game, playerId, busy, send, selectedId }: Omit<P
         </div>
       ))}
     </details>
+  );
+}
+
+function FrontOrders({ scenario, game, dispute, playerId, busy, send }: Omit<Props, "report" | "selectedId"> & { dispute: BorderDispute }) {
+  const options = frontObjectives(scenario, game, dispute, playerId);
+  const current = dispute.frontOrders?.[playerId];
+  const objective = options.find(({ id }) => id === current?.objective)?.id ?? null;
+  const priority = current?.priority ?? "front";
+  return (
+    <div className="diplomacy-actions">
+      <label>战区目标{" "}
+        <select disabled={busy} value={objective ?? ""} onChange={(event) =>
+          send({ type: "setFrontOrder", countryId: playerId, objective: event.target.value || null, priority })}>
+          <option value="">随当前战线部署</option>
+          {options.map((site) => <option key={site.id} value={site.id}>{site.name}</option>)}
+        </select>
+      </label>
+      <label>补给优先级{" "}
+        <select disabled={busy} value={priority} onChange={(event) =>
+          send({ type: "setFrontOrder", countryId: playerId, objective, priority: supplyPriorities[event.target.selectedIndex] })}>
+          {supplyPriorities.map((level) => {
+            const details = supplyPriorityDetails[level];
+            return <option key={level} value={level}>{details.name} · 调用上限 {Math.round(details.share * 100)}%</option>;
+          })}
+        </select>
+      </label>
+    </div>
   );
 }
 
@@ -179,6 +209,7 @@ export function DiplomacyPanel({ scenario, game, playerId: id, report, busy, sen
       | "backDown"
       | "orderAdvance"
       | "orderDefend"
+      | "orderRetreat"
       | "mobilize"
       | "raid"
       | "signTreaty"
@@ -322,7 +353,8 @@ export function DiplomacyPanel({ scenario, game, playerId: id, report, busy, sen
                   return (
                     <p key={x}>
                       {countries[x].name} · {attacking(d, x) ? "提出方" : "防守方"} ·{" "}
-                      {d.advance.includes(x) ? "推进" : "防御"} · 全国常备 {m.regulars} · 征召 {m.conscripts} ·
+                      {d.retreating?.includes(x) ? "撤至后方" : d.advance.includes(x) ? "推进" : "防御"} ·
+                      全国常备 {m.regulars} · 征召 {m.conscripts} ·
                       {remaining > 0 ? ` 动员准备剩 ${remaining} 天 ·` : ` 已部署征召兵 ${m.deployedConscripts ?? m.conscripts} ·`}
                       全军军粮 {m.grainDrawn} / {m.grainDemand} · 武器 {m.equipment.weapons.delivered}/
                       {m.equipment.weapons.demand}· 弹药 {m.equipment.ammunition.delivered}/
@@ -334,23 +366,27 @@ export function DiplomacyPanel({ scenario, game, playerId: id, report, busy, sen
                   );
                 })}
                 {involved && (
-                  <div className="diplomacy-actions">
-                    {btn("下令动员", simple("mobilize"), d.mobilized.includes(id))}
-                    {btn("命令推进", simple("orderAdvance"), d.advance.includes(id))}
-                    {btn("命令防御", simple("orderDefend"), !d.advance.includes(id))}
-                    {btn(
-                      "舰队破交",
-                      simple("raid"),
-                      d.raid.includes(id) || !holdings(scenario, game, id).some((s) => s.coastal),
-                    )}
-                    {primary &&
-                      btn(
-                        "执行战争目标",
-                        simple("signTreaty"),
-                        d.lastChange === null || d.progress < scenario.borderDispute.cessionProgress,
+                  <>
+                    <FrontOrders scenario={scenario} game={game} dispute={d} playerId={id} busy={busy} send={send} />
+                    <div className="diplomacy-actions">
+                      {btn("下令动员", simple("mobilize"), d.mobilized.includes(id))}
+                      {btn("命令推进", simple("orderAdvance"), d.advance.includes(id))}
+                      {btn("命令防御", simple("orderDefend"), !d.advance.includes(id) && !d.retreating?.includes(id))}
+                      {btn("撤至后方", simple("orderRetreat"), d.retreating?.includes(id))}
+                      {btn(
+                        "舰队破交",
+                        simple("raid"),
+                        d.raid.includes(id) || !holdings(scenario, game, id).some((s) => s.coastal),
                       )}
-                    {claimant && btn("撤回战时要求", simple("armistice"), d.lastChange === null)}
-                  </div>
+                      {primary &&
+                        btn(
+                          "执行战争目标",
+                          simple("signTreaty"),
+                          d.lastChange === null || d.progress < scenario.borderDispute.cessionProgress,
+                        )}
+                      {claimant && btn("撤回战时要求", simple("armistice"), d.lastChange === null)}
+                    </div>
+                  </>
                 )}
               </>
             )}
