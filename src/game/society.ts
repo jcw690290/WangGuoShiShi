@@ -90,6 +90,7 @@ export const siteSocialSchema = z.object({
   improveGrain: z.int().min(0).max(1).default(0),
   mechanizeTools: z.int().min(0).max(1).default(0),
   alloySteel: z.int().min(0).max(1).default(0),
+  administrativeArchive: z.int().min(0).max(1).default(0),
   university: z.int().nonnegative(),
   bureaucracy: z.int().nonnegative().default(0),
   healthcare: institutionLevelSchema.default(0),
@@ -124,7 +125,7 @@ export type Law = (typeof laws)[number];
 export const techs = ["纺织工艺", "野战后勤", "公共教育", "机械织造", "运输调度", "高等教育", "蒸汽动力", "铁路",
   "规模化钢铁", "电气化", "内燃机", "公共卫生", "劳工保障", "社会保障", "大众政治", "现代税制",
   "常备军组织", "线列训练", "后膛装备", "参谋组织", "连发装备", "现代火炮", "装甲舰艇", "机械化组织",
-  "农业改良", "机械工具", "先进材料"] as const;
+  "农业改良", "机械工具", "先进材料", "官僚改良"] as const;
 export type Tech = (typeof techs)[number];
 export const emptyKnowledge = (): Record<Tech, number> => ({
   纺织工艺: 0,
@@ -154,12 +155,14 @@ export const emptyKnowledge = (): Record<Tech, number> => ({
   农业改良: 0,
   机械工具: 0,
   先进材料: 0,
+  官僚改良: 0,
 });
 const knowledgeSchema = z.object({
   纺织工艺: percent, 野战后勤: percent, 公共教育: percent, 机械织造: percent, 运输调度: percent, 高等教育: percent,
   蒸汽动力: percent.default(0), 铁路: percent.default(0), 规模化钢铁: percent.default(0), 电气化: percent.default(0),
   内燃机: percent.default(0),
   农业改良: percent.default(0), 机械工具: percent.default(0), 先进材料: percent.default(0),
+  官僚改良: percent.default(0),
   公共卫生: percent.default(0),
   劳工保障: percent.default(0),
   社会保障: percent.default(0),
@@ -190,6 +193,7 @@ export const facilityTypes = [
   "improveGrain",
   "mechanizeTools",
   "alloySteel",
+  "administrativeArchive",
   "university",
   "bureaucracy",
   "construction",
@@ -205,6 +209,7 @@ export const facilityNames = {
   improveGrain: "改良耕作",
   mechanizeTools: "工具厂机械化",
   alloySteel: "钢铁厂先进材料工序",
+  administrativeArchive: "行政档案室改造",
   university: "大学",
   bureaucracy: "行政署",
   construction: "建造部门",
@@ -290,6 +295,7 @@ export function initSiteSociety(site: Scenario["states"][string]): SiteSocial {
     improveGrain: 0,
     mechanizeTools: 0,
     alloySteel: 0,
+    administrativeArchive: 0,
     university: 0,
     bureaucracy: site.startingOffices ?? 0,
     healthcare: 0,

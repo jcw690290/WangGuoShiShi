@@ -13,7 +13,7 @@ import {
 import { distributionName, groups, influence, laws, literacyOf, politicalAttitudes, powerDistribution, reformConditions, reformWork, techs } from "./game/society.ts";
 import type { Law } from "./game/society.ts";
 import { count } from "./format.ts";
-import { institutionLawDetails, institutionLawFamilies, institutionLawKinds, institutionLawOptions } from "./game/institutions.ts";
+import { institutionLawDetails, institutionLawFamilies, institutionLawKinds, institutionLawOptions, technologyName } from "./game/institutions.ts";
 import { laborLawCategory, laborLawFamilies } from "./game/labor.ts";
 import { taxLaws } from "./game/taxation.ts";
 import { isTradeLaw, tradeLaws } from "./game/trade-policy.ts";
@@ -200,9 +200,9 @@ export function PoliticsPanel({ scenario, game, playerId: id, year, busy, send }
             {techs.map((t) => (
               <div key={t} className="research-row">
                 <strong>
-                  {researchCategory[t]} · {t}
+                  {researchCategory[t]} · {technologyName(t)}
                 </strong>
-                <progress aria-label={t + "进度"} max={100} value={n.knowledge[t]} />
+                <progress aria-label={technologyName(t) + "进度"} max={100} value={n.knowledge[t]} />
                 <small>
                   {n.knowledge[t].toFixed(2)}% · 本周扩散 +{n.diffusion[t].toFixed(2)} · 成本 {count(researchCost(t, year))} 点 · {techEffect[t]}
                 </small>
@@ -211,7 +211,7 @@ export function PoliticsPanel({ scenario, game, playerId: id, year, busy, send }
                   disabled={busy || !!n.research || !availableTech(n, t)}
                   onClick={() => send({ type: "startResearch", countryId: id, tech: t })}
                 >
-                  {n.knowledge[t] === 100 ? "已掌握" : n.research === t ? "研究中" : "研究" + t}
+                  {n.knowledge[t] === 100 ? "已掌握" : n.research === t ? "研究中" : "研究" + technologyName(t)}
                 </button>
               </div>
             ))}

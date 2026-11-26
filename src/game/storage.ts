@@ -646,6 +646,13 @@ export function parseSave(baseScenario: Scenario, save: unknown): GameState {
         retrofits.add(key);
       }
     }
+    const archives = state.countryEconomies[id].queue.filter((p) => p.good === "administrativeArchive");
+    const archiveSites = new Set<string>();
+    for (const p of archives) {
+      const site = state.societies[p.stateId];
+      if (archiveSites.has(p.stateId) || !site.bureaucracy || site.administrativeArchive || n.knowledge["官僚改良"] !== 100) invalid();
+      archiveSites.add(p.stateId);
+    }
     if (data.version !== saveVersion && header.data.weeklyConstruction !== true) {
       const account = state.countryEconomies[id];
       account.treasury += account.queue.reduce((sum, project) => sum + unusedPrepaidConstruction(project), 0);

@@ -24,7 +24,7 @@ import { affordableIndustryWorkers, electricityUse, electricIndustries, electric
   fundedRestock, initialIndustrialAccount, industrialPayroll, industrialRetrofits, industryMethodAt, isIndustrialRetrofit, materialWorkers, operateIndustry,
   trainedLabourCapacity, workingCapitalPerLevel, workingCapitalTarget } from "./industrial.ts";
 import type { IndustrialAccount, IndustrialReport, IndustrySubsidyReport } from "./industrial.ts";
-import { deliverOffice, officeNeed, planOffice } from "./administration.ts";
+import { deliverOffice, officeNeed, officeStaffCapacity, planOffice } from "./administration.ts";
 import type { OfficeReport } from "./administration.ts";
 import { byInstitution, byInstitutionGood, deliverInstitution, deliverInstitutionOrders,
   deliverWelfareRelief, institutionGoods, institutionLawLimit, institutions, isInstitutionGood, planInstitution, planWelfareRelief } from "./institutions.ts";
@@ -70,6 +70,7 @@ export const projects = {
   improveGrain: { cost: 130000, weeks: 3 },
   mechanizeTools: { cost: 210000, weeks: 4 },
   alloySteel: { cost: 300000, weeks: 5 },
+  administrativeArchive: { cost: 160000, weeks: 4 },
   university: { cost: 360000, weeks: 3 },
   bureaucracy: { cost: 180000, weeks: 4 },
   construction: { cost: 300000, weeks: 3 },
@@ -684,7 +685,7 @@ function projectSettlement(state: GameState, war?: WarPlan, closingTick?: number
     const { ordinaryWage } = laborProtection(nation.laws);
     const offices = state.occupation?.stateId === id ? 0 : site.bureaucracy;
     const office = planOffice(officeNeed(local.population, site, state.settings.difficulty, nation.laws),
-      offices, unassignedAfterUniversity, cashToCommit[owner]);
+      offices, unassignedAfterUniversity, cashToCommit[owner], site.administrativeArchive === 1);
     officePlans.set(id, office);
     cashToCommit[owner] -= office.reserved;
     const integration = site.governance?.integration;
@@ -1347,6 +1348,12 @@ export function constructionError(
     if (state.societies[stateId][good] === 1 || country.queue.some((p) => p.stateId === stateId && p.good === good))
       return "该州已经安排相同改造";
   }
+  if (good === "administrativeArchive") {
+    if (nation.knowledge["官僚改良"] !== 100) return "需要掌握官僚改良技术";
+    if (!state.societies[stateId].bureaucracy) return "需要已有行政办事处";
+    if (state.societies[stateId].administrativeArchive || country.queue.some((p) => p.stateId === stateId && p.good === good))
+      return "该州已经安排行政档案室改造";
+  }
   if (good === "port" && !scenario.states[stateId].coastal) return "只能在沿海州建设港口";
   if (good === "shipGoods" && !scenario.states[stateId].coastal) return "只能在沿海州建设造船厂";
   if (good === "oil" && nation.knowledge["内燃机"] !== 100) return "需要掌握内燃机技术";
@@ -1466,6 +1473,20 @@ export function chooseIndustrialRetrofit(scenario: Scenario, state: GameState, c
     const target = candidates.find(([id]) => !constructionError(scenario, state, countryId, id, project));
     if (target) return { stateId: target[0], good: project };
   }
+}
+
+export function chooseAdministrativeArchive(scenario: Scenario, state: GameState, countryId: string, report: EconomyReport): Pick<Project, "stateId" | "good"> | undefined {
+  const country = state.countryEconomies[countryId];
+  if (country.queue.length || state.elapsedDays % 28 !== 0 || country.treasury < 2 * projects.administrativeArchive.cost ||
+      state.nations[countryId].knowledge["官僚改良"] !== 100) return;
+  const candidates = Object.entries(report.states).flatMap(([id, report]) => {
+    const site = state.societies[id], office = report.office!;
+    const capacity = officeStaffCapacity(site.bureaucracy, false);
+    if (state.ownerByStateId[id] !== countryId || capacity === 0 || office.staff < capacity || office.need <= office.staff) return [];
+    return [{ id, gap: office.need - office.staff }];
+  }).sort((a, b) => b.gap - a.gap);
+  const target = candidates.find(({ id }) => !constructionError(scenario, state, countryId, id, "administrativeArchive"));
+  if (target) return { stateId: target.id, good: "administrativeArchive" };
 }
 
 export function settleEconomy(state: GameState, war?: WarPlan, fractionOfYear = 7 / 365, scenario?: Scenario): GameState & { lastEconomy: EconomyReport } {

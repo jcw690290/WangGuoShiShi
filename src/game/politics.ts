@@ -1,7 +1,7 @@
 import { GameRuleError } from "./rules.ts";
 import type { GameState } from "./engine.ts";
 import type { EconomyReport } from "./economy.ts";
-import { institutionLawDetails, institutionRequiredTech } from "./institutions.ts";
+import { institutionLawDetails, institutionRequiredTech, technologyName } from "./institutions.ts";
 import { laborLawCategory, laborLawTechnology } from "./labor.ts";
 import { isTaxLaw } from "./taxation.ts";
 import { isTradeLaw } from "./trade-policy.ts";
@@ -43,6 +43,7 @@ export const researchCategory = {
   农业改良: "生产",
   机械工具: "生产",
   先进材料: "生产",
+  官僚改良: "社会",
 } as const;
 const categories = ["生产", "军事", "社会"] as const;
 const prerequisite: Partial<Record<Tech, Tech>> = {
@@ -71,7 +72,7 @@ const prerequisite: Partial<Record<Tech, Tech>> = {
 };
 const technologyEras: Partial<Record<Tech, 0 | 1 | 2 | 3>> = {
   常备军组织: 0, 线列训练: 0, 后膛装备: 1, 参谋组织: 1, 连发装备: 2, 现代火炮: 2,
-  装甲舰艇: 2, 机械化组织: 3, 农业改良: 0, 机械工具: 1, 先进材料: 3,
+  装甲舰艇: 2, 机械化组织: 3, 农业改良: 0, 机械工具: 1, 先进材料: 3, 官僚改良: 0,
 };
 const eraCosts = [4000, 10000, 22000, 45000];
 const eraYears = [1820, 1850, 1880, 1910];
@@ -100,7 +101,7 @@ export const techEffect: Record<Tech, string> = {
   野战后勤: "有效战力 +25%",
   运输调度: "前线运输容量 +30%",
   公共教育: "解锁《公共学校》，实付大学教学也可提升识字率",
-  高等教育: "解锁《普及教育》，提高大学教学的识字增益",
+  高等教育: "解锁《普及教育》，大学有薪教职带来的识字增益翻倍",
   蒸汽动力: "研究铁路的前置技术",
   铁路: "允许建设铁路，改善市场接入和陆运",
   规模化钢铁: "研究电气化的前置技术",
@@ -122,6 +123,7 @@ export const techEffect: Record<Tech, string> = {
   农业改良: "解锁改良耕作。完成改造后，粮食产出提高 25%，消耗更多工具",
   机械工具: "解锁工具厂机械化。完成改造后，工具产出提高 35%，额外消耗煤和钢，并需要更多技术工",
   先进材料: "解锁钢铁厂先进材料工序。完成改造后，钢产出提高 30%，额外消耗铁、煤和工具，并需要更多技术工",
+  官僚改良: "解锁行政档案室改造，每级行政办事处可多容纳 50 个实际行政岗位",
 };
 export const lawEffect: Record<Law, string> = {
   工资税改革: "沿用 14% 工资税与 5% 经营所得税",
@@ -229,7 +231,7 @@ export function politicsError(state: GameState, command: PoliticsCommand) {
     const modernTax = isTaxLaw(command.law) && command.law !== "传统土地身份税" && command.law !== "工资税改革";
     const technology = command.law === "义务兵役" ? "常备军组织" : modernTax ? "现代税制" :
       institution ? institutionRequiredTech(institution.kind, institution.level) : laborLawTechnology[command.law];
-    if (technology && nation.knowledge[technology] !== 100) return `立项需要掌握${technology}技术`;
+    if (technology && nation.knowledge[technology] !== 100) return `立项需要掌握${technologyName(technology)}技术`;
     const sites = ownedSocieties(state, id);
     const power = influence(sites, id, nation);
     if (!reformConditions(nation, power, command.law, unrestOf(sites.flatMap((site) => site.pops))).speed)
