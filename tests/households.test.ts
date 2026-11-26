@@ -28,7 +28,8 @@ test("建设与家庭分用实际到货，家庭消费只在周结更新生活�
   const site = projection.states.Yunnan;
   assert.ok(site.builders > 0);
   for (const good of goods) {
-    const householdDemand = Math.round(game.stateEconomies.Yunnan.population * industries[good].demandPerPerson);
+    const householdDemand = good === "coal" || good === "food" ? site.householdSubstituteOrders![good] :
+      Math.round(game.stateEconomies.Yunnan.population * industries[good].demandPerPerson);
     assert.ok(site.householdConsumption![good] <= householdDemand);
     assert.ok(site.householdConsumption![good] <= site.industries[good].bought!);
   }

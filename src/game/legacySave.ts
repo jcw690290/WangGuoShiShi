@@ -2,7 +2,8 @@ import { z } from "zod";
 import type { Scenario } from "../scenario/scenario.ts";
 import { createGame, DAY_MS } from "./engine.ts";
 import type { GameState } from "./engine.ts";
-import { byGood, industries, isIndustrialGood, originalGoods } from "./industry.ts";
+import { byGood, commercialLevels, industries, isIndustrialGood, originalGoods } from "./industry.ts";
+import { migrateCommercialProduction } from "./commercialMigration.ts";
 
 // Input boundary for published versions 1–4 of the regional demo.
 export function importRegionalSave(region: Scenario, world: Scenario, save: unknown): GameState {
@@ -52,7 +53,7 @@ export function importRegionalSave(region: Scenario, world: Scenario, save: unkn
         const { queue } = state.countryEconomies[state.ownerByStateId[id]];
         return originalGoods.every((good) => {
           const queued = queue.filter((item) => item.stateId === id && item.good === good).length;
-          return local.buildings[good] + queued <= scenario.states[id].capacity[good];
+          return local.buildings[good] + queued <= Math.floor(scenario.states[id].capacity[good] / commercialLevels[good]);
         });
       });
     }, "建设队列或州容量无效");
@@ -214,5 +215,6 @@ export function importRegionalSave(region: Scenario, world: Scenario, save: unkn
           : null,
     };
   }
+  migrateCommercialProduction(base);
   return base;
 }

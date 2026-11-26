@@ -109,7 +109,9 @@ test("清越旧档迁入世界后保留队列、改革、战争进度并可再�
     playerCountryId: b,
     ownerByStateId: r.ownerByStateId,
     countryEconomies: r.countryEconomies,
-    stateEconomies: r.stateEconomies,
+    stateEconomies: Object.fromEntries(Object.entries(r.stateEconomies).map(([id, site]) => [id, {
+      population: site.population, buildings: { grain: site.buildings.grain / 12, cloth: site.buildings.cloth / 4 },
+    }])),
     countryPolitics: {
       [a]: { reformWeeks: 2, researchWeeks: 3 },
       [b]: { reformWeeks: null, researchWeeks: null },

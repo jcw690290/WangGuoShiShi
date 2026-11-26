@@ -160,7 +160,7 @@ export function advanceTick(
   for (const id of owners) {
     const { market } = settled.lastEconomy.countries[id];
     if (!humanCountries.has(id)) {
-      const job = chooseConstruction(scenario, result, id, market) ?? chooseUniversity(scenario, result, id);
+      const job = chooseUniversity(scenario, result, id) ?? chooseConstruction(scenario, result, id, market);
       if (result.elapsedDays % 28 === 0) {
         const integration = chooseIntegration(result, id);
         if (integration) result = applyGovernanceCommand(result, integration);

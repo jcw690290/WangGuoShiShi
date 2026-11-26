@@ -91,6 +91,7 @@ export const privateProject = z.object({
   stateId: z.string(),
   good: z.enum(goods),
   weeksLeft: z.number().positive(),
+  levels: z.int().positive().optional(),
 });
 export const facilityTypes = [
   "infrastructure",
@@ -290,12 +291,12 @@ export function evolvePops(
   id: string,
   nation: Nation,
   week: {
-    grainPrice: number; grainWages: number; laborWages: number; specialistWages: number;
-    dividends: number; ruralResources: number; landRent: number; textileJobs: number; standardTarget: number;
+    grainPrice: number; laborWages: number; specialistWages: number;
+    dividends: number; ruralResources: number; landRent: number; businessJobs: number; standardTarget: number;
   },
   tuning: RuleTuning,
 ) {
-  const { grainPrice, grainWages, laborWages, specialistWages, dividends, ruralResources, landRent, textileJobs, standardTarget } = week;
+  const { grainPrice, laborWages, specialistWages, dividends, ruralResources, landRent, businessJobs, standardTarget } = week;
   const totals = Object.fromEntries(
     occupations.map((o) => [o, site.pops.reduce((s, p) => s + (p.occupation === o ? p.people : 0), 0)]),
   ) as Record<Occupation, number>;
@@ -303,7 +304,7 @@ export function evolvePops(
     const isAccepted = accepted(p, id, nation);
     const income =
       p.occupation === "农民"
-        ? grainWages + ruralResources
+        ? ruralResources
         : p.occupation === "劳工"
           ? laborWages
           : socialTags[p.occupation][0] === "上层"
@@ -327,8 +328,8 @@ export function evolvePops(
     const livingStandard = updateLivingStandard(p.livingStandard, standardTarget);
     return { ...p, wealth, radicals, livingStandard };
   });
-  // Fill workshop vacancies from rural households of the same identity.
-  const targetLabourers = Math.ceil(textileJobs / 0.4);
+  // Fill commercial vacancies from rural households of the same identity.
+  const targetLabourers = Math.ceil(businessJobs / 0.4);
   let vacancies = Math.max(0, targetLabourers - totals["劳工"]);
   for (const rural of pops.filter((p) => p.occupation === "农民")) {
     const labour = pops.find((p) => p.occupation === "劳工" && p.culture === rural.culture)!;
@@ -342,7 +343,7 @@ export function evolvePops(
     const engineers = pops.find((e) => e.occupation === "工程师" && e.culture === p.culture)!;
     const vacancies = Math.max(
       0,
-      Math.ceil((textileJobs * 0.12 * p.people) / Math.max(1, totals["劳工"])) - engineers.people,
+      Math.ceil((businessJobs * 0.12 * p.people) / Math.max(1, totals["劳工"])) - engineers.people,
     );
     const qualified = Math.floor(
       ((p.people * (p.literacy + p.wealth)) / 1000) *

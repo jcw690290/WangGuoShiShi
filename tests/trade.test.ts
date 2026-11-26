@@ -12,7 +12,11 @@ import { convoyCargoCapacity, raidedConvoyCargoCapacity, seaVoyageCargoCost } fr
 const qing = "country_01", vietnam = "country_26", to = "Tonkin", from = "Yunnan";
 const scenario = {
   ...borderScenario,
-  states: { ...borderScenario.states, Tonkin: { ...borderScenario.states.Tonkin, grainTransport: 100 } },
+  states: { ...borderScenario.states,
+    Yunnan: { ...borderScenario.states.Yunnan, buildings: { ...borderScenario.states.Yunnan.buildings, grain: 32 } },
+    Guangxi: { ...borderScenario.states.Guangxi, buildings: { ...borderScenario.states.Guangxi.buildings, grain: 32 } },
+    Tonkin: { ...borderScenario.states.Tonkin, grainTransport: 100 },
+  },
 };
 const order = { type: "openTradeRoute", countryId: vietnam, from, to, good: "grain", limit: 500 } as const;
 const start = () => {
