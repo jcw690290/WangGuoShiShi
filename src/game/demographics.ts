@@ -68,11 +68,13 @@ export function settlePopulationMonth<T extends GameState>(scenario: Scenario, s
       if (!accepted(pop, owner, state.nations[owner])) facts.excluded += pop.people;
       return facts;
     }, { radicals: 0, living: 0, excluded: 0 });
+    const occupied = state.occupation?.stateId === siteId;
+    const policing = occupied ? 0 : state.lastEconomy?.states[siteId].policing?.coverage ?? 0;
     const stability = advanceUnrest(site.stability ?? emptyStability(), date, state.elapsedDays, {
       radicals: totals.radicals / populationAfter, living: totals.living / populationAfter,
       excluded: totals.excluded / populationAfter, food,
-      war: state.occupation?.stateId === siteId ? 35 : warParties.has(owner) && frontline.has(siteId) ? 15 : 0,
-    });
+      war: occupied ? 35 : warParties.has(owner) && frontline.has(siteId) ? 15 : 0,
+    }, policing);
     societies[siteId] = { ...site, pops, stability };
   }
 

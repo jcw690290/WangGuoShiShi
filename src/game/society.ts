@@ -7,7 +7,7 @@ import { localGovernanceSchema } from "./governance.ts";
 import { emptyStability, stabilitySchema } from "./unrest.ts";
 import { goods } from "./industry.ts";
 import { initialFleet, merchantFleetSchema } from "./fleet.ts";
-import { healthcareLevelSchema } from "./healthcare.ts";
+import { institutionLevelSchema } from "./institutions.ts";
 
 export const occupations = ["农民", "劳工", "工程师", "军官", "教士", "店主", "资本家", "贵族"] as const;
 export type Occupation = (typeof occupations)[number];
@@ -64,7 +64,8 @@ export const siteSocialSchema = z.object({
   electrifySteel: z.int().min(0).max(1).default(0),
   university: z.int().nonnegative(),
   bureaucracy: z.int().nonnegative().default(0),
-  healthcare: healthcareLevelSchema.default(0),
+  healthcare: institutionLevelSchema.default(0),
+  policing: institutionLevelSchema.default(0),
   construction: z.int().positive(),
   barracks: z.int().nonnegative(),
   conscription: z.int().nonnegative(),
@@ -196,6 +197,7 @@ export function initSiteSociety(site: Scenario["states"][string]): SiteSocial {
     university: 0,
     bureaucracy: site.startingOffices ?? 0,
     healthcare: 0,
+    policing: 0,
     construction: 1,
     barracks: 1,
     conscription: 1,

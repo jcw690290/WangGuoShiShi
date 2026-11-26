@@ -15,7 +15,7 @@ import { portCapacity } from "./game/transport.ts";
 import { effectiveConvoyCapacity, maxConvoyOrder, rubberPerMotor, shipGoodsPerConvoy, shipGoodsPerMotor } from "./game/fleet.ts";
 import { incidentNames, unrestEffects } from "./game/unrest.ts";
 import { basicEquivalentSupply, extraGoods } from "./game/households.ts";
-import { healthGoods } from "./game/healthcare.ts";
+import { institutionCommands, institutionGoods, institutionNames, institutions } from "./game/institutions.ts";
 
 function cultureName(scenario: Scenario, id: string) {
   const separator = id.indexOf("-");
@@ -59,7 +59,7 @@ function StateIndustry({
     Math.ceil(report.states[stateId].universityStaff ?? 0) -
     Math.ceil(report.states[stateId].administrationStaff ?? 0) -
     (report.states[stateId].office?.staff ?? 0) -
-    (report.states[stateId].healthcare?.staff ?? 0);
+    institutions.reduce((jobs, kind) => jobs + (report.states[stateId][kind]?.staff ?? 0), 0);
   const isOwnState = game.ownerByStateId[stateId] === playerId;
 
   const owner = game.ownerByStateId[stateId],
@@ -73,7 +73,6 @@ function StateIndustry({
   const rule = governanceRules[governance.mode];
   const occupied = game.occupation?.stateId === stateId;
   const healthLimit = nation.knowledge["公共卫生"] === 100 ? 3 : 1;
-  const care = snapshot.healthcare;
   const integrationActive = governance.integration !== null;
   const stability = society.stability;
   const incident = stability?.incident;
@@ -185,26 +184,30 @@ function StateIndustry({
         })}
       </ul>
       <div className="control-block">
-        {(isOwnState || society.healthcare > 0 || care) && <details>
-          <summary>医疗机构 · {society.healthcare} 级</summary>
-          {care && <>
-            <p>周结覆盖 {Math.round(care.coverage * 100)}% · 实付岗位 {count(care.staff)} / {count(care.needed)} 人</p>
-            <p>工资 {silver(care.wages)} · 采购 {silver(care.spending)} · 到货{" "}
-              {healthGoods.map((good) =>
-                `${industries[good].goodName} ${count(care.delivered[good])} / ${count(care.orders[good])}`).join(" · ")}</p>
-          </>}
-          {isOwnState && <div className="diplomacy-actions">
-            <button className="build" disabled={busy || society.healthcare === 0}
-              onClick={() => send({ type: "setHealthcareLevel", countryId: playerId, stateId, level: society.healthcare - 1 })}>
-              降低医疗机构等级
-            </button>
-            <button className="build" disabled={busy || occupied || society.healthcare >= healthLimit}
-              onClick={() => send({ type: "setHealthcareLevel", countryId: playerId, stateId, level: society.healthcare + 1 })}>
-              提升医疗机构等级
-              {healthLimit === 1 && society.healthcare >= 1 && <small>2–3 级需要公共卫生技术</small>}
-            </button>
-          </div>}
-        </details>}
+        {institutions.filter((kind) => isOwnState || society[kind] > 0 || snapshot[kind]).map((kind) => {
+          const name = institutionNames[kind], level = society[kind], service = snapshot[kind];
+          const limit = kind === "healthcare" ? healthLimit : 3;
+          const updateLevel = (newLevel: number) =>
+            send({ type: institutionCommands[kind], countryId: playerId, stateId, level: newLevel });
+          return <details key={kind}>
+            <summary>{name} · {level} 级</summary>
+            {service && <>
+              <p>周结覆盖 {Math.round(service.coverage * 100)}% · 实付岗位 {count(service.staff)} / {count(service.needed)} 人</p>
+              <p>工资 {silver(service.wages)} · 采购 {silver(service.spending)} · 到货{" "}
+                {institutionGoods.map((good) =>
+                  `${industries[good].goodName} ${count(service.delivered[good])} / ${count(service.orders[good])}`).join(" · ")}</p>
+            </>}
+            {isOwnState && <div className="diplomacy-actions">
+              <button className="build" disabled={busy || level === 0} onClick={() => updateLevel(level - 1)}>
+                降低{name}等级
+              </button>
+              <button className="build" disabled={busy || occupied || level >= limit} onClick={() => updateLevel(level + 1)}>
+                提升{name}等级
+                {kind === "healthcare" && limit === 1 && level >= 1 && <small>2–3 级需要公共卫生技术</small>}
+              </button>
+            </div>}
+          </details>;
+        })}
         {site.coastal && isOwnState && <div className="diplomacy-actions">
           <button className="build" disabled={busy || occupied || (!movesOrder && order?.remaining === maxConvoyOrder)}
             onClick={() => send({ type: "setConvoyOrder", countryId: playerId, stateId,
@@ -386,7 +389,7 @@ function StateIndustry({
 export function EconomyPanel({ scenario, game, playerId, selectedId, report, busy, send, onPopulationOpen }: Props) {
   const marketId = selectedId === null ? playerId : game.ownerByStateId[selectedId];
   const country = scenario.countries[marketId];
-  const { market, tax, wageTaxRate, upkeep, tribute, officeUpkeep, healthcareUpkeep, military, fleet, tradeSeaCargo } =
+  const { market, tax, wageTaxRate, upkeep, tribute, officeUpkeep, healthcareUpkeep, policingUpkeep, military, fleet, tradeSeaCargo } =
     report.countries[marketId];
   const nation = game.nations[marketId];
   const { tributeReceived, balance } = weeklyBudgets(game.nations, report)[marketId];
@@ -431,6 +434,7 @@ export function EconomyPanel({ scenario, game, playerId, selectedId, report, bus
               <dd>{silver(upkeep)}</dd>
               {officeUpkeep !== undefined && <small>其中行政署 {silver(officeUpkeep)}</small>}
               {healthcareUpkeep !== undefined && healthcareUpkeep > 0 && <small>其中医疗 {silver(healthcareUpkeep)}</small>}
+              {policingUpkeep !== undefined && policingUpkeep > 0 && <small>其中警务 {silver(policingUpkeep)}</small>}
               {military.procurement && <small>军粮 {silver(military.procurement.grain)} · 军服 {silver(military.procurement.cloth)} ·
                 武器 {silver(military.procurement.arms ?? 0)} · 弹药 {silver(military.procurement.ammo ?? 0)}</small>}
             </div>

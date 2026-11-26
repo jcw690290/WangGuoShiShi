@@ -20,6 +20,7 @@ export const emptyStability = (): LocalStability => ({ unrest: 0, incident: null
 export function advanceUnrest(
   previous: LocalStability, date: Date, day: number,
   facts: { radicals: number; living: number; excluded: number; food: number; war: number },
+  policing = 0,
 ): LocalStability {
   const pressure: Record<Cause, number> = {
     hardship: (1 - facts.food) * 45 + Math.max(0, 9 - facts.living) * 3,
@@ -28,7 +29,7 @@ export function advanceUnrest(
     politics: Math.max(0, facts.radicals - 45) * 0.40,
   };
   const unmitigated = Math.min(100, Object.values(pressure).reduce((total, value) => total + value, 0));
-  const target = Math.max(0, unmitigated - (previous.incident?.negotiated ? 25 : 0));
+  const target = Math.max(0, unmitigated * (1 - 0.30 * policing) - (previous.incident?.negotiated ? 25 : 0));
   const unrest = previous.unrest + 0.22 * (target - previous.unrest);
   let incident = previous.incident;
   if (incident && (unrest < 20 || calendarMonthsPassed(date, day - incident.since, 6))) incident = null;
