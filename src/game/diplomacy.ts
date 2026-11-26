@@ -1,7 +1,7 @@
 import { GameRuleError } from "./rules.ts";
 import { z } from "zod";
 import { diplomaticTie, removeDiplomaticTies } from "./diplomatic-ties.ts";
-import { newFrontier } from "./governance.ts";
+import { localGovernanceRule, newFrontier } from "./governance.ts";
 import { connectedRailway, convoyCargoCapacity, portCapacity, raidedConvoyCargoCapacity } from "./transport.ts";
 import { effectiveConvoyCapacity } from "./fleet.ts";
 import type { MaritimeTerminal } from "./transport.ts";
@@ -54,6 +54,15 @@ const peaceOfferSchema = z.object({
 type PeaceOffer = z.infer<typeof peaceOfferSchema>;
 const peaceOfferDuration = 14;
 
+const mobilizationBaseDays = 28;
+const mobilizationDelayDays = 7;
+const mobilizationPlanSchema = z.object({
+  orderedDay: z.int().nonnegative(),
+  readyDay: z.int().nonnegative(),
+  origins: z.array(z.string()).nonempty().refine((sites) => new Set(sites).size === sites.length),
+}).refine(({ orderedDay, readyDay }) =>
+  [0, 1, 2].some((delay) => readyDay - orderedDay === mobilizationBaseDays + delay * mobilizationDelayDays));
+
 export const disputeSchema = z.object({
   targetStateId: z.string(),
   claimantId: z.string(),
@@ -70,6 +79,7 @@ export const disputeSchema = z.object({
   promises: z.array(z.string()),
   defenders: z.array(z.string()),
   mobilized: z.array(z.string()),
+  mobilization: z.record(z.string(), mobilizationPlanSchema).optional(),
   advance: z.array(z.string()),
   raid: z.array(z.string()),
   progress: z.int().min(0).max(100),
@@ -423,7 +433,18 @@ export function applyBorderCommand(scenario: Scenario, state: GameState, cmd: Bo
   }
   if (cmd.type === "mobilize") {
     if (d.mobilized.includes(id)) throw new GameRuleError("已经征兵");
-    return patch({ mobilized: [...d.mobilized, id] });
+    const route = planWar(scenario, state)!.routes[id];
+    const origins = mobilizationOrigins(state, route);
+    if (!origins.length) throw new GameRuleError("没有可征召的战区兵源");
+    const nation = state.nations[id];
+    const transportDelay = nation.knowledge["运输调度"] !== 100 && (route.overseas ||
+      origins.every((siteId) => state.societies[siteId].infrastructure === 1 && state.societies[siteId].railway === 0));
+    const governmentDelay = origins.some((siteId) => localGovernanceRule(state.societies[siteId], nation.laws).militaryShare < 0.8);
+    const readyDay = state.elapsedDays + mobilizationBaseDays + (Number(transportDelay) + Number(governmentDelay)) * mobilizationDelayDays;
+    return patch({
+      mobilized: [...d.mobilized, id],
+      mobilization: { ...d.mobilization, [id]: { orderedDay: state.elapsedDays, readyDay, origins } },
+    });
   }
   if (cmd.type === "raid") {
     if (!holdings(scenario, state, id).some((s) => s.coastal) || d.raid.includes(id))
@@ -468,6 +489,9 @@ export function tickDiplomacy(scenario: Scenario, state: GameState,
 interface SupplyRoute {
   recruitmentStates: Set<string>;
   connectedStates: Set<string>;
+  draftOrigins: Set<string>;
+  draftReady: boolean;
+  deployedDrafts: Set<string>;
   grainTransport: number;
   mobilized: boolean;
   overseas: boolean;
@@ -479,6 +503,9 @@ export interface WarPlan {
   recruitPercent: number;
   supplyPercent: number;
   grainPerRecruit: number;
+}
+function mobilizationOrigins(state: GameState, route: SupplyRoute) {
+  return [...route.recruitmentStates].filter((id) => state.occupation?.stateId !== id && state.societies[id].conscription > 0);
 }
 export function frontLine(scenario: Scenario, state: GameState, d: BorderDispute) {
   const site = scenario.states[d.targetStateId];
@@ -547,7 +574,13 @@ export function planWar(scenario: Scenario, state: GameState): WarPlan | undefin
         ...maritimeTerminals.map((group) => group.reduce((sum, port) => sum + port.capacity, 0)),
       );
     }
-    routes[id] = { recruitmentStates, connectedStates, grainTransport, mobilized: d.mobilized.includes(id), overseas, raided,
+    const callUp = d.mobilization?.[id];
+    const mobilized = d.mobilized.includes(id);
+    const draftOrigins = new Set((callUp?.origins ?? (mobilized ? [...recruitmentStates] : []))
+      .filter((siteId) => state.occupation?.stateId !== siteId));
+    const draftReady = mobilized && (!callUp || callUp.readyDay <= state.elapsedDays);
+    const deployedDrafts = new Set(draftReady ? [...draftOrigins].filter((siteId) => connectedStates.has(siteId)) : []);
+    routes[id] = { recruitmentStates, connectedStates, draftOrigins, draftReady, deployedDrafts, grainTransport, mobilized, overseas, raided,
       ...(maritimeTerminals ? { maritimeTerminals } : {}) };
   }
   return { ...scenario.borderDispute, routes };
@@ -565,7 +598,7 @@ export function advanceFront(scenario: Scenario, state: GameState, report: Econo
     for (const id of ids) {
       const sites = [...plan.routes[id].recruitmentStates];
       const roster = sites.flatMap((siteId) => battalionsAt(state, siteId, report.states[siteId].regulars));
-      const conscripts = sites.reduce((sum, siteId) => sum + report.states[siteId].conscripts, 0);
+      const conscripts = report.countries[id].military.deployedConscripts!;
       const soldiers = roster.reduce((sum, unit) => sum + unit.trained, conscripts);
       if (soldiers === 0) continue;
       const role = d.advance.includes(id) ? "attack" : "defense";
@@ -634,9 +667,11 @@ export function aiDiplomacy(
   )
     return [{ type: "backDown", countryId: d.defenderId }];
   if (d.phase !== "war") return [];
+  const plan = planWar(scenario, state)!;
   const orders: BorderCommand[] = [];
   for (const id of participants(d).filter((i) => !humanCountries.has(i))) {
-    if (!d.mobilized.includes(id)) orders.push({ type: "mobilize", countryId: id });
+    if (!d.mobilized.includes(id) && mobilizationOrigins(state, plan.routes[id]).length)
+      orders.push({ type: "mobilize", countryId: id });
     if (!d.advance.includes(id)) orders.push({ type: "orderAdvance", countryId: id });
   }
   if (!humanCountries.has(d.claimantId) && d.progress >= scenario.borderDispute.cessionProgress)

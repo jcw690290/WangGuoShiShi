@@ -73,6 +73,13 @@ test("常备军和平支薪，征兵占用产业工人；战线受命令和补�
     mobilized.states.Yunnan.industries.grain.employed < before.states.Yunnan.industries.grain.employed,
   );
   assert.ok(mobilized.countries[a].military.conscripts > 0);
+  assert.equal(mobilized.countries[a].military.deployedConscripts, 0);
+  assert.ok(mobilized.countries[a].upkeep > before.countries[a].upkeep);
+  const readyDay = g.borderDispute!.mobilization![a].readyDay;
+  assert.ok(readyDay - g.elapsedDays >= 28);
+  const ready = { ...load(g), elapsedDays: readyDay };
+  const deployed = projectEconomy(ready, planWar(scenario, ready)).countries[a].military;
+  assert.equal(deployed.deployedConscripts, deployed.conscripts);
   assert.equal(mobilized.states.Annam.conscripts, 0);
   assert.ok(mobilized.countries[a].military.grainDrawn <= mobilized.countries[a].military.grainTransport);
   assert.equal(g.borderDispute!.progress, 0);

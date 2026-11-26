@@ -313,10 +313,13 @@ export function DiplomacyPanel({ scenario, game, playerId: id, report, busy, sen
                 <progress aria-label="战线进度" max={100} value={d.progress} />
                 {participants(d).map((x) => {
                   const m = report.countries[x].military;
+                  const orders = d.mobilization?.[x];
+                  const remaining = orders ? Math.max(0, orders.readyDay - game.elapsedDays) : 0;
                   return (
                     <p key={x}>
                       {countries[x].name} · {attacking(d, x) ? "提出方" : "防守方"} ·{" "}
-                      {d.advance.includes(x) ? "推进" : "防御"} · 全国常备 {m.regulars} · 征兵 {m.conscripts} ·
+                      {d.advance.includes(x) ? "推进" : "防御"} · 全国常备 {m.regulars} · 征召 {m.conscripts} ·
+                      {remaining > 0 ? ` 动员准备剩 ${remaining} 天 ·` : ` 已部署征召兵 ${m.deployedConscripts ?? m.conscripts} ·`}
                       全军军粮 {m.grainDrawn} / {m.grainDemand} · 武器 {m.equipment.weapons.delivered}/
                       {m.equipment.weapons.demand}· 弹药 {m.equipment.ammunition.delivered}/
                       {m.equipment.ammunition.demand} · 军服 {m.equipment.uniforms.delivered}/
@@ -326,7 +329,7 @@ export function DiplomacyPanel({ scenario, game, playerId: id, report, busy, sen
                 })}
                 {involved && (
                   <div className="diplomacy-actions">
-                    {btn("激活征兵", simple("mobilize"), d.mobilized.includes(id))}
+                    {btn("下令动员", simple("mobilize"), d.mobilized.includes(id))}
                     {btn("命令推进", simple("orderAdvance"), d.advance.includes(id))}
                     {btn("命令防御", simple("orderDefend"), !d.advance.includes(id))}
                     {btn(

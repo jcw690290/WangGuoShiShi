@@ -220,6 +220,8 @@ const military = z.object({
   regulars: uint,
   trainedRegulars: uint.optional(),
   conscripts: uint,
+  trainedConscripts: uint.optional(),
+  deployedConscripts: uint.optional(),
   grainDemand: uint,
   grainDrawn: uint,
   grainTransport: uint,
@@ -227,7 +229,10 @@ const military = z.object({
   procurement: z.object({ grain: uint, cloth: uint, arms: uint.optional(), ammo: uint.optional() }).optional(),
   equipment: z.object({ weapons: issue, ammunition: issue, uniforms: issue }),
   readiness: fraction,
-}).refine((force) => force.trainedRegulars === undefined || force.trainedRegulars <= force.regulars);
+}).refine((force) =>
+  (force.trainedRegulars ?? 0) <= force.regulars &&
+  (force.trainedConscripts ?? 0) <= force.conscripts &&
+  (force.deployedConscripts ?? 0) <= (force.trainedConscripts ?? 0));
 const countryReport = z.object({
   market: z.object({ grain: market, cloth: market, ...byIndustrialGood((good) =>
     market.default({ supply: 0, demand: 0, price: industries[good].basePrice })) }),
@@ -642,6 +647,13 @@ export function parseSave(scenario: Scenario, save: unknown): GameState {
     const executed = d.agreedPeace?.goals ?? d.goals;
     const transferred = d.outcome === "victory" && (executed.includes("cession") || executed.includes("annex"));
     if (state.ownerByStateId[d.targetStateId] !== (transferred ? d.claimantId : d.defenderId)) invalid();
+    for (const [id, order] of Object.entries(d.mobilization ?? {})) {
+      if (!d.mobilized.includes(id) || order.orderedDay > state.elapsedDays ||
+          (d.phase !== "war" && d.phase !== "resolved") ||
+          (d.phase === "war" ? order.orderedDay < d.since : order.orderedDay > d.since) ||
+          order.origins.some((siteId) => !Object.hasOwn(state.societies, siteId) ||
+            (d.phase === "war" && state.ownerByStateId[siteId] !== id))) invalid();
+    }
   }
   const controlled = syncOccupation(scenario, state);
   if (state.occupation && controlled !== state) invalid();

@@ -41,8 +41,8 @@ function civilianOutput(report: EconomyReport, holdings: readonly string[]) {
 }
 
 function effectiveArmy(report: EconomyReport, countryId: string) {
-  const { regulars, trainedRegulars, conscripts, readiness } = report.countries[countryId].military;
-  return ((trainedRegulars ?? regulars) + conscripts) * readiness;
+  const { regulars, trainedRegulars, conscripts, trainedConscripts, readiness } = report.countries[countryId].military;
+  return ((trainedRegulars ?? regulars) + (trainedConscripts ?? conscripts)) * readiness;
 }
 
 export function openingMetrics(state: GameState, countryId: string): CampaignBaseline {
@@ -114,8 +114,9 @@ export function measureCampaign(
   if (baseline && baseline.outputPerPerson > 0)
     metrics.G = (baseline.includesSubsistence ? total : total - subsistenceOutput) / people / baseline.outputPerPerson;
   if (baseline && baseline.army > 0) metrics.ARM = effectiveArmy(report, countryId) / baseline.army;
-  const { regulars, trainedRegulars } = report.countries[countryId].military;
-  if (regulars > 0 && trainedRegulars !== undefined) metrics.TRAINING = trainedRegulars / regulars;
+  const { regulars, trainedRegulars, conscripts, trainedConscripts } = report.countries[countryId].military;
+  if (regulars + conscripts > 0 && trainedRegulars !== undefined)
+    metrics.TRAINING = (trainedRegulars + (trainedConscripts ?? conscripts)) / (regulars + conscripts);
   if (total > 0) {
     metrics.IND = manufacturing / total;
     metrics.TRADE = (report.trade ?? []).reduce((sum, { from, to, quantity, good }) =>

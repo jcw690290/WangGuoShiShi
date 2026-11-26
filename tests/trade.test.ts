@@ -7,7 +7,8 @@ import { byGood, industries } from "../src/game/industry.ts";
 import { parseSave, saveVersion } from "../src/game/storage.ts";
 import { applyPlayerCommand, decodeSnapshot, encodeSnapshot } from "../src/online/protocol.ts";
 import { borderScenario, scenario as world } from "../src/scenario/scenario.ts";
-import { convoyCargoCapacity, raidedConvoyCargoCapacity, seaVoyageCargoCost } from "../src/game/transport.ts";
+import { effectiveConvoyCapacity } from "../src/game/fleet.ts";
+import { raidedConvoyCargoCapacity, seaVoyageCargoCost } from "../src/game/transport.ts";
 
 const qing = "country_01", vietnam = "country_26", to = "Tonkin", from = "Yunnan";
 const scenario = {
@@ -153,6 +154,7 @@ test("商运使用海军军需后的剩余船队，破交只暂停受影响口�
   let game = dispatch(coastal, createGame(coastal), { type: "selectCountry", countryId: qing });
   game.nations[qing].convoys = 1;
   game.societies.Guangxi.infrastructure = 1;
+  game.societies.Guangxi.port = 5;
   game.countryEconomies[qing].referenceQuotes = byGood((good) => good === "cloth" ? 500 : industries[good].basePrice);
   const importCloth = { type: "openTradeRoute", countryId: qing, from: "Outlet", to: "Guangxi", mode: "sea",
     good: "cloth", limit: 500 } as const;
@@ -164,11 +166,13 @@ test("商运使用海军军需后的剩余船队，破交只暂停受影响口�
   const allHumans = new Set([qing, vietnam, trader]);
   while (game.elapsedDays < 56) game = advanceDay(coastal, game, allHumans);
   game = dispatch(coastal, game, { type: "mobilize", countryId: qing });
+  game = { ...game, elapsedDays: game.borderDispute!.mobilization![qing].readyDay };
   const report = projectEconomy(game, planWar(coastal, game));
   const { military, tradeSeaCargo } = report.countries[qing];
+  const availableCargo = effectiveConvoyCapacity(game.nations[qing]);
   assert.ok(military.seaCargoUsed! > 0);
-  assert.ok(military.seaCargoUsed! + tradeSeaCargo! <= convoyCargoCapacity);
-  assert.equal(military.seaCargoUsed, convoyCargoCapacity);
+  assert.ok(military.seaCargoUsed! + tradeSeaCargo! <= availableCargo);
+  assert.equal(military.seaCargoUsed, availableCargo);
   assert.equal(tradeSeaCargo, 0);
   const raided = dispatch(coastal, game, { type: "raid", countryId: vietnam });
   const blocked = projectEconomy(raided, planWar(coastal, raided));
