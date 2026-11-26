@@ -153,6 +153,38 @@ test("投资池与国库单独扣款，两类工程共享建造力，闲置份�
   assert.deepEqual(await decodeSnapshot(scenario, await encodeSnapshot(scenario, canceled)), canceled);
   assert.match(constructionError(scenario, g, "first", "border", "university", true)!, /私人资金/);
 });
+test("施工闲置维护购买实物并占用国库现款，和在建岗位分别结算", () => {
+  const initial = start();
+  const normal = projectEconomy(initial);
+  const standby = normal.states.border.constructionMaintenance!;
+  assert.equal(standby.workers, 10);
+  assert.equal(standby.wages, 1000);
+  assert.equal(standby.tools, 1);
+  assert.ok(standby.materials > 0);
+  assert.equal(normal.states.border.builders, 0);
+  assert.equal(normal.states.border.constructionGoods!.tools, 0);
+  assert.equal(normal.countries.first.capacity, 0);
+
+  const worked = send(initial, { type: "queueConstruction", countryId: "first", stateId: "border", good: "cloth" });
+  const active = projectEconomy(worked).states.border;
+  assert.equal(active.builders, 100);
+  assert.equal(active.constructionMaintenance!.workers, 0);
+
+  const shortage = structuredClone(initial);
+  shortage.stateEconomies.border.industrial!.stocks.iron = 0;
+  const awaitingTools = projectEconomy(shortage).states.border.constructionMaintenance!;
+  assert.deepEqual(awaitingTools, { workers: 10, wages: 1000, tools: 0, materials: 0 });
+  shortage.countryEconomies.first.treasury = 100;
+  assert.deepEqual(projectEconomy(shortage).states.border.constructionMaintenance!, { workers: 0, wages: 0, tools: 0, materials: 0 });
+
+  const settled = week(initial);
+  const report = settled.lastEconomy!.countries.first;
+  assert.deepEqual(report.constructionMaintenance, standby);
+  assert.equal(settled.countryEconomies.first.treasury, initial.countryEconomies.first.treasury + report.tax - report.upkeep);
+  assert.equal(settled.countryEconomies.first.fiscal!.week.upkeepPaid, report.upkeep);
+  assert.deepEqual(load(settled), settled);
+});
+
 test("职业支持分配与选举权重改变八个集团，合法性和激进度影响审议", () => {
   const g = start(),
     n = g.nations.first,

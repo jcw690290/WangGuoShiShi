@@ -52,6 +52,7 @@ function StateIndustry({
     workForce(local.population) -
     conscripts -
     report.states[stateId].builders -
+    (report.states[stateId].constructionMaintenance?.workers ?? 0) -
     report.states[stateId].regulars -
     Math.ceil(report.states[stateId].universityStaff ?? 0) -
     Math.ceil(report.states[stateId].administrationStaff ?? 0) -
@@ -501,6 +502,11 @@ export function EconomyPanel({ scenario, game, playerId, selectedId, report, bus
             </div>;
           })}
         </dl>}
+        {report.countries[marketId].constructionMaintenance && <p className="save-notice">
+          施工维护 {count(report.countries[marketId].constructionMaintenance.workers)} 人 ·
+          工资 {silver(report.countries[marketId].constructionMaintenance.wages)} ·
+          工具 {count(report.countries[marketId].constructionMaintenance.tools)} 件，实付 {silver(report.countries[marketId].constructionMaintenance.materials)}
+        </p>}
       </section>
     </section>
   );
