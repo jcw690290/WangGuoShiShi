@@ -2,6 +2,7 @@ import { z } from "zod";
 import { industrialGoods, byIndustrialGood } from "../game/industry.ts";
 import type { ScenarioLevels } from "../game/industry.ts";
 import type { DiplomaticTie } from "../game/diplomatic-ties.ts";
+import { occupiedCropland } from "../game/subsistence.ts";
 import gameData from "../../resources/1820_game_data.json" with { type: "json" };
 import demoData from "./qing-vietnam.json" with { type: "json" };
 
@@ -22,6 +23,7 @@ interface ScenarioState {
   label: [number, number];
   ownerId: string | null;
   startingOffices?: number;
+  cropland?: number;
   population: number;
   neighbors: string[];
   terrain?: "平原" | "森林" | "山地";
@@ -132,6 +134,10 @@ const baseSiteSchema = z.object({
 });
 const siteSchema = baseSiteSchema.extend({ name: z.string(), buildings: worldCounts, capacity: worldCounts });
 const rawWorld = z.record(z.string(), baseSiteSchema).parse(worldData);
+const productiveFarmDistricts = new Set([
+  "Northern_Anhui", "Sichuan", "Punjab", "Zhejiang", "South_Bengal", "North_Bengal", "Iowa", "Indiana",
+  "Flanders", "Venetia", "Lombardy", "Henan", "Jiangsu", "Bihar", "Kiev", "Normandy",
+]);
 export const atlas = z.record(z.string(), siteSchema).parse(
   Object.fromEntries(Object.entries(rawWorld).map(([id, state]) => {
     // The available 1820 map has terrain and population but no mineral survey.
@@ -212,7 +218,12 @@ export const scenario: Scenario = {
     Object.entries(atlas).map(([id, site]) => {
       const source = sourceStates.get(id);
       if (source && !countryIds.has(source.countryId)) throw new Error("州归属无效：" + id);
-      return [id, { ...site, id, ownerId: source ? source.countryId : null, startingOffices: source ? 1 : 0 }];
+      // Farmland is a balance estimate based on the existing agricultural cap, population and terrain.
+      const ruralShare = site.terrain === "平原" ? 0.12 : site.terrain === "森林" ? 0.09 : 0.06;
+      const farmland = productiveFarmDistricts.has(id)
+        ? occupiedCropland(site.buildings) + Math.floor(site.population * 0.235) : Math.floor(site.population * ruralShare);
+      const cropland = Math.max(site.capacity.grain * 600 + 200, farmland);
+      return [id, { ...site, id, ownerId: source ? source.countryId : null, startingOffices: source ? 1 : 0, cropland }];
     }),
   ),
 };

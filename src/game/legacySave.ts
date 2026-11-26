@@ -158,7 +158,9 @@ export function importRegionalSave(region: Scenario, world: Scenario, save: unkn
   if ("countryEconomies" in original) {
     Object.assign(base.countryEconomies, original.countryEconomies);
     for (const [id, local] of Object.entries(original.stateEconomies)) {
+      const { cropland } = base.stateEconomies[id];
       base.stateEconomies[id] = {
+        ...(cropland === undefined ? {} : { cropland }),
         population: local.population, buildings: byGood((good) => isIndustrialGood(good) ? 0 : local.buildings[good]),
       };
       const site = base.societies[id],

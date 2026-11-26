@@ -8,6 +8,7 @@ import { byIndustrialGood, goods, industrialGoods, industries } from "./industry
 import { industrialAccountSchema, industrialReportSchema } from "./industrial.ts";
 import { officeReportSchema } from "./administration.ts";
 import { extrasReportSchema, substituteOrdersSchema } from "./households.ts";
+import { reservedCropland, subsistenceReportSchema } from "./subsistence.ts";
 import { projects } from "./economy.ts";
 import { nationSchema, siteSocialSchema, projectTypes } from "./society.ts";
 import { importRegionalSave } from "./legacySave.ts";
@@ -239,6 +240,7 @@ const siteReport = z.object({
   householdConsumption: goodsNumbers.optional(),
   householdBasicOrders: goodsNumbers.optional(),
   householdSubstituteOrders: substituteOrdersSchema.optional(),
+  subsistence: subsistenceReportSchema.optional(),
   householdExtras: extrasReportSchema.optional(),
   constructionGoods: goodsNumbers.optional(),
   industrial: industrialReportSchema.optional(),
@@ -282,7 +284,7 @@ export function parseSave(scenario: Scenario, save: unknown): GameState {
     stateEconomies: z.record(
       activeSite,
       z.object({ population: z.int().positive(), buildings: goodsNumbers, localQuotes: quotes.optional(),
-        industrial: industrialAccountSchema.optional(), discretionaryBudget: uint.optional() }),
+        industrial: industrialAccountSchema.optional(), discretionaryBudget: uint.optional(), cropland: uint.optional() }),
     ),
     countryEconomies: z.record(countries, z.object({
       treasury: cash, queue: z.array(project), referenceQuotes: quotes.optional(), fiscal: fiscalAccountSchema.optional(),
@@ -425,6 +427,12 @@ export function parseSave(scenario: Scenario, save: unknown): GameState {
         invalid();
     }
     const queue = [...state.countryEconomies[owner].queue, ...state.nations[owner].privateQueue];
+    const openingCropland = scenario.states[id].cropland;
+    if (openingCropland !== undefined || local.cropland !== undefined) {
+      const reserved = reservedCropland(local.buildings, queue.filter((project) => project.stateId === id));
+      if (local.cropland !== undefined && reserved > local.cropland) invalid();
+      if (local.cropland === undefined) local.cropland = Math.max(openingCropland!, reserved);
+    }
     for (const g of goods)
       if (
         local.buildings[g] + queue.filter((p) => p.stateId === id && p.good === g).length >

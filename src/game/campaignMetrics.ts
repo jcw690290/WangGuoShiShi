@@ -11,13 +11,17 @@ import { inputs } from "./industrial.ts";
 import { accepted, governmentLegitimacy, influence } from "./society.ts";
 import { basicEquivalentSupply, essentialGoods } from "./households.ts";
 
-export const campaignBaselineSchema = z.object({ outputPerPerson: z.number().nonnegative(), army: z.number().nonnegative() });
+export const campaignBaselineSchema = z.object({
+  outputPerPerson: z.number().nonnegative(), army: z.number().nonnegative(), includesSubsistence: z.literal(true).optional(),
+});
 type CampaignBaseline = z.infer<typeof campaignBaselineSchema>;
 
 function civilianOutput(report: EconomyReport, holdings: readonly string[]) {
-  let total = 0, manufacturing = 0;
+  let total = 0, manufacturing = 0, subsistenceOutput = 0;
   for (const id of holdings) {
-    const { industries: activity, industrial } = report.states[id];
+    const { industries: activity, industrial, subsistence } = report.states[id];
+    if (subsistence) subsistenceOutput += subsistence.produced.grain * industries.grain.basePrice +
+      subsistence.produced.wood * industries.wood.basePrice;
     for (const good of goods) total += activity[good].output * industries[good].basePrice;
     if (industrial) for (const good of industrialGoods) total -= industrial.used[good] * industries[good].basePrice;
     manufacturing += activity.cloth.output * industries.cloth.basePrice;
@@ -28,7 +32,7 @@ function civilianOutput(report: EconomyReport, holdings: readonly string[]) {
       manufacturing += activity[line].output * industries[line].basePrice - inputsCost;
     }
   }
-  return { total, manufacturing };
+  return { total: total + subsistenceOutput, manufacturing, subsistenceOutput };
 }
 
 function effectiveArmy(report: EconomyReport, countryId: string) {
@@ -43,6 +47,7 @@ export function openingMetrics(state: GameState, countryId: string): CampaignBas
   return {
     outputPerPerson: population > 0 ? civilianOutput(report, held).total / population : 0,
     army: effectiveArmy(report, countryId),
+    includesSubsistence: true as const,
   };
 }
 
@@ -91,8 +96,9 @@ export function measureCampaign(
   }
   const report = state.lastEconomy;
   if (!report || people === 0) return metrics;
-  const { total, manufacturing } = civilianOutput(report, held);
-  if (baseline && baseline.outputPerPerson > 0) metrics.G = total / people / baseline.outputPerPerson;
+  const { total, manufacturing, subsistenceOutput } = civilianOutput(report, held);
+  if (baseline && baseline.outputPerPerson > 0)
+    metrics.G = (baseline.includesSubsistence ? total : total - subsistenceOutput) / people / baseline.outputPerPerson;
   if (baseline && baseline.army > 0) metrics.ARM = effectiveArmy(report, countryId) / baseline.army;
   if (total > 0) {
     metrics.IND = manufacturing / total;
@@ -107,7 +113,7 @@ export function measureCampaign(
     labour += workForce(population);
     employed += goods.reduce((sum, good) => sum + site.industries[good].employed, 0) +
       site.builders + site.armourers + site.regulars + site.conscripts +
-      (site.universityStaff ?? 0) + (site.administrationStaff ?? 0) + (site.office?.staff ?? 0);
+      (site.universityStaff ?? 0) + (site.administrationStaff ?? 0) + (site.office?.staff ?? 0) + (site.subsistence?.employed ?? 0);
     food += population * (site.foodFulfillment ?? 0);
     governance += population * (site.office?.coverage ?? 0);
   }
