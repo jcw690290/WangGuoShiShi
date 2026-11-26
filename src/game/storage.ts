@@ -19,6 +19,7 @@ import { isTaxLaw, taxLaws, taxReceiptSchema } from "./taxation.ts";
 import { isTradeLaw, tradeLaws } from "./trade-policy.ts";
 import { startingStateForm } from "./constitution.ts";
 import { industryOwnershipSchema, ownershipAmountsSchema, ownershipKinds, ownershipSchema } from "./ownership.ts";
+import { foreignPairKey, foreignRelationSchema, foreignTreatySchema, treatyOfferSchema } from "./foreign-relations.ts";
 import { buildingCapacity, militaryProcurementCost, projects, unusedPrepaidConstruction } from "./economy.ts";
 import { constructionMaintenanceSchema, constructionReportSchema, constructionStockSchema, constructionSpending, constructionWage } from "./construction.ts";
 import { nationSchema, siteSocialSchema, projectTypes } from "./society.ts";
@@ -346,6 +347,9 @@ export function parseSave(scenario: Scenario, save: unknown): GameState {
     nations: z.record(countries, nationSchema),
     borderDispute: disputeSchema.nullable(),
     diplomaticTies: z.array(diplomaticTieSchema.extend({ senior: countries, partner: countries })).optional(),
+    foreignRelations: z.array(foreignRelationSchema).optional(),
+    foreignTreaties: z.array(foreignTreatySchema).optional(),
+    treatyOffers: z.array(treatyOfferSchema).optional(),
     tradeRoutes: z.array(tradeRouteSchema.extend({ from: sites, to: sites, exporter: countries, importer: countries })).optional(),
     occupation: z.object({ stateId: sites, controllerId: countries }).optional(),
     lastEconomy: z
@@ -465,6 +469,24 @@ export function parseSave(scenario: Scenario, save: unknown): GameState {
     migratedArmaments = true;
   }
   if (migratedArmaments) state.lastEconomy = null;
+  const relationKeys = new Set<string>(), treatyKeys = new Set<string>();
+  const liveCountries = new Set(Object.values(state.ownerByStateId));
+  for (const row of state.foreignRelations ?? []) {
+    const key = foreignPairKey(row.a, row.b);
+    if (relationKeys.has(key) || !Object.hasOwn(state.nations, row.a) || !Object.hasOwn(state.nations, row.b) ||
+        (row.giftA ?? 0) > state.elapsedDays || (row.giftB ?? 0) > state.elapsedDays) invalid();
+    relationKeys.add(key);
+  }
+  for (const treaty of state.foreignTreaties ?? []) {
+    const key = treaty.kind + foreignPairKey(treaty.a, treaty.b);
+    if (treatyKeys.has(key) || !liveCountries.has(treaty.a) || !liveCountries.has(treaty.b) || treaty.signedDay > state.elapsedDays) invalid();
+    treatyKeys.add(key);
+  }
+  for (const offer of state.treatyOffers ?? []) {
+    const key = offer.kind + foreignPairKey(offer.from, offer.to);
+    if (treatyKeys.has(key) || !liveCountries.has(offer.from) || !liveCountries.has(offer.to) || offer.offeredDay > state.elapsedDays) invalid();
+    treatyKeys.add(key);
+  }
   if (data.version !== saveVersion && migrateCommercialProduction(state) && campaign?.outcome?.baseline && campaign.ending === null) {
     const fresh = openingMetrics(createGame(scenario, 1820, state.settings.difficulty), state.playerCountryId!);
     campaign.outcome = { ...campaign.outcome, metrics: {}, lossSince: null, victorySince: null, genericSince: null,

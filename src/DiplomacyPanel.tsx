@@ -13,11 +13,15 @@ import {
   participants,
   swayCost,
 } from "./game/diplomacy.ts";
-import type { BorderCommand, Goal } from "./game/diplomacy.ts";
+import type { Goal } from "./game/diplomacy.ts";
 import type { EconomyReport } from "./game/economy.ts";
 import type { GameCommand, GameState } from "./game/engine.ts";
 import type { Scenario } from "./scenario/scenario.ts";
 import { tieNames, tiePartner } from "./game/diplomatic-ties.ts";
+import { diplomaticGiftCost, diplomaticTrust, foreignCommandError, influenceBudget, relationBetween,
+  treatyBetween, treatyKinds, treatyNames } from "./game/foreign-relations.ts";
+import { countryDisplayName } from "./game/constitution.ts";
+import { silver } from "./format.ts";
 interface Props {
   scenario: Scenario;
   game: GameState;
@@ -46,8 +50,15 @@ export function DiplomacyPanel({ scenario, game, playerId: id, report, busy, sen
   }, [scenario, game.ownerByStateId, game.nations, id]);
   const target = sites.find((s) => s.id === choice) ?? sites.find((s) => s.id === selectedId) ?? sites[0];
   const [union, setUnion] = useState(""),
-    [ally, setAlly] = useState("");
+    [ally, setAlly] = useState(""),
+    [foreignChoice, setForeignChoice] = useState("");
   const live = Object.keys(countries).filter((x) => Object.values(game.ownerByStateId).includes(x));
+  const foreignCountries = live.filter((countryId) => countryId !== id);
+  const foreignPartner = foreignCountries.includes(foreignChoice) ? foreignChoice : foreignCountries[0];
+  const relation = foreignPartner ? relationBetween(game, id, foreignPartner) : undefined;
+  const influence = influenceBudget(game, id);
+  const incoming = game.treatyOffers?.filter((offer) => offer.to === id) ?? [];
+  const outgoing = game.treatyOffers?.filter((offer) => offer.from === id) ?? [];
   const leaders = live.filter((x) => x !== id && !game.nations[x].marketLeader);
   const leader = leaders.includes(union) ? union : leaders[0];
   const ties = game.diplomaticTies?.flatMap((tie) => {
@@ -66,7 +77,7 @@ export function DiplomacyPanel({ scenario, game, playerId: id, report, busy, sen
       )
     : [];
   const partner = allies.includes(ally) ? ally : allies[0];
-  const btn = (name: string, cmd: BorderCommand, disabled = false) => (
+  const btn = (name: string, cmd: GameCommand, disabled = false) => (
     <button key={name} className="build" disabled={busy || disabled} onClick={() => send(cmd)}>
       {name}
     </button>
@@ -91,7 +102,7 @@ export function DiplomacyPanel({ scenario, game, playerId: id, report, busy, sen
         <h2 id="diplomacy-title">外交与战争</h2>
         <span>
           恶名 {n.infamy.toFixed(1)}
-          {" · "}{infamyLevel(n.infamy)} · 外交信誉 {n.prestige}
+          {" · "}{infamyLevel(n.infamy)} · 外交信誉 {n.prestige} · 外交影响力 {influence.available} / {influence.capacity}
         </span>
       </header>
       <div className="economy-grid">
@@ -247,9 +258,45 @@ export function DiplomacyPanel({ scenario, game, playerId: id, report, busy, sen
         </section>
         <section className="panel">
           <header className="panel-header">
-            <h3>关税同盟与附属关系</h3>
+            <h3>条约、共同市场与附属关系</h3>
           </header>
           <div className="control-block">
+            {relation && <details>
+              <summary>双边外交</summary>
+              <label>外交对象{" "}
+                <select value={foreignPartner} onChange={(event) => setForeignChoice(event.target.value)}>
+                  {foreignCountries.map((countryId) => (
+                    <option key={countryId} value={countryId}>{countryDisplayName(countries[countryId], game.nations[countryId])}</option>
+                  ))}
+                </select>
+              </label>
+              <p>关系 {relation.standing} · 对方对本国信任 {diplomaticTrust(relation, foreignPartner)} / 100</p>
+              {(() => {
+                const command = { type: "improveRelations", countryId: id, partnerId: foreignPartner } as const;
+                const problem = foreignCommandError(game, command);
+                return <>{btn(`赠送外交礼金 · ${silver(diplomaticGiftCost)}`, command, problem !== undefined)}
+                  {problem && <small>{problem}</small>}</>;
+              })()}
+              <p>防御同盟在盟国遭到外交进攻时履行防御承诺。签约未满 180 天解约会降低信任。</p>
+              <div className="diplomacy-actions">
+                {treatyKinds.map((kind) => {
+                  const treaty = treatyBetween(game, id, foreignPartner, kind);
+                  const command = { type: treaty ? "endTreaty" : "offerTreaty", countryId: id, partnerId: foreignPartner, kind } as const;
+                  return btn(treaty ? `解除${treatyNames[kind]}` : `提议${treatyNames[kind]}`, command,
+                    foreignCommandError(game, command) !== undefined);
+                })}
+              </div>
+              {outgoing.length > 0 && <p>待回复 · {outgoing.map((offer) =>
+                `${countryDisplayName(countries[offer.to], game.nations[offer.to])} ${treatyNames[offer.kind]}`).join("、")}</p>}
+              {incoming.map((offer) => {
+                const accept = { type: "acceptTreaty", countryId: id, partnerId: offer.from, kind: offer.kind } as const;
+                return <div key={`${offer.from}:${offer.kind}`} className="diplomacy-actions">
+                  <p>{countryDisplayName(countries[offer.from], game.nations[offer.from])}提议{treatyNames[offer.kind]}</p>
+                  {btn("接受", accept, foreignCommandError(game, accept) !== undefined)}
+                  {btn("拒绝", { ...accept, type: "declineTreaty" })}
+                </div>;
+              })}
+            </details>}
             <p>当前市场 · {countries[n.marketLeader ?? id].name}</p>
             <p>
               宗主国 · {n.overlord ? countries[n.overlord].name : "独立"} · 运输船队 {n.convoys}

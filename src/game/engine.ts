@@ -40,6 +40,8 @@ import { civicLawOf } from "./civic-policy.ts";
 import { powerDistribution } from "./constitution.ts";
 import { projectOwnership } from "./ownership.ts";
 import { industrySubsidyLimit } from "./industrial.ts";
+import { applyForeignCommand, settleAiTreatyOffers } from "./foreign-relations.ts";
+import type { ForeignCommand, ForeignRelation, ForeignTreaty, TreatyOffer } from "./foreign-relations.ts";
 export { DAY_MS, elapsedTicks, TICKS_PER_DAY } from "./time.ts";
 
 export interface GameState {
@@ -59,6 +61,9 @@ export interface GameState {
   campaign?: Campaign;
   borderDispute: BorderDispute | null;
   diplomaticTies?: DiplomaticTie[];
+  foreignRelations?: ForeignRelation[];
+  foreignTreaties?: ForeignTreaty[];
+  treatyOffers?: TreatyOffer[];
   tradeRoutes?: TradeRoute[];
   occupation?: Occupation;
 }
@@ -83,6 +88,7 @@ export type GameCommand =
   | GovernanceCommand
   | TradeCommand
   | TradePolicyCommand
+  | ForeignCommand
   | LocalUnrestCommand
   | BorderCommand;
 
@@ -332,6 +338,7 @@ export function advanceTick(
       });
   }
   for (const cmd of aiDiplomacy(scenario, result, humanCountries)) result = applyCommand(scenario, result, cmd);
+  result = settleAiTreatyOffers(result, humanCountries);
   return finalizeCampaign(scenario, advanceAchievements(state, result, date, settled.lastEconomy), date, true);
 }
 export function dispatch(scenario: Scenario, state: GameState, cmd: GameCommand): GameState {
@@ -422,6 +429,12 @@ function applyCommand(
     case "setTariffBand":
     case "setTradePartner":
       return applyTradePolicy(state, cmd);
+    case "improveRelations":
+    case "offerTreaty":
+    case "acceptTreaty":
+    case "declineTreaty":
+    case "endTreaty":
+      return applyForeignCommand(state, cmd);
     case "negotiateLocalUnrest":
       return negotiateLocalUnrest(state, cmd);
     case "queueConstruction": {
