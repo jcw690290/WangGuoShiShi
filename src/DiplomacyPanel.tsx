@@ -17,6 +17,7 @@ import type { BorderCommand, Goal } from "./game/diplomacy.ts";
 import type { EconomyReport } from "./game/economy.ts";
 import type { GameCommand, GameState } from "./game/engine.ts";
 import type { Scenario } from "./scenario/scenario.ts";
+import { tieNames, tiePartner } from "./game/diplomatic-ties.ts";
 interface Props {
   scenario: Scenario;
   game: GameState;
@@ -49,6 +50,10 @@ export function DiplomacyPanel({ scenario, game, playerId: id, report, busy, sen
   const live = Object.keys(countries).filter((x) => Object.values(game.ownerByStateId).includes(x));
   const leaders = live.filter((x) => x !== id && !game.nations[x].marketLeader);
   const leader = leaders.includes(union) ? union : leaders[0];
+  const ties = game.diplomaticTies?.flatMap((tie) => {
+    const partnerId = tiePartner(tie, id);
+    return partnerId === undefined ? [] : [{ kind: tie.kind, partnerId }];
+  });
   const involved = d && participants(d).includes(id),
     claimant = d?.claimantId === id,
     primary = claimant || d?.defenderId === id;
@@ -261,6 +266,18 @@ export function DiplomacyPanel({ scenario, game, playerId: id, report, busy, sen
               关税同盟共享商品价格。保护国、傀儡和封臣分别按周缴纳 10%、15% 和 20%
               的税收。宗主国保护附属国，傀儡和封臣随宗主国参战。
             </p>
+            {!!ties?.length && <details>
+              <summary>开局外交关系</summary>
+              <p>这些关系保留独立市场和国库。与对方开战时关系解除。</p>
+              <ul>
+                {ties.map(({ kind, partnerId }) => (
+                  <li key={partnerId}>
+                    <p>{countries[partnerId].name} · {tieNames[kind]}</p>
+                    {btn(`解除与${countries[partnerId].name}的关系`, { type: "endDiplomaticTie", countryId: id, partnerId })}
+                  </li>
+                ))}
+              </ul>
+            </details>}
             {n.marketLeader
               ? btn("退出关税同盟", simple("leaveUnion"), !!n.overlord)
               : leader && (

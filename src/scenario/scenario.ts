@@ -1,5 +1,6 @@
 import { z } from "zod";
 import type { ByGood } from "../game/industry.ts";
+import type { DiplomaticTie } from "../game/diplomatic-ties.ts";
 import gameData from "../../resources/1820_game_data.json" with { type: "json" };
 import demoData from "./qing-vietnam.json" with { type: "json" };
 
@@ -36,6 +37,7 @@ export interface Scenario {
   countries: Record<string, Country>;
   states: Record<string, ScenarioState>;
   borderDispute: z.infer<typeof borderDispute>;
+  diplomaticTies?: readonly DiplomaticTie[];
 }
 
 const counts = z.object({ grain: z.int().nonnegative(), cloth: z.int().nonnegative() });
@@ -151,6 +153,12 @@ if (
 export const scenario: Scenario = {
   id: "world-1820",
   name: "1820 世界剧本",
+  diplomaticTies: [
+    { kind: "investiture", senior: "country_01", partner: "country_26" },
+    { kind: "investiture", senior: "country_01", partner: "country_28" },
+    { kind: "tributeTrade", senior: "country_01", partner: "country_25" },
+    { kind: "personalUnion", senior: "country_02", partner: "country_14" },
+  ],
   startDate: demo.startDate,
   endDate: "1823-01-01",
   borderDispute: demo.borderDispute,
