@@ -5,6 +5,7 @@ import { institutionLawDetails, institutionRequiredTech } from "./institutions.t
 import { laborLawCategory, laborLawTechnology } from "./labor.ts";
 import { isTaxLaw } from "./taxation.ts";
 import { isTradeLaw } from "./trade-policy.ts";
+import { civicLawCategory, civicLawOf, civicPolicy } from "./civic-policy.ts";
 import { groups, influence, literacyOf, reformConditions, reformWork, techs, unrestOf } from "./society.ts";
 import type { Group, Law, Nation, SiteSocial, Tech } from "./society.ts";
 
@@ -83,7 +84,7 @@ export const lawEffect: Record<Law, string> = {
   平等公民权: "接纳所有文化",
   信仰自由: "接纳所有信仰",
   普选制: "扩大基层参与，上／中／下层权重为 1.5／1.2／1",
-  出版自由: "解除科技扩散的审查折减",
+  出版自由: "科技扩散按 100% 计算，政治运动组织力提高 20%",
   地主租佃: "自给农业出售余粮和木材所得的 20% 归土地所有者",
   小农自耕: "自给农业出售余粮和木材所得全部归农户",
   地方教育: "允许各州设置最高 1 级学校",
@@ -112,10 +113,16 @@ export const lawEffect: Record<Law, string> = {
   贸易保护: "按进口国关税档位对实际进口计征",
   自由贸易: "进口关税全额减免",
   许可贸易: "普通进出口限已获通商许可的对象或朝贡贸易伙伴",
+  本族公民权: "本国文化享有完整公民待遇",
+  有限公民权: "本国及州亲近度达到 50 的文化享有完整待遇，其他文化享有限待遇",
+  国教优先: "国教信徒享有完整宗教待遇",
+  宗教宽容: "国教信徒享有完整待遇，其他信仰享有限待遇",
+  出版审查: "科技扩散按 65% 计算，政治运动没有额外组织增益",
+  有限出版: "科技扩散按 85% 计算，政治运动组织力提高 10%",
 };
 
 function exclusiveLawCategory(law: Law) {
-  return institutionLawDetails(law)?.kind ?? laborLawCategory(law) ??
+  return institutionLawDetails(law)?.kind ?? laborLawCategory(law) ?? civicLawCategory(law) ??
     (isTaxLaw(law) ? "tax" : isTradeLaw(law) ? "trade" : law === "自由放任" || law === "干预主义" ? "economy" :
       law === "小农自耕" || law === "地主租佃" ? "land" : undefined);
 }
@@ -143,7 +150,9 @@ export function politicsError(state: GameState, command: PoliticsCommand) {
     if (nation.research !== null || !availableTech(nation, command.tech))
       return "已有研究、缺少前置技术或已经掌握该技术";
   } else {
-    if (nation.reform !== null || nation.laws.includes(command.law)) return "已有议案或该法已生效";
+    const civicCategory = civicLawCategory(command.law);
+    if (nation.reform !== null || nation.laws.includes(command.law) ||
+        (civicCategory && civicLawOf(nation.laws, civicCategory) === command.law)) return "已有议案或该法已生效";
     const institution = institutionLawDetails(command.law);
     const modernTax = isTaxLaw(command.law) && command.law !== "传统土地身份税" && command.law !== "工资税改革";
     const technology = modernTax ? "现代税制" :
@@ -196,10 +205,11 @@ export function advancePolitics(state: GameState, report: EconomyReport, year: n
         researchCategory[tech] === category && availableTech(previous, tech),
       )).filter((tech) => tech !== undefined);
       const spillover = spreading.length > 0 ? Math.max(0, innovation - cap) * 0.5 / spreading.length : 0;
+      const publication = civicPolicy(nation.laws);
       for (const tech of techs) {
         const cost = researchCost(tech, year);
         const diffusion = spreading.includes(tech)
-          ? (5 + 0.15 * literacy + spillover) * (nation.laws.includes("出版自由") ? 1 : 0.65) : 0;
+          ? (5 + 0.15 * literacy + spillover) * publication.diffusion : 0;
         const active = nation.research === tech ? Math.min(innovation, cap) : 0;
         nation.diffusion[tech] = Math.min(100 - nation.knowledge[tech], 100 * diffusion / cost);
         nation.knowledge[tech] = Math.min(100, nation.knowledge[tech] + nation.diffusion[tech] + 100 * active / cost);

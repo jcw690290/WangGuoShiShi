@@ -17,9 +17,10 @@ import { institutionLawDetails, institutionLawFamilies, institutionLawKinds, ins
 import { laborLawCategory, laborLawFamilies } from "./game/labor.ts";
 import { taxLaws } from "./game/taxation.ts";
 import { isTradeLaw, tradeLaws } from "./game/trade-policy.ts";
+import { civicLawCategory, civicLawFamilies, enactedCivicLaws } from "./game/civic-policy.ts";
 
 const otherLaws = laws.filter((law) => !institutionLawDetails(law) && !laborLawCategory(law) &&
-  !(taxLaws as readonly Law[]).includes(law) && !isTradeLaw(law));
+  !(taxLaws as readonly Law[]).includes(law) && !isTradeLaw(law) && !civicLawCategory(law));
 interface Props {
   game: GameState;
   playerId: string;
@@ -45,6 +46,7 @@ export function PoliticsPanel({ game, playerId: id, year, busy, send }: Props) {
   const { innovation, cap } = researchCapacity(universityStaff, literacy);
   const proposal = { type: "proposeLaw", countryId: id, law } as const;
   const reason = politicsError(game, proposal);
+  const effectiveLaws = [...n.laws.filter((law) => !civicLawCategory(law)), ...enactedCivicLaws(n.laws)];
   return (
     <section className="economy">
       <header className="economy-heading">
@@ -80,7 +82,7 @@ export function PoliticsPanel({ game, playerId: id, year, busy, send }: Props) {
                 </label>
               ))}
             </div>
-            <p>生效法律 · {n.laws.join("、") || "传统制度"}</p>
+            <p>生效法律 · {effectiveLaws.join("、")}</p>
             <select
               value={law}
               aria-label="改革法律"
@@ -106,6 +108,11 @@ export function PoliticsPanel({ game, playerId: id, year, busy, send }: Props) {
               <optgroup label="贸易法">
                 {tradeLaws.map((l) => <option key={l}>{l}</option>)}
               </optgroup>
+              {Object.values(civicLawFamilies).map(({ name, options }) => (
+                <optgroup key={name} label={name}>
+                  {options.map((l) => <option key={l}>{l}</option>)}
+                </optgroup>
+              ))}
             </select>
             <p>{lawEffect[law]}</p>
             <p>

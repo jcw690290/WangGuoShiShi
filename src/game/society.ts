@@ -12,6 +12,7 @@ import { bondedRuralShare, laborLawCategory, laborLaws, laborProtection, neutral
   participationTarget, startingLaborLaws, workForce } from "./labor.ts";
 import { exciseGoods, exciseGoodsSchema, isTaxLaw, taxBands, taxBandSchema, taxLaws } from "./taxation.ts";
 import { isTradeLaw, tariffBandSchema, tradeLaws, tradePartnersSchema } from "./trade-policy.ts";
+import { civicLawCategory, civicLaws, civicPolicy, civicStanding, isBaselineCivicLaw } from "./civic-policy.ts";
 
 export const occupations = ["农民", "劳工", "工程师", "军官", "教士", "店主", "资本家", "贵族"] as const;
 export type Occupation = (typeof occupations)[number];
@@ -80,18 +81,16 @@ export const siteSocialSchema = z.object({
 export type SiteSocial = z.infer<typeof siteSocialSchema>;
 export const laws = [
   "工资税改革",
-  "平等公民权",
-  "信仰自由",
   "普选制",
   "干预主义",
   "自由放任",
-  "出版自由",
   "地主租佃",
   "小农自耕",
   ...institutionLawKinds.flatMap((kind) => [...institutionLawOptions[kind]]),
   ...laborLaws,
   ...taxLaws,
   ...tradeLaws,
+  ...civicLaws,
 ] as const;
 export type Law = (typeof laws)[number];
 export const techs = ["纺织工艺", "野战后勤", "公共教育", "机械织造", "运输调度", "高等教育", "蒸汽动力", "铁路",
@@ -164,7 +163,8 @@ export const nationSchema = z.object({
   laws: z.array(z.enum(laws)).refine((enacted) => institutionLawKinds.every((kind) =>
     enacted.filter((law) => institutionLawDetails(law)?.kind === kind).length <= 1)).refine((enacted) => {
     const categories = enacted.map(laborLawCategory).filter((category) => category !== undefined);
-    return new Set(categories).size === categories.length;
+    const civicCategories = enacted.map(civicLawCategory).filter((category) => category !== undefined);
+    return new Set(categories).size === categories.length && new Set(civicCategories).size === civicCategories.length;
   }).refine((enacted) => enacted.filter(isTaxLaw).length <= 1 && enacted.filter(isTradeLaw).length <= 1),
   taxBand: taxBandSchema.default(taxBands[2]),
   exciseGoods: exciseGoodsSchema.default(() => [...exciseGoods]),
@@ -270,12 +270,6 @@ export function initSociety(scenario: Scenario) {
   return { societies, nations };
 }
 
-export function accepted(pop: Pop, id: string, nation: Nation) {
-  return (
-    (nation.laws.includes("平等公民权") || pop.culture === id) &&
-    (nation.laws.includes("信仰自由") || pop.religion === id)
-  );
-}
 function populationAverage(pops: Pop[], metric: "literacy" | "livingStandard" | "radicals") {
   const people = pops.reduce((n, p) => n + p.people, 0);
   return people ? pops.reduce((n, p) => n + p.people * p[metric], 0) / people : 0;
@@ -293,14 +287,15 @@ export function influence(locals: SiteSocial[], id: string, nation: Nation) {
   const civicRights = nation.laws.includes("妇女平等权") ? { 下层: 1.15, 中层: 1.10, 上层: 1 } :
     { 下层: 1, 中层: 1, 上层: 1 };
   const ruralFreedom = 1 - bondedRuralShare(nation.laws);
+  const policy = civicPolicy(nation.laws);
   let sum = 0;
-  for (const { pops } of locals)
-    for (const pop of pops) {
+  for (const site of locals)
+    for (const pop of site.pops) {
       const stratum = socialTags[pop.occupation][0];
       const weight =
         pop.people *
         weights[stratum] * civicRights[stratum] * (pop.occupation === "农民" ? ruralFreedom : 1) *
-        (accepted(pop, id, nation) ? 1 : 0.05);
+        (0.05 + 0.95 * civicStanding(pop, id, site, policy));
       for (const [group, support] of occupationSupport[pop.occupation]) points[group] += weight * support;
       sum += weight;
     }
@@ -343,12 +338,18 @@ export const supporters: Record<Law, Group[]> = {
   贸易保护: ["乡民", "实业家"],
   自由贸易: ["实业家", "小市民", "知识分子"],
   许可贸易: ["地主", "武装部队"],
+  本族公民权: ["地主", "武装部队"],
+  有限公民权: ["小市民", "实业家", "乡民"],
+  国教优先: ["教会", "地主"],
+  宗教宽容: ["知识分子", "小市民", "乡民"],
+  出版审查: ["地主", "武装部队"],
+  有限出版: ["小市民", "实业家", "乡民"],
 };
 export function approval(nation: Nation, g: Group) {
   return (
     (nation.government.includes(g) ? 8 : 0) +
     nation.laws.reduce((n, l) => institutionLawDetails(l)?.level === 1 || neutralLaborLaws.has(l) ||
-      l === "传统土地身份税" || l === "贸易保护" ?
+      l === "传统土地身份税" || l === "贸易保护" || isBaselineCivicLaw(l) ?
       n : n + (supporters[l].includes(g) ? 4 : -1), 0)
   );
 }
@@ -375,7 +376,7 @@ export function governmentLegitimacy(nation: Nation, power: Record<Group, number
 export function reformConditions(nation: Nation, power: Record<Group, number>, law: Law, resistance = 0) {
   const government = nation.government;
   const legitimacy = governmentLegitimacy(nation, power);
-  const support = supporters[law].reduce((n, g) => n + power[g], 0);
+  const support = Math.min(100, supporters[law].reduce((n, g) => n + power[g], 0) * civicPolicy(nation.laws).organization);
   const backed = government.some((g) => supporters[law].includes(g)) || support >= 25;
   const pace = Math.max(0.25, 1 + (legitimacy - 50) / 50 + (support - 50) / 50 - resistance / 100);
   const weeks = Math.max(8, Math.min(104, Math.round(baselineReformWeeks / pace)));
@@ -399,8 +400,9 @@ export function evolvePops(
   const boundShare = bondedRuralShare(nation.laws);
   const protection = laborProtection(nation.laws).relief *
     Math.min(1, businessJobs / Math.max(1, workForce(totals.劳工, site.laborParticipation)));
+  const policy = civicPolicy(nation.laws);
   const pops = site.pops.map((p) => {
-    const isAccepted = accepted(p, id, nation);
+    const standing = civicStanding(p, id, site, policy);
     const income =
       p.occupation === "农民"
         ? ruralResources + (week.relief?.农民 ?? 0)
@@ -411,7 +413,7 @@ export function evolvePops(
             : totals[p.occupation] * 4 + (p.occupation === "工程师" ? specialistWages : 0);
     const living = Math.max(
       0.5,
-      (((income / Math.max(1, totals[p.occupation])) * 0.3) / (grainPrice / 100)) * (isAccepted ? 1 : 0.65),
+      (((income / Math.max(1, totals[p.occupation])) * 0.3) / (grainPrice / 100)) * (0.65 + 0.35 * standing),
     );
     const wealth = Math.max(0.5, p.wealth * 0.96 + Math.min(150, living) * 0.04);
     const suffering = wealth < 4 + p.literacy / 12 + (nation.knowledge["公共教育"] === 100 ? 1 : 0);
@@ -422,7 +424,7 @@ export function evolvePops(
         p.radicals +
           (suffering ? 0.25 * tuning.radicalGrowth : -0.18 * tuning.radicalRelief) +
           (p.occupation === "农民" ? 0.08 * boundShare : p.occupation === "劳工" ? -protection : 0) +
-          (isAccepted ? 0 : 0.12 * tuning.radicalGrowth),
+          0.12 * (1 - standing) * tuning.radicalGrowth,
       ),
     );
     const livingStandard = updateLivingStandard(p.livingStandard, standardTarget);
@@ -448,7 +450,7 @@ export function evolvePops(
     const qualified = Math.floor(
       ((p.people * (p.literacy + p.wealth)) / 1000) *
         (1 + site.university) *
-        (accepted(p, id, nation) ? 1 : 0.35),
+        (0.35 + 0.65 * civicStanding(p, id, site, policy)),
     );
     const promoted = Math.min(p.people, vacancies, qualified);
     p.people -= promoted;

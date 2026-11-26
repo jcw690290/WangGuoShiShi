@@ -10,7 +10,8 @@ import { goods, industrialGoods, industries } from "./industry.ts";
 import { industryMethod } from "./industrial.ts";
 import { institutions } from "./institutions.ts";
 import { bondedRuralWorkers, laborStatus, ruralPopulation } from "./labor.ts";
-import { accepted, governmentLegitimacy, influence } from "./society.ts";
+import { governmentLegitimacy, influence } from "./society.ts";
+import { civicPolicy, civicStanding } from "./civic-policy.ts";
 import { basicEquivalentSupply, essentialGoods } from "./households.ts";
 
 export const campaignBaselineSchema = z.object({
@@ -65,13 +66,14 @@ export function measureCampaign(
   const bonded = locals.reduce((sum, site) => sum +
     bondedRuralWorkers(ruralPopulation(site.pops), site.laborParticipation, nation.laws), 0);
   const freeLabor = laborStatus(nation.laws) === "自由劳动" ? 1 : 0;
+  const policy = civicPolicy(nation.laws);
   let people = 0, living = 0, literacy = 0, discriminated = 0, unrest = 0, core = 0, coreControlled = 0;
   for (const site of locals) for (const pop of site.pops) {
     people += pop.people;
     living += pop.livingStandard * pop.people;
     literacy += pop.literacy * pop.people;
     unrest += (site.stability?.unrest ?? 0) * pop.people;
-    if (!accepted(pop, countryId, nation)) discriminated += pop.people;
+    if (civicStanding(pop, countryId, site, policy) < 1) discriminated += pop.people;
   }
   let culturalContacts = 0;
   for (const site of Object.values(scenario.states)) {
