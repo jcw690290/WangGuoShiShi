@@ -3,7 +3,7 @@ import type { Scenario } from "../scenario/scenario.ts";
 import type { RuleTuning } from "./settings.ts";
 import { startingLivingStandard, updateLivingStandard } from "./households.ts";
 import { initialCulturalAffinity } from "./culture.ts";
-import { localGovernanceSchema } from "./governance.ts";
+import { governanceLaws, isGovernanceLaw, localGovernanceSchema } from "./governance.ts";
 import { emptyStability, stabilitySchema } from "./unrest.ts";
 import { goods } from "./industry.ts";
 import { initialFleet, merchantFleetSchema } from "./fleet.ts";
@@ -93,6 +93,7 @@ export const laws = [
   ...tradeLaws,
   ...civicLaws,
   ...constitutionalLaws,
+  ...governanceLaws,
 ] as const;
 export type Law = (typeof laws)[number];
 export const techs = ["纺织工艺", "野战后勤", "公共教育", "机械织造", "运输调度", "高等教育", "蒸汽动力", "铁路",
@@ -169,6 +170,7 @@ export const nationSchema = z.object({
     const civicCategories = enacted.map(civicLawCategory).filter((category) => category !== undefined);
     return new Set(categories).size === categories.length && new Set(civicCategories).size === civicCategories.length;
   }).refine((enacted) => enacted.filter(isTaxLaw).length <= 1 && enacted.filter(isTradeLaw).length <= 1 &&
+    enacted.filter(isGovernanceLaw).length <= 1 &&
     (["stateForm", "representation"] as const).every((category) =>
       enacted.filter((law) => constitutionLawCategory(law) === category).length <= 1)),
   taxBand: taxBandSchema.default(taxBands[2]),
@@ -353,12 +355,16 @@ export const supporters: Record<Law, Group[]> = {
   教权政体: ["教会", "地主"],
   专制统治: ["地主", "武装部队"],
   有限选举: ["实业家", "小市民", "乡民"],
+  复合辖区制: ["地主", "乡民"],
+  中央集权: ["地主", "武装部队", "小市民"],
+  地方自治: ["乡民", "小市民", "知识分子"],
+  殖民特许: ["实业家", "地主", "武装部队"],
 };
 export function approval(nation: Nation, g: Group) {
   return (
     (nation.government.includes(g) ? 8 : 0) +
     nation.laws.reduce((n, l) => institutionLawDetails(l)?.level === 1 || neutralLaborLaws.has(l) ||
-      l === "传统土地身份税" || l === "贸易保护" || isBaselineCivicLaw(l) ?
+      l === "传统土地身份税" || l === "贸易保护" || l === "复合辖区制" || isBaselineCivicLaw(l) ?
       n : n + (supporters[l].includes(g) ? 4 : -1), 0)
   );
 }

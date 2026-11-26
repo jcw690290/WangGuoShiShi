@@ -7,6 +7,7 @@ import { isTaxLaw } from "./taxation.ts";
 import { isTradeLaw } from "./trade-policy.ts";
 import { civicLawCategory, civicLawOf, civicPolicy } from "./civic-policy.ts";
 import { constitutionLawCategory, representationLaw, stateForm } from "./constitution.ts";
+import { governanceLaw, isGovernanceLaw } from "./governance.ts";
 import { groups, influence, literacyOf, reformConditions, reformWork, techs, unrestOf } from "./society.ts";
 import type { Group, Law, Nation, SiteSocial, Tech } from "./society.ts";
 
@@ -125,11 +126,16 @@ export const lawEffect: Record<Law, string> = {
   教权政体: "非选举继任的合法性来自教会和地主，基础权威力 110",
   专制统治: "上、中、下层政治权重为 6、2、0.2，权威力增加 20",
   有限选举: "上、中、下层政治权重为 4、2、0.6，合法性参考选举授权",
+  复合辖区制: "依辖区类型分配税权、军役和行政费用",
+  中央集权: "边疆中央税收份额提至 90%，行政与整合岗位需求增加 15%，限制新设间接辖区",
+  地方自治: "中央税收份额最高 80%，中央征用额度降至原来的 80%，行政与整合岗位需求降低 15%，限制新设殖民辖区",
+  殖民特许: "殖民辖区中央税收份额提高至 75%，征用份额降至 65%，提高当地行政与整合成本",
 };
 
 function exclusiveLawCategory(law: Law) {
   return institutionLawDetails(law)?.kind ?? laborLawCategory(law) ?? civicLawCategory(law) ?? constitutionLawCategory(law) ??
-    (isTaxLaw(law) ? "tax" : isTradeLaw(law) ? "trade" : law === "自由放任" || law === "干预主义" ? "economy" :
+    (isTaxLaw(law) ? "tax" : isTradeLaw(law) ? "trade" : isGovernanceLaw(law) ? "governance" :
+      law === "自由放任" || law === "干预主义" ? "economy" :
       law === "小农自耕" || law === "地主租佃" ? "land" : undefined);
 }
 export type PoliticsCommand =
@@ -162,6 +168,7 @@ export function politicsError(state: GameState, command: PoliticsCommand) {
       constitution === "representation" ? representationLaw(nation) : undefined;
     if (nation.reform !== null || nation.laws.includes(command.law) ||
         currentConstitution === command.law ||
+        (isGovernanceLaw(command.law) && governanceLaw(nation.laws) === command.law) ||
         (civicCategory && civicLawOf(nation.laws, civicCategory) === command.law)) return "已有议案或该法已生效";
     const institution = institutionLawDetails(command.law);
     const modernTax = isTaxLaw(command.law) && command.law !== "传统土地身份税" && command.law !== "工资税改革";

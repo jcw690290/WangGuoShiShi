@@ -1,5 +1,5 @@
 import { z } from "zod";
-import { administrationDemandMultiplier, governanceOf, governanceRules } from "./governance.ts";
+import { administrationDemandMultiplier, governanceOf, localGovernanceRule } from "./governance.ts";
 import { industries } from "./industry.ts";
 import { institutionLawLimit, institutions } from "./institutions.ts";
 import type { Difficulty } from "./settings.ts";
@@ -27,10 +27,10 @@ export const officeReportSchema = z.object({
 export type OfficeReport = z.infer<typeof officeReportSchema>;
 
 export function officeNeed(population: number, site: SiteSocial, difficulty: Difficulty, laws: readonly Law[]) {
-  const { mode, integrated } = governanceOf(site);
+  const { integrated } = governanceOf(site);
   const institutionLevels = institutions.reduce((total, kind) => total + Math.min(site[kind], institutionLawLimit(laws, kind)), 0);
   return population / 10_000 * (1 + 0.15 * institutionLevels + (integrated ? 0 : 0.30)) *
-    governanceRules[mode].administrationCost * administrationDemandMultiplier(difficulty);
+    localGovernanceRule(site, laws).administrationCost * administrationDemandMultiplier(difficulty);
 }
 
 function productionInputs(staff: number) {
