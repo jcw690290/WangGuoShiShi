@@ -64,6 +64,7 @@ const commandSchema = z.discriminatedUnion("type", [
   z.strictObject({ type: z.literal("endDiplomaticTie"), countryId: id, partnerId: id }),
   z.strictObject({ type: z.literal("joinContainment"), countryId: id }),
   z.strictObject({ type: z.literal("challengeTerritorialSettlement"), countryId: id, stateId: id }),
+  z.strictObject({ type: z.literal("demandOpiumCompensation"), countryId: id, stateId: id }),
   z.strictObject({ type: z.literal("improveRelations"), countryId: id, partnerId: id }),
   z.strictObject({ type: z.literal(["offerDiplomaticAid", "acceptDiplomaticAid", "declineDiplomaticAid"]), countryId: id, partnerId: id }),
   z.strictObject({ type: z.literal(["offerTreaty", "acceptTreaty", "declineTreaty", "endTreaty"]),
