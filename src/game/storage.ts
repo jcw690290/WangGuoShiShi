@@ -26,7 +26,7 @@ import { settlementAt, territorialClaim, territorialClaimSchema, territorialSett
 import { seaVoyageCargoCost } from "./transport.ts";
 import { buildingCapacity, militaryProcurementCost, projects, unusedPrepaidConstruction } from "./economy.ts";
 import { constructionMaintenanceSchema, constructionReportSchema, constructionStockSchema, constructionSpending, constructionWage } from "./construction.ts";
-import { nationSchema, siteSocialSchema, projectTypes } from "./society.ts";
+import { nationSchema, siteSocialSchema, projectTypes, reformConsultationDays, reformStage } from "./society.ts";
 import { importRegionalSave } from "./legacySave.ts";
 import { borderScenario } from "../scenario/scenario.ts";
 import type { Scenario } from "../scenario/scenario.ts";
@@ -621,6 +621,9 @@ export function parseSave(baseScenario: Scenario, save: unknown): GameState {
     }
     const fiscal = state.countryEconomies[id].fiscal;
     if (fiscal && fiscal.week.day > state.elapsedDays) invalid();
+    const consultation = n.reformConsultation;
+    if (consultation && (consultation.law !== n.reform || consultation.endsDay > state.elapsedDays + reformConsultationDays ||
+        reformStage(n.reformProgress) === "organization")) invalid();
     if (
       (n.marketLeader &&
         (!state.nations[n.marketLeader] ||

@@ -11,7 +11,7 @@ import { governanceLaw, isGovernanceLaw } from "./governance.ts";
 import { economicLaw, isEconomicLaw } from "./ownership.ts";
 import { isOpiumLaw, opiumLaw } from "./opium.ts";
 import { isMilitaryServiceLaw, militaryServiceLaw } from "./military-service.ts";
-import { groups, influence, literacyOf, reformConditions, reformWork, techs, unrestOf } from "./society.ts";
+import { groups, influence, literacyOf, reformConditions, reformConsultationDays, reformStage, reformWork, techs, unrestOf } from "./society.ts";
 import type { Group, Law, Nation, SiteSocial, Tech } from "./society.ts";
 
 export const textileResearch = { outputBonus: 25, weeks: 4 };
@@ -195,6 +195,8 @@ function exclusiveLawCategory(law: Law) {
 export type PoliticsCommand =
   | { type: "setGovernment"; countryId: string; government: Group[] }
   | { type: "proposeLaw"; countryId: string; law: Law }
+  | { type: "compromiseReform"; countryId: string }
+  | { type: "withdrawReform"; countryId: string }
   | { type: "startResearch"; countryId: string; tech: Tech };
 export function ownedSocieties(state: GameState, id: string) {
   return Object.keys(state.societies)
@@ -205,6 +207,17 @@ export function politicsError(state: GameState, command: PoliticsCommand) {
   const id = command.countryId,
     nation = state.nations[id];
   if (!nation || state.playerCountryId === null) return "请先选择剧本内国家";
+  if (command.type === "compromiseReform" || command.type === "withdrawReform") {
+    if (nation.reform === null) return "当前没有改革议案";
+    if (command.type === "withdrawReform") return;
+    if (nation.reformConsultation) return "该议案已安排过协商";
+    if (reformStage(nation.reformProgress) !== "debate") return "只能在争论修正阶段协商";
+    const sites = ownedSocieties(state, id);
+    const conditions = reformConditions(nation, influence(sites, id, nation), nation.reform,
+      unrestOf(sites.flatMap((site) => site.pops)), state.elapsedDays);
+    if (!conditions.disputed) return "当前立法阻力较低";
+    return;
+  }
   if (command.type === "setGovernment") {
     if (
       !command.government.length ||
@@ -241,15 +254,20 @@ export function politicsError(state: GameState, command: PoliticsCommand) {
 export function applyPolitics(state: GameState, command: PoliticsCommand): GameState {
   const error = politicsError(state, command);
   if (error) throw new GameRuleError(error);
-  const change =
-    command.type === "setGovernment"
-      ? { government: command.government }
-      : command.type === "startResearch"
-        ? { research: command.tech }
-        : { reform: command.law, reformProgress: 0 };
+  const nation = state.nations[command.countryId];
+  let change: Partial<Nation>;
+  switch (command.type) {
+    case "setGovernment": change = { government: command.government }; break;
+    case "startResearch": change = { research: command.tech }; break;
+    case "proposeLaw": change = { reform: command.law, reformProgress: 0 }; break;
+    case "withdrawReform": change = { reform: null, reformProgress: 0, reformConsultation: undefined }; break;
+    case "compromiseReform": change = { reformConsultation: {
+      law: nation.reform!, endsDay: state.elapsedDays + reformConsultationDays,
+    } }; break;
+  }
   return {
     ...state,
-    nations: { ...state.nations, [command.countryId]: { ...state.nations[command.countryId], ...change } },
+    nations: { ...state.nations, [command.countryId]: { ...nation, ...change } },
   };
 }
 export function advancePolitics(state: GameState, report: EconomyReport, year: number, yearFraction: number): GameState {
@@ -290,7 +308,8 @@ export function advancePolitics(state: GameState, report: EconomyReport, year: n
         if (nation.research === tech && nation.knowledge[tech] === 100) nation.research = null;
       }
       if (nation.reform) {
-        nation.reformProgress += reformConditions(nation, influence(sites, id, nation), nation.reform, unrestOf(people)).speed;
+        nation.reformProgress += reformConditions(nation, influence(sites, id, nation), nation.reform,
+          unrestOf(people), state.elapsedDays).speed;
         if (nation.reformProgress >= reformWork - 1e-9) {
           const reform = nation.reform;
           const category = exclusiveLawCategory(reform);
@@ -299,6 +318,7 @@ export function advancePolitics(state: GameState, report: EconomyReport, year: n
           nation.laws = [...retained, reform];
           nation.reform = null;
           nation.reformProgress = 0;
+          delete nation.reformConsultation;
         }
       }
     }

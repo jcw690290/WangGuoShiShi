@@ -56,6 +56,7 @@ const commandSchema = z.discriminatedUnion("type", [
   z.strictObject({ type: z.literal("offerConstitutionalCompromise"), countryId: id }),
   z.strictObject({ type: z.literal("chooseCivilWarSide"), countryId: id, side: z.enum(civilSides) }),
   z.strictObject({ type: z.literal("proposeLaw"), countryId: id, law: z.enum(laws) }),
+  z.strictObject({ type: z.literal(["compromiseReform", "withdrawReform"]), countryId: id }),
   z.strictObject({ type: z.literal("startResearch"), countryId: id, tech: z.enum(techs) }),
   z.strictObject({ type: z.literal("declareInterest"), countryId: id, targetStateId: id }),
   z.strictObject({ type: z.literal("demandBorder"), countryId: id, targetStateId: id, goal: z.enum(goals) }),
