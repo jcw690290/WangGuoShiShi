@@ -26,6 +26,8 @@ import type { Scenario } from "./scenario/scenario.ts";
 import { endingStory, endingTitle } from "./scenario/endings.ts";
 import { countryDisplayName } from "./game/constitution.ts";
 import { constitutionalCrisisWarning } from "./game/constitutional-crises.ts";
+import { civilSides, controlledCivilCountry, mustChooseCivilSide, oppositionId, scenarioWithCivilWar } from "./game/civil-war.ts";
+import { garrisonHeadcount } from "./game/military.ts";
 
 const dateFormat = new Intl.DateTimeFormat("zh-CN", { dateStyle: "long", timeZone: "UTC" });
 const tickRates = [1, 2, 4, 8];
@@ -33,13 +35,13 @@ const periods = ["00:00", "06:00", "12:00", "18:00"];
 function DifficultyOptions() {
   return difficultyLevels.map((level) => <option key={level} value={level}>{difficultyNames[level]}</option>);
 }
-export function App({ scenario, geometry, initialSaves, initialSaveNotice }: {
+export function App({ scenario: baseScenario, geometry, initialSaves, initialSaveNotice }: {
   scenario: Scenario;
   geometry: StateGeometry;
   initialSaves: SaveSummary[] | null;
   initialSaveNotice: string;
 }) {
-  const [opening] = useState(() => createGame(scenario));
+  const [opening] = useState(() => createGame(baseScenario));
   const [soloGame, setGame] = useState(opening),
     [selected, setSelected] = useState<string | null>(null);
   const [screen, setScreen] = useState<"menu" | "new" | "tutorial" | "play">("menu");
@@ -52,8 +54,8 @@ export function App({ scenario, geometry, initialSaves, initialSaveNotice }: {
   const [saves, setSaves] = useState<SaveSummary[] | null>(initialSaves);
   const [activeSlot, setActiveSlot] = useState<SaveSlot>("local");
   const savedMonth = useRef(0);
-  const countries = Object.values(scenario.countries).filter((country) => country.selectable !== false),
-    backgroundCountries = Object.values(scenario.countries).filter((country) => country.selectable === false),
+  const countries = Object.values(baseScenario.countries).filter((country) => country.selectable !== false),
+    backgroundCountries = Object.values(baseScenario.countries).filter((country) => country.selectable === false),
     [choice, setChoice] = useState(countries[0].id);
   const [openingDifficulty, setOpeningDifficulty] = useState<Difficulty>("relaxed");
   const [span, setSpan] = useState<Span | "continuous">("continuous"),
@@ -64,7 +66,7 @@ export function App({ scenario, geometry, initialSaves, initialSaveNotice }: {
   const logoClicks = useRef({ count: 0, time: -Infinity });
   const menu = useRef<HTMLDialogElement>(null);
   const roomDialog = useRef<HTMLDialogElement>(null);
-  const online = useOnlineRoom(scenario, () => {
+  const online = useOnlineRoom(baseScenario, () => {
     setUntil(null);
     setSelected(null);
     setNotice("");
@@ -77,19 +79,24 @@ export function App({ scenario, geometry, initialSaves, initialSaveNotice }: {
   const game = useMemo(() => {
     return view?.game ? { ...view.game, playerCountryId: onlineCountry! } : soloGame;
   }, [view?.game, onlineCountry, soloGame]);
+  const scenario = useMemo(() => scenarioWithCivilWar(baseScenario, game.civilWar), [baseScenario, game.civilWar]);
   const onlinePlaying = view?.room.status === "playing";
   const canDrive = onlinePlaying && view.room.hostOnline && view.leased && !view.error;
   const tabs = ["经济与人口", "政治与科技", "外交与战争"] as const;
   const [tab, setTab] = useState<number>(0);
   const [search, setSearch] = useState("");
+  const seat = connection ? onlineCountry ?? null : screen === "play" ? game.playerCountryId : null;
+  const player = seat ? controlledCivilCountry(game, seat) : null;
+  const choosingSide = mustChooseCivilSide(game, seat);
+  const civilWar = game.civilWar;
   const finished = (onlinePlaying || (!connection && screen === "play")) && isScenarioFinished(scenario, game),
     running = !finished && (onlinePlaying
       ? view.room.hostOnline && view.room.speed > 0
-      : !connection && screen === "play" && until !== null && elapsedTicks(game) < until),
-    locked = connection
+      : !connection && screen === "play" && !choosingSide && until !== null && elapsedTicks(game) < until),
+    actionPending = connection
       ? online.busy || commandId !== null || !view?.room.hostOnline || Boolean(view.error)
       : busy || running,
-    player = connection ? onlineCountry ?? null : screen === "play" ? game.playerCountryId : null;
+    locked = actionPending || choosingSide;
   const site =
     selected ??
     (player
@@ -157,7 +164,7 @@ export function App({ scenario, geometry, initialSaves, initialSaveNotice }: {
     savedMonth.current = 0;
     setUntil(null);
     setSelected(null);
-    setGame(dispatch(scenario, createGame(scenario, undefined, openingDifficulty, {
+    setGame(dispatch(baseScenario, createGame(baseScenario, undefined, openingDifficulty, {
       id: crypto.randomUUID(), endYear: year, tutorialEnabled: screen === "tutorial",
     }), { type: "selectCountry", countryId: choice }));
     setScreen("play");
@@ -192,7 +199,7 @@ export function App({ scenario, geometry, initialSaves, initialSaveNotice }: {
       return;
     }
     setGame((previous) => {
-      const next = dispatch(scenario, previous, cmd);
+      const next = dispatch(baseScenario, previous, cmd);
       return cmd.type === "queueConstruction" ? completeGuideStep(completeGuideStep(next, 3), 7) : next;
     });
   }
@@ -213,11 +220,17 @@ export function App({ scenario, geometry, initialSaves, initialSaveNotice }: {
     const timer = setInterval(() => {
       if (document.hidden) return;
       setGame((previous) => elapsedTicks(previous) < until
-        ? dispatch(scenario, previous, { type: "advanceTick" })
+        ? dispatch(baseScenario, previous, { type: "advanceTick" })
         : previous);
     }, 1000 / (speed === 5 ? maxTickRate : speed));
     return () => clearInterval(timer);
-  }, [running, until, speed, maxTickRate, scenario, connection]);
+  }, [running, until, speed, maxTickRate, baseScenario, connection]);
+  useEffect(() => {
+    if (!choosingSide) return;
+    setUntil(null);
+    setTab(2);
+    setGovernmentOpen(true);
+  }, [choosingSide]);
   useEffect(() => {
     function pauseHiddenGame() {
       if (document.hidden) setUntil(null);
@@ -256,12 +269,12 @@ export function App({ scenario, geometry, initialSaves, initialSaveNotice }: {
   useEffect(() => {
     if (connection || !soloGame.playerCountryId || populationDay <= savedMonth.current) return;
     savedMonth.current = populationDay;
-    const slot = autoSaveSlot(getGameDate(scenario, { ...soloGame, elapsedDays: populationDay }));
-    void saveGame(scenario, soloGame, slot, true).then(
+    const slot = autoSaveSlot(getGameDate(baseScenario, { ...soloGame, elapsedDays: populationDay }));
+    void saveGame(baseScenario, soloGame, slot, true).then(
       (summary) => setSaves((entries) => [summary, ...(entries ?? []).filter((entry) => entry.slot !== slot)]),
       (error: unknown) => setNotice("自动存档失败 · " + String(error)),
     );
-  }, [connection, populationDay, scenario, soloGame]);
+  }, [connection, populationDay, baseScenario, soloGame]);
 
   async function slot(action: "save" | "load" | "recent") {
     setBusy(true);
@@ -270,13 +283,13 @@ export function App({ scenario, geometry, initialSaves, initialSaveNotice }: {
         const entries = await listGameSaves();
         const existing = entries.find((entry) => entry.slot === activeSlot);
         if (existing && !window.confirm(`覆盖此手动档（${existing.date ?? "旧存档"}）？`)) return;
-        const summary = await saveGame(scenario, game, activeSlot, existing !== undefined);
+        const summary = await saveGame(baseScenario, game, activeSlot, existing !== undefined);
         setSaves([summary, ...entries.filter((entry) => entry.slot !== activeSlot)]);
         setNotice("已存档 · " + dateFormat.format(date));
       } else {
         const result = action === "recent"
-          ? await loadRecentGame(scenario)
-          : { state: await loadGame(scenario, activeSlot), slot: activeSlot, skipped: 0 };
+          ? await loadRecentGame(baseScenario)
+          : { state: await loadGame(baseScenario, activeSlot), slot: activeSlot, skipped: 0 };
         if (result?.state) {
           savedMonth.current = result.state.lastPopulation?.day ?? 0;
           setActiveSlot(result.slot);
@@ -358,7 +371,7 @@ export function App({ scenario, geometry, initialSaves, initialSaveNotice }: {
             </select>
             <button
               className="advance"
-              disabled={!player || busy || finished}
+              disabled={!player || busy || finished || choosingSide}
               onClick={() => {
                 if (running && elapsedTicks(game) > 0) markGuide(0);
                 setUntil(running ? null : span === "continuous"
@@ -371,6 +384,9 @@ export function App({ scenario, geometry, initialSaves, initialSaveNotice }: {
             </>}
           </div>}
           <div className="header-menus">
+            {choosingSide && <button className="menu-entry" aria-haspopup="dialog" onClick={() => openGovernment(2)}>
+              选择内战阵营
+            </button>}
             {constitutionalWarning && <button className="menu-entry" aria-haspopup="dialog" onClick={() => openGovernment(1)}>
               政体冲突预警
             </button>}
@@ -426,12 +442,12 @@ export function App({ scenario, geometry, initialSaves, initialSaveNotice }: {
             ...state, campaign: { ...state.campaign!, guideSkipped: true },
           }))} />}
       </main>
-      {galleryOpen && <EndingsGallery scenario={scenario} close={() => setGalleryOpen(false)} />}
+      {galleryOpen && <EndingsGallery scenario={baseScenario} close={() => setGalleryOpen(false)} />}
       {developerOpen && !connection && <DeveloperPanel maxTickRate={maxTickRate}
         settings={player && !finished ? game.settings : null}
         setMaxTickRate={setMaxTickRate} setTuning={(tuning) => send({ type: "setRuleTuning", tuning })}
         onClose={() => setDeveloperOpen(false)} />}
-      <RoomDialog scenario={scenario} online={online} dialog={roomDialog} />
+      <RoomDialog scenario={baseScenario} online={online} dialog={roomDialog} />
       <dialog className="government" ref={menu} aria-label="政务菜单" onClose={() => setGovernmentOpen(false)}>
         {governmentOpen && <>
         <header className="menu-tabs">
@@ -451,6 +467,27 @@ export function App({ scenario, geometry, initialSaves, initialSaveNotice }: {
           <button className="close-menu" aria-label="关闭菜单" onClick={() => menu.current!.close()}>×</button>
         </header>
         <p role="status" className="save-notice">{online.error || notice}</p>
+        {choosingSide && civilWar && (
+          <section className="panel control-block" aria-label="选择内战阵营">
+            <h3>政体内战 · 反对派要求实施{civilWar.demand}</h3>
+            {civilSides.map((side) => {
+              const actor = side === "government" ? civilWar.countryId : oppositionId(civilWar.countryId);
+              const provinces = Object.keys(game.ownerByStateId).filter((id) => game.ownerByStateId[id] === actor);
+              const population = provinces.reduce((sum, id) => sum + game.stateEconomies[id].population, 0);
+              const troops = provinces.reduce((sum, id) => sum + garrisonHeadcount(game, id), 0);
+              return <div className="diplomacy-actions" key={side}>
+                <button disabled={actionPending || finished}
+                  onClick={() => send({ type: "chooseCivilWarSide", countryId: civilWar.countryId, side })}>
+                  加入{side === "government" ? "政府" : "反对派"}
+                </button>
+                <span>{provinces.length} 个州 · 人口 {count(population)} · 常备军 {count(troops)}</span>
+              </div>;
+            })}
+          </section>
+        )}
+        {game.lastCivilWar?.countryId === seat && <p className="save-notice">
+          上次内战由{game.lastCivilWar.winner === "government" ? "政府" : "反对派"}赢得，双方辖区已统一。
+        </p>}
         <div className="menu-body">
         {!connection && player && <div className="difficulty-control">
           <label>游戏难度

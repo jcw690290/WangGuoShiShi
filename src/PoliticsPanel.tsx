@@ -25,6 +25,7 @@ import {
   compromiseCost, constitutionalCompromiseError, constitutionalCrisisWarning, constitutionalSupportByState,
 } from "./game/constitutional-crises.ts";
 import type { Scenario } from "./scenario/scenario.ts";
+import { civilWarEscalationDays } from "./game/civil-war.ts";
 
 const otherLaws = laws.filter((law) => !institutionLawDetails(law) && !laborLawCategory(law) &&
   !(taxLaws as readonly Law[]).includes(law) && !isTradeLaw(law) && !civicLawCategory(law) &&
@@ -77,6 +78,7 @@ export function PoliticsPanel({ scenario, game, playerId: id, year, busy, send }
             <div className="control-block">
               <h4>全国政体冲突预警</h4>
               <p>反对派要求实施{crisis.demand}。政体冲突已持续 {game.elapsedDays - crisis.since} 天。</p>
+              <p>冲突持续 {civilWarEscalationDays} 天可升级为内战。</p>
               <details>
                 <summary>各州支持分布</summary>
                 <ul>

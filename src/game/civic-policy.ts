@@ -31,7 +31,8 @@ export function civicPolicy(laws: readonly string[]) {
 
 export function civicStanding(pop: Pop, countryId: string, site: SiteSocial, policy: ReturnType<typeof civicPolicy>) {
   const affinity = policy.citizenship === "有限公民权" ? culturalAffinityOf(site)[pop.culture] ?? 0 : 0;
-  const culture = pop.culture === countryId || policy.citizenship === "平等公民权" || affinity >= 50 ? 1 :
+  const sameCulture = pop.culture === countryId || countryId === "civil_" + pop.culture;
+  const culture = sameCulture || policy.citizenship === "平等公民权" || affinity >= 50 ? 1 :
     policy.citizenship === "有限公民权" ? 0.5 : 0;
   const faith = pop.religion === countryId || policy.religion === "信仰自由" ? 1 :
     policy.religion === "宗教宽容" ? 0.5 : 0;

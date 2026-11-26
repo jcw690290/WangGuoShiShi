@@ -52,6 +52,10 @@ import { opiumLaw } from "./opium.ts";
 import type { OpiumLoss } from "./opium.ts";
 import { advanceConstitutionalCrises, applyConstitutionalCompromise, compromiseCost, constitutionalCompromiseError } from "./constitutional-crises.ts";
 import type { ConstitutionalCrisis, ConstitutionalCrisisCommand } from "./constitutional-crises.ts";
+import {
+  advanceCivilWar, chooseCivilWarSide, controlledCivilCountry, mustChooseCivilSide, oppositionId, scenarioWithCivilWar,
+} from "./civil-war.ts";
+import type { CivilWar, CivilWarCommand, CivilWarResult } from "./civil-war.ts";
 export { DAY_MS, elapsedTicks, TICKS_PER_DAY } from "./time.ts";
 
 export interface GameState {
@@ -80,6 +84,8 @@ export interface GameState {
   territorialSettlements?: TerritorialSettlement[];
   opiumLosses?: OpiumLoss[];
   constitutionalCrises?: Record<string, ConstitutionalCrisis>;
+  civilWar?: CivilWar;
+  lastCivilWar?: CivilWarResult;
   tradeRoutes?: TradeRoute[];
   occupation?: Occupation;
 }
@@ -103,6 +109,7 @@ export type GameCommand =
   | { type: "advanceTick" | "advanceWeek" | "advanceDay" | "advanceHalfYear" }
   | PoliticsCommand
   | ConstitutionalCrisisCommand
+  | CivilWarCommand
   | GovernanceCommand
   | TradeCommand
   | TradePolicyCommand
@@ -275,13 +282,22 @@ function chooseOpiumLaw(state: GameState, countryId: string): PoliticsCommand | 
 }
 
 export function advanceTick(
-  scenario: Scenario,
+  baseScenario: Scenario,
   state: GameState,
   humanCountries: ReadonlySet<string | null> = new Set([state.playerCountryId]),
 ): GameState {
-  if (isScenarioFinished(scenario, state)) return state;
+  if (isScenarioFinished(baseScenario, state)) return state;
+  const war = state.civilWar;
+  if (war && humanCountries.has(war.countryId)) {
+    if (state.playerCountryId === war.countryId && state.campaign && war.side === null) return state;
+    const actors = new Set(humanCountries);
+    if (war.side !== "government") actors.add(oppositionId(war.countryId));
+    if (war.side === "opposition") actors.delete(war.countryId);
+    humanCountries = actors;
+  }
   const tickInDay = state.tickInDay + 1;
   if (tickInDay < TICKS_PER_DAY) return { ...state, tickInDay };
+  const scenario = scenarioWithCivilWar(baseScenario, war);
   const next = tickDiplomacy(scenario, { ...state, elapsedDays: state.elapsedDays + 1, tickInDay: 0 }, humanCountries);
   const date = getGameDate(scenario, next);
   const monthly = isPopulationMonth(scenario, next);
@@ -396,6 +412,7 @@ export function advanceTick(
   for (const cmd of aiDiplomacy(scenario, result, humanCountries)) result = applyCommand(scenario, result, cmd);
   result = settleAiForeignOffers(result, humanCountries);
   result = advanceTerritorialSettlements(scenario, result, settled.lastEconomy);
+  result = advanceCivilWar(baseScenario, result);
   return finalizeCampaign(scenario, advanceAchievements(state, result, date, settled.lastEconomy), date, true);
 }
 export function dispatch(scenario: Scenario, state: GameState, cmd: GameCommand): GameState {
@@ -423,7 +440,12 @@ export function dispatch(scenario: Scenario, state: GameState, cmd: GameCommand)
     }
     default:
       if (isScenarioFinished(scenario, state)) throw new GameRuleError("剧本已结束");
-      const next = applyCommand(scenario, state, cmd);
+      if ("countryId" in cmd && cmd.type !== "chooseCivilWarSide" && mustChooseCivilSide(state, state.playerCountryId))
+        throw new GameRuleError("请先选择内战阵营");
+      if ("countryId" in cmd && cmd.type !== "chooseCivilWarSide" && state.civilWar?.countryId === state.playerCountryId &&
+          cmd.countryId !== controlledCivilCountry(state, state.playerCountryId))
+        throw new GameRuleError("只能操作已选择的内战阵营");
+      const next = applyCommand(scenarioWithCivilWar(scenario, state.civilWar), state, cmd);
       const date = getGameDate(scenario, next);
       const awarded = advanceAchievements(state, next, date);
       return finalizeCampaign(scenario, awarded, date, true);
@@ -609,6 +631,8 @@ function applyCommand(
       return applyPolitics(state, cmd);
     case "offerConstitutionalCompromise":
       return applyConstitutionalCompromise(state, cmd.countryId);
+    case "chooseCivilWarSide":
+      return chooseCivilWarSide(state, cmd);
     default:
       return applyBorderCommand(scenario, state, cmd);
   }

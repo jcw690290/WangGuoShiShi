@@ -49,6 +49,7 @@ const specialStems: Partial<Record<string, string>> = {
   country_08: "美利坚", country_09: "俄罗斯", country_20: "罗马", country_29: "日本",
 };
 export function countryDisplayName(country: { id: string; name: string }, nation: Nation) {
+  if (country.id.startsWith("civil_")) return country.name;
   const form = stateForm(nation);
   if (form === startingStateForm(country.id)) return country.name;
   const stem = specialStems[country.id] ?? country.name.replace(/(?:联合王国|联合共和国|帝国|王国|共和国|邦联|联邦|诸酋长国|王朝|帝政)$/, "");

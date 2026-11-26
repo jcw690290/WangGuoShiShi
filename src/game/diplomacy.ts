@@ -23,8 +23,9 @@ import type { NavalMissionCommand } from "./naval-operations.ts";
 import { recognizeTerritorialClaim, reconcileTerritorialPlans, settlementAt, territorialClaim, territorialClaimError } from "./territory.ts";
 import type { TerritorialClaimCommand } from "./territory.ts";
 import { minOpiumClaim, opiumEffects, recentOpiumLosses } from "./opium.ts";
+import { endCivilWar } from "./civil-war.ts";
 
-export const goals = ["cession", "reparations", "puppet", "vassal", "protectorate", "annex", "recognition", "haltSettlement", "opiumCompensation"] as const;
+export const goals = ["cession", "reparations", "puppet", "vassal", "protectorate", "annex", "recognition", "haltSettlement", "opiumCompensation", "regime"] as const;
 export type Goal = (typeof goals)[number];
 export const goalNames = {
   cession: "割让争端州",
@@ -36,6 +37,7 @@ export const goalNames = {
   recognition: "承认领土宣称",
   haltSettlement: "终止领土项目",
   opiumCompensation: "赔偿鸦片贸易损失",
+  regime: "决定国家政体",
 };
 export function subjectGoal(g: Goal): g is "puppet" | "vassal" | "protectorate" {
   return g === "puppet" || g === "vassal" || g === "protectorate";
@@ -49,7 +51,7 @@ const transfersLand = (goal: Goal) => goal === "cession" || goal === "annex";
 
 export function canDemandGoal(state: GameState, claimantId: string, defenderId: string, goal: Goal, targetStateId: string) {
   return (
-    goal !== "haltSettlement" && goal !== "opiumCompensation" &&
+    goal !== "haltSettlement" && goal !== "opiumCompensation" && goal !== "regime" &&
     !treatyBetween(state, claimantId, defenderId, "defensive") &&
     (goal !== "annex" || state.nations[defenderId].overlord === claimantId) &&
     (goal !== "recognition" || unrecognizedClaim(state, claimantId, defenderId, targetStateId)) &&
@@ -395,6 +397,7 @@ function treaty(state: GameState, d: BorderDispute, victory: boolean, withdrawal
 }
 
 export function peaceTermsError(state: GameState, dispute: BorderDispute, terms: Goal[], commercial: boolean) {
+  if (state.civilWar) return "内战以阵营统一或一方投降结束";
   if (!peaceGoalsSchema.safeParse(terms).success || terms.some((goal) => !dispute.goals.includes(goal)))
     return "只能选择当前争端中互不重复的条款";
   if (terms.includes("recognition") && (terms.some(transfersLand) ||
@@ -432,7 +435,7 @@ export function warWillingness(state: GameState, d: BorderDispute, countryId: st
 function acceptsPeace(state: GameState, d: BorderDispute, offer: PeaceOffer, countryId: string) {
   if (peaceTermsError(state, d, offer.goals, offer.commercial)) return false;
   const costs: Record<Goal, number> = {
-    cession: 28, reparations: 12, puppet: 42, vassal: 36, protectorate: 28, annex: 100, recognition: 8, haltSettlement: 14,
+    cession: 28, reparations: 12, puppet: 42, vassal: 36, protectorate: 28, annex: 100, recognition: 8, haltSettlement: 14, regime: 100,
     opiumCompensation: d.opiumClaim
       ? Math.min(45, 6 + 100 * d.opiumClaim.loss / Math.max(1, state.countryEconomies[d.defenderId].treasury)) : 0,
   };
@@ -577,6 +580,10 @@ export function applyBorderCommand(scenario: Scenario, state: GameState, cmd: Bo
     return patch({ frontOrders: { ...d.frontOrders, [id]: { objective, priority } } });
   }
   if (cmd.type === "signTreaty" || cmd.type === "armistice") {
+    if (state.civilWar) {
+      if (cmd.type !== "armistice") throw new GameRuleError("内战战线将自动结算胜负");
+      return endCivilWar(state, id === d.claimantId ? "government" : "opposition");
+    }
     if ((id !== d.claimantId && id !== d.defenderId) || d.lastChange === null)
       throw new GameRuleError("尚无法签署和约");
     if (cmd.type === "signTreaty" && d.progress < scenario.borderDispute.cessionProgress)
@@ -677,7 +684,7 @@ function mobilizationOrigins(state: GameState, route: SupplyRoute) {
 }
 export function frontLine(scenario: Scenario, state: GameState, d: BorderDispute) {
   const site = scenario.states[d.targetStateId];
-  if (d.progress < 50) return [site];
+  if (state.civilWar || d.progress < 50) return [site];
   const next = site.neighbors.filter((id) => state.ownerByStateId[id] === d.defenderId);
   return next.length ? next.map((id) => scenario.states[id]) : [site];
 }
@@ -940,7 +947,7 @@ export function aiDiplomacy(
   for (const id of participants(d).filter((i) => !humanCountries.has(i))) {
     if (!d.mobilized.includes(id) && mobilizationOrigins(state, plan.routes[id]).length)
       orders.push({ type: "mobilize", countryId: id });
-    const cautious = state.elapsedDays - d.since >= 28 && warWillingness(state, d, id) <= 25;
+    const cautious = !state.civilWar && state.elapsedDays - d.since >= 28 && warWillingness(state, d, id) <= 25;
     if (cautious && d.advance.includes(id)) orders.push({ type: "orderDefend", countryId: id });
     if (!cautious && !d.advance.includes(id)) orders.push({ type: "orderAdvance", countryId: id });
     if (fleetPower(state, id) > 0 && !d.navalMissions?.[id] && !d.raid.includes(id)) {
@@ -954,6 +961,7 @@ export function aiDiplomacy(
       if (mission) orders.push({ type: "setNavalMission", countryId: id, mission });
     }
   }
+  if (state.civilWar) return orders;
   if (!humanCountries.has(d.claimantId) && d.progress >= scenario.borderDispute.cessionProgress)
     orders.push({ type: "signTreaty", countryId: d.claimantId });
   else if (!humanCountries.has(d.claimantId) && state.elapsedDays - d.since >= 84 && d.lastChange !== null &&

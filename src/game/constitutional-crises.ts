@@ -46,7 +46,7 @@ export function advanceConstitutionalCrises(state: GameState): GameState {
     locals.get(owner)!.push(state.societies[siteId]);
   }
   for (const [id, sites] of locals) {
-    if (sites.length < 2) continue;
+    if (sites.length < 2 || (state.civilWar && [state.borderDispute!.claimantId, state.civilWar.countryId].includes(id))) continue;
     const existing = previous?.[id];
     if (existing && "compromiseUntil" in existing && state.elapsedDays < existing.compromiseUntil) {
       crises[id] = existing;
