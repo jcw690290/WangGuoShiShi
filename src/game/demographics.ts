@@ -1,6 +1,7 @@
 import type { GameState } from "./engine.ts";
 import { marketOf } from "./economy.ts";
 import { civicPolicy, civicStanding } from "./civic-policy.ts";
+import { mergePopCohorts } from "./society.ts";
 import type { Scenario } from "../scenario/scenario.ts";
 import { culturalAffinityOf, cultureShares, updateCulturalAffinity } from "./culture.ts";
 import { participants } from "./diplomacy.ts";
@@ -106,14 +107,12 @@ export function settlePopulationMonth<T extends GameState>(scenario: Scenario, s
       const familiarity = Object.hasOwn(affinity, pop.culture) ? affinity[pop.culture] : 0;
       const people = Math.min(Math.ceil(pop.people * exclusion * (0.01 + familiarity / 10_000)), stateEconomies[site].population - 1);
       if (people === 0) break;
-      const cohort = societies[target].pops.find((candidate) =>
+      const destination = societies[target].pops;
+      const index = destination.findIndex((candidate) =>
         candidate.occupation === pop.occupation && candidate.culture === pop.culture && candidate.religion === pop.religion,
       );
-      if (cohort) {
-        for (const key of ["wealth", "literacy", "radicals", "livingStandard"] as const)
-          cohort[key] = (cohort[key] * cohort.people + pop[key] * people) / (cohort.people + people);
-        cohort.people += people;
-      } else societies[target].pops.push({ ...pop, people });
+      if (index >= 0) destination[index] = mergePopCohorts(destination[index], pop, people);
+      else destination.push({ ...pop, people });
       pop.people -= people;
       stateEconomies[site].population -= people;
       stateEconomies[target].population += people;

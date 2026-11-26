@@ -2,7 +2,7 @@ import { z } from "zod";
 import { constitutionalLaws, representationLaw, stateForm } from "./constitution.ts";
 import type { GameState } from "./engine.ts";
 import { GameRuleError } from "./rules.ts";
-import { governmentLegitimacy, influence, supporters, unrestOf } from "./society.ts";
+import { governmentLegitimacy, influence, politicalAttitudes, supporters, unrestOf } from "./society.ts";
 import type { Group, Nation, SiteSocial } from "./society.ts";
 
 export const crisisWarningDays = 28;
@@ -32,7 +32,8 @@ export function constitutionalSupportByState(state: GameState, countryId: string
     .map(([stateId]) => {
       const site = state.societies[stateId];
       const power = influence([site], countryId, nation);
-      const opposition = 0.55 * oppositionSupport(nation, demand, power) + 0.45 * unrestOf(site.pops);
+      const { radicals, loyalists } = politicalAttitudes(site.pops);
+      const opposition = 0.55 * oppositionSupport(nation, demand, power) + 0.45 * radicals * (1 - loyalists / 100);
       return { stateId, opposition: Math.round(opposition) };
     }).sort((a, b) => b.opposition - a.opposition);
 }

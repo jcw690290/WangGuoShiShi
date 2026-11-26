@@ -538,6 +538,7 @@ function projectSettlement(state: GameState, war?: WarPlan, closingTick?: number
   const report: EconomyReport = { states: {}, countries: {} };
   const taxPolicies = Object.fromEntries(Object.entries(state.nations).map(([id, nation]) => [id, taxPolicy(nation)]));
   const privateIncomes: Record<string, HouseholdIncome> = {};
+  const taxBurden: Record<string, number> = {};
   const markets: Record<string, ByGood<Market>> = {};
   const holdings: Record<string, string[]> = {};
   const marketSites: Record<string, string[]> = {};
@@ -1266,6 +1267,8 @@ function projectSettlement(state: GameState, war?: WarPlan, closingTick?: number
       const gross = privateHouseholdIncome(s, earnings);
       const paidTax = settleIncomeTax(gross, policy, collection);
       const incomeTax = Object.values(paidTax).reduce((sum, value) => sum + value, 0);
+      const householdGross = Object.values(gross).reduce((sum, value) => sum + value, 0);
+      taxBurden[id] = (incomeTax + excise) / Math.max(1, householdGross);
       const centralIncomeTax = Math.floor(incomeTax * centralTax / 100);
       receipts.income += centralIncomeTax;
       const retainedTax = incomeTax - centralIncomeTax + excise - centralExcise;
@@ -1309,7 +1312,7 @@ function projectSettlement(state: GameState, war?: WarPlan, closingTick?: number
     };
     return [owner, { ...closing, navy: naval.navy }];
   }));
-  return { report, referenceQuotes, localQuotes, industrialClosing, constructionClosing, fleetClosing, privateIncomes, completedRefits };
+  return { report, referenceQuotes, localQuotes, industrialClosing, constructionClosing, fleetClosing, privateIncomes, taxBurden, completedRefits };
 }
 export function buildingCapacity(site: Scenario["states"][string], local: StateEconomy, good: Good) {
   const inherited = good === "arms" || good === "ammo" ? local.inheritedArmamentCapacity?.[good] : undefined;
@@ -1452,7 +1455,8 @@ export function settleEconomy(state: GameState, war?: WarPlan, fractionOfYear = 
     countryEconomies = { ...state.countryEconomies },
     nations = { ...state.nations };
   // A project completed from this week's deliveries starts operating next week.
-  const { report: production, referenceQuotes, localQuotes, industrialClosing, constructionClosing, fleetClosing, privateIncomes, completedRefits } = projectSettlement(
+  const { report: production, referenceQuotes, localQuotes, industrialClosing, constructionClosing, fleetClosing,
+    privateIncomes, taxBurden, completedRefits } = projectSettlement(
     state, war, closingTick, scenario,
   );
   const budgets = weeklyBudgets(nations, production);
@@ -1574,6 +1578,8 @@ export function settleEconomy(state: GameState, war?: WarPlan, fractionOfYear = 
       capitalistIncome: earned.资本家, landownerIncome: earned.贵族,
       businessJobs: jobs,
       standardTarget: livingStandardTarget(s.consumptionIndex!, s.foodFulfillment!),
+      taxBurden: Math.min(1, taxBurden[id]),
+      warPressure: state.occupation?.stateId === id ? 0.22 : war?.routes[owner]?.recruitmentStates.has(id) ? 0.09 : 0,
       relief,
     }, tuning);
     if (site.opiumBurden !== undefined || (habit && habit.consumed > 0))

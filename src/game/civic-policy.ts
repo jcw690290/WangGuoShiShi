@@ -29,12 +29,14 @@ export function civicPolicy(laws: readonly string[]) {
   };
 }
 
+export const nationalIdentity = (countryId: string) => countryId.startsWith("civil_") ? countryId.slice(6) : countryId;
+
 export function civicStanding(pop: Pop, countryId: string, site: SiteSocial, policy: ReturnType<typeof civicPolicy>) {
   const affinity = policy.citizenship === "有限公民权" ? culturalAffinityOf(site)[pop.culture] ?? 0 : 0;
-  const sameCulture = pop.culture === countryId || countryId === "civil_" + pop.culture;
-  const culture = sameCulture || policy.citizenship === "平等公民权" || affinity >= 50 ? 1 :
+  const identity = nationalIdentity(countryId);
+  const culture = pop.culture === identity || policy.citizenship === "平等公民权" || affinity >= 50 ? 1 :
     policy.citizenship === "有限公民权" ? 0.5 : 0;
-  const faith = pop.religion === countryId || policy.religion === "信仰自由" ? 1 :
+  const faith = pop.religion === identity || policy.religion === "信仰自由" ? 1 :
     policy.religion === "宗教宽容" ? 0.5 : 0;
   return Math.min(culture, faith);
 }

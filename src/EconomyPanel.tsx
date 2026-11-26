@@ -1,6 +1,6 @@
 import { useMemo } from "react";
 import { facilityNames, facilityTypes, livingStandardOf, socialTags } from "./game/society.ts";
-import { civicPolicy, civicStanding } from "./game/civic-policy.ts";
+import { civicPolicy, civicStanding, nationalIdentity } from "./game/civic-policy.ts";
 import { privateShareOf, projectDeposit, projectPoints, remainingProjectPoints, weeklyBudgets } from "./game/economy.ts";
 import { count, silver } from "./format.ts";
 import { buildingCapacity, constructionError, workForce } from "./game/economy.ts";
@@ -326,7 +326,7 @@ function StateIndustry({
             <table>
               <thead>
                 <tr>
-                  {["职业 / 阶层", "文化 / 信仰", "人口", "财富", "生活水平", "识字率", "激进比例"].map((h) => (
+                  {["职业 / 阶层", "文化 / 信仰", "人口", "财富", "生活水平", "识字率", "忠诚", "中立", "激进"].map((h) => (
                     <th key={h}>{h}</th>
                   ))}
                 </tr>
@@ -340,13 +340,15 @@ function StateIndustry({
                         {p.occupation} / {socialTags[p.occupation][0]}
                       </td>
                       <td>
-                        {cultureName(scenario, p.culture)} / {p.religion === owner ? "国教" : "其他信仰"} ·{" "}
+                        {cultureName(scenario, p.culture)} / {p.religion === nationalIdentity(owner) ? "国教" : "其他信仰"} ·{" "}
                         {standing === 1 ? "完整待遇" : standing > 0 ? "有限待遇" : "受限制"}
                       </td>
                       <td>{count(p.people)}</td>
                       <td>{p.wealth.toFixed(1)}</td>
                       <td>{p.livingStandard.toFixed(1)}</td>
                       <td>{p.literacy.toFixed(1)}%</td>
+                      <td>{p.loyalists.toFixed(1)}%</td>
+                      <td>{Math.max(0, 100 - p.radicals - p.loyalists).toFixed(1)}%</td>
                       <td>{p.radicals.toFixed(1)}%</td>
                     </tr>
                   );
