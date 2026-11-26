@@ -4,6 +4,7 @@ import { createGame, DAY_MS } from "./engine.ts";
 import type { GameState } from "./engine.ts";
 import { byGood, commercialLevels, industries, isIndustrialGood, originalGoods } from "./industry.ts";
 import { migrateCommercialProduction } from "./commercialMigration.ts";
+import { initialIndustrialAccount } from "./industrial.ts";
 
 // Input boundary for published versions 1–4 of the regional demo.
 export function importRegionalSave(region: Scenario, world: Scenario, save: unknown): GameState {
@@ -159,10 +160,13 @@ export function importRegionalSave(region: Scenario, world: Scenario, save: unkn
   if ("countryEconomies" in original) {
     Object.assign(base.countryEconomies, original.countryEconomies);
     for (const [id, local] of Object.entries(original.stateEconomies)) {
-      const { cropland } = base.stateEconomies[id];
+      const { cropland, buildings: { steel, arms, ammo } } = base.stateEconomies[id];
+      const industrial = initialIndustrialAccount({ grain: 0, cloth: 0, steel, arms, ammo });
       base.stateEconomies[id] = {
         ...(cropland === undefined ? {} : { cropland }),
-        population: local.population, buildings: byGood((good) => isIndustrialGood(good) ? 0 : local.buildings[good]),
+        ...(industrial === undefined ? {} : { industrial }),
+        population: local.population,
+        buildings: { ...byGood((good) => isIndustrialGood(good) ? 0 : local.buildings[good]), steel, arms, ammo },
       };
       const site = base.societies[id],
         sum = site.pops.reduce((a, p) => a + p.people, 0);

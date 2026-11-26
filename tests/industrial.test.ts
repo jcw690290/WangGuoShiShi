@@ -2,7 +2,7 @@ import assert from "node:assert/strict";
 import { test } from "node:test";
 import { projectEconomy, projects } from "../src/game/economy.ts";
 import { createGame, dispatch } from "../src/game/engine.ts";
-import { industrialGoods } from "../src/game/industry.ts";
+import { byIndustrialGood, industrialGoods } from "../src/game/industry.ts";
 import { workingCapitalPerLevel } from "../src/game/industrial.ts";
 import { parseSave, saveVersion } from "../src/game/storage.ts";
 import { borderScenario, scenario as world } from "../src/scenario/scenario.ts";
@@ -29,8 +29,7 @@ test("工商业按真实员工、库存和已落实资金生产并结算，预�
   assert.equal(forecast.industries.iron.output, 80);
   assert.equal(forecast.industries.coal.output, 100);
   assert.equal(forecast.industries.tools.output, 80);
-  assert.deepEqual(forecast.industrial!.used, { wood: 20, iron: 30, coal: 5, tools: 8, paper: 0, services: 0,
-    food: 0, fiber: 0, dailyGoods: 0, luxury: 0 });
+  assert.deepEqual(forecast.industrial!.used, { ...byIndustrialGood(() => 0), wood: 20, iron: 30, coal: 5, tools: 8 });
   assert.equal(forecast.industries.tools.wages, 11_600);
   const shortage = structuredClone(initial);
   shortage.stateEconomies[stateId].industrial!.stocks.iron = 15;
@@ -89,8 +88,7 @@ test("造纸和服务使用实际原料与共享技术劳动力，服务在本�
   assert.equal(local.industries.services.output, 100);
   assert.equal(local.industries.services.wages, 12_500);
   assert.equal(local.industrial?.skilledWages, 14_700);
-  assert.deepEqual(local.industrial?.used, { wood: 60, iron: 30, coal: 15, tools: 10, paper: 2, services: 0,
-    food: 0, fiber: 0, dailyGoods: 0, luxury: 0 });
+  assert.deepEqual(local.industrial?.used, { ...byIndustrialGood(() => 0), wood: 60, iron: 30, coal: 15, tools: 10, paper: 2 });
   assert.equal(local.householdConsumption?.services, 100);
   assert.equal(report.states.Guangxi.householdConsumption?.services, 0);
   assert.throws(() => dispatch(withServices, initial, { type: "openTradeRoute", countryId,

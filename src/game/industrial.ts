@@ -15,11 +15,15 @@ export const inputs = {
   fiber: { tools: 1 },
   dailyGoods: { wood: 50, tools: 1 },
   luxury: { fiber: 20, dailyGoods: 30, paper: 4, tools: 2 },
+  steel: { iron: 40, coal: 30, tools: 1 },
+  arms: { steel: 20, wood: 20, tools: 2 },
+  ammo: { iron: 20, coal: 20, tools: 2 },
 } satisfies Record<Good, Readonly<Partial<ByIndustrialGood<number>>>>;
 const units = z.int().nonnegative();
 export const materialSchema = z.object({
   wood: units, iron: units, coal: units, tools: units, paper: units.default(0), services: units.default(0),
   food: units.default(0), fiber: units.default(0), dailyGoods: units.default(0), luxury: units.default(0),
+  steel: units.default(0), arms: units.default(0), ammo: units.default(0),
 });
 export const industrialAccountSchema = z.object({ capital: units, stocks: materialSchema });
 export type IndustrialAccount = z.infer<typeof industrialAccountSchema>;
@@ -38,6 +42,7 @@ const skilledPositions = {
   grain: [0, 0], cloth: [10, 180],
   wood: [0, 0], iron: [0, 0], coal: [0, 0], tools: [20, 180], paper: [20, 180], services: [50, 150],
   food: [0, 0], fiber: [0, 0], dailyGoods: [10, 180], luxury: [20, 180],
+  steel: [20, 180], arms: [30, 180], ammo: [20, 180],
 } satisfies Record<Good, [number, number]>;
 
 export function industrialPayroll(good: Good, employed: number) {
@@ -79,9 +84,7 @@ export function initialIndustrialAccount(levels: ScenarioLevels): IndustrialAcco
   return { capital: workingCapitalTarget(levels), stocks };
 }
 
-export function operateIndustry(
-  good: Good, planned: number, stocks: ByIndustrialGood<number>, restock: ByIndustrialGood<number>,
-) {
+export function materialWorkers(good: Good, planned: number, stocks: ByIndustrialGood<number>) {
   const recipe: Readonly<Partial<ByIndustrialGood<number>>> = inputs[good];
   const jobsPerLevel = industries[good].jobs;
   let employed = planned;
@@ -89,6 +92,16 @@ export function operateIndustry(
     const needed = recipe[material];
     if (needed !== undefined) employed = Math.min(employed, Math.floor(stocks[material] * jobsPerLevel / needed));
   }
+  return employed;
+}
+
+export function operateIndustry(
+  good: Good, planned: number, stocks: ByIndustrialGood<number>, restock: ByIndustrialGood<number>,
+) {
+  if (planned === 0) return 0;
+  const recipe: Readonly<Partial<ByIndustrialGood<number>>> = inputs[good];
+  const jobsPerLevel = industries[good].jobs;
+  const employed = materialWorkers(good, planned, stocks);
   for (const material of industrialGoods) {
     const needed = recipe[material];
     if (needed === undefined) continue;

@@ -2,7 +2,7 @@ import { useMemo } from "react";
 import { facilityNames, facilityTypes, livingStandardOf, socialTags, accepted } from "./game/society.ts";
 import { projects, privateShareOf, weeklyBudgets } from "./game/economy.ts";
 import { count, silver } from "./format.ts";
-import { constructionError, workForce } from "./game/economy.ts";
+import { buildingCapacity, constructionError, workForce } from "./game/economy.ts";
 import type { EconomyReport } from "./game/economy.ts";
 import type { GameCommand, GameState } from "./game/engine.ts";
 import { goods, industrialGoods, industries, isGood } from "./game/industry.ts";
@@ -53,7 +53,6 @@ function StateIndustry({
     conscripts -
     report.states[stateId].builders -
     report.states[stateId].regulars -
-    report.states[stateId].armourers -
     Math.ceil(report.states[stateId].universityStaff ?? 0) -
     Math.ceil(report.states[stateId].administrationStaff ?? 0) -
     (report.states[stateId].office?.staff ?? 0);
@@ -117,7 +116,7 @@ function StateIndustry({
         <div>
           <dt>常备军 / 建筑 / 军工</dt>
           <dd>
-            {snapshot.regulars} / {snapshot.builders} / {snapshot.armourers}
+            {snapshot.regulars} / {snapshot.builders} / {activity.arms.employed + activity.ammo.employed}
           </dd>
         </div>
         {snapshot.universityStaff !== undefined && society.university > 0 && <div>
@@ -141,7 +140,7 @@ function StateIndustry({
               <div>
                 <strong>{industry.name}</strong>{" "}
                 <span>
-                  {local.buildings[good]} / {site.capacity[good] ?? 0} 级
+                  {local.buildings[good]} / {buildingCapacity(site, local, good)} 级
                 </span>
                 <p>
                   就业 {count(jobs.employed)} 人 · 周产出 {count(jobs.output)} · 本地价{" "}
@@ -361,7 +360,8 @@ export function EconomyPanel({ scenario, game, playerId, selectedId, report, bus
               <dt>周必要公共支出</dt>
               <dd>{silver(upkeep)}</dd>
               {officeUpkeep !== undefined && <small>其中行政署 {silver(officeUpkeep)}</small>}
-              {military.procurement && <small>军粮 {silver(military.procurement.grain)} · 军服 {silver(military.procurement.cloth)}</small>}
+              {military.procurement && <small>军粮 {silver(military.procurement.grain)} · 军服 {silver(military.procurement.cloth)} ·
+                武器 {silver(military.procurement.arms ?? 0)} · 弹药 {silver(military.procurement.ammo ?? 0)}</small>}
             </div>
             {report.countries[marketId].universityWages !== undefined && <div>
               <dt>大学实付工资</dt>
