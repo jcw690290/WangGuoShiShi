@@ -52,6 +52,7 @@ const commandSchema = z.discriminatedUnion("type", [
   z.strictObject({ type: z.literal("reorganizeBattalion"), countryId: id, stateId: id, slot: battalionSlotSchema, kind: z.enum(battalionKinds) }),
   z.strictObject({ type: z.literal("setBattalionEquipment"), countryId: id, stateId: id, slot: battalionSlotSchema, equipment: z.enum(battalionEquipment).nullable() }),
   z.strictObject({ type: z.literal("setGovernment"), countryId: id, government: z.array(z.enum(groups)).max(groups.length) }),
+  z.strictObject({ type: z.literal("offerConstitutionalCompromise"), countryId: id }),
   z.strictObject({ type: z.literal("proposeLaw"), countryId: id, law: z.enum(laws) }),
   z.strictObject({ type: z.literal("startResearch"), countryId: id, tech: z.enum(techs) }),
   z.strictObject({ type: z.literal("declareInterest"), countryId: id, targetStateId: id }),
