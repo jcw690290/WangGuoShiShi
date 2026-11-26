@@ -40,8 +40,8 @@ import { civicLawOf } from "./civic-policy.ts";
 import { powerDistribution } from "./constitution.ts";
 import { projectOwnership } from "./ownership.ts";
 import { industrySubsidyLimit } from "./industrial.ts";
-import { applyForeignCommand, settleAiTreatyOffers } from "./foreign-relations.ts";
-import type { ForeignCommand, ForeignRelation, ForeignTreaty, TreatyOffer } from "./foreign-relations.ts";
+import { applyForeignCommand, settleAiForeignOffers } from "./foreign-relations.ts";
+import type { AidOffer, ForeignCommand, ForeignObligation, ForeignRelation, ForeignTreaty, TreatyOffer } from "./foreign-relations.ts";
 import { applyBattalionOrder, applyEquipmentOrder, chooseBattalionOrder, chooseEquipmentOrder } from "./military.ts";
 import type { BattalionCommand, BattalionEquipmentCommand } from "./military.ts";
 import { recoverMilitaryInjuries } from "./military-health.ts";
@@ -69,6 +69,8 @@ export interface GameState {
   foreignRelations?: ForeignRelation[];
   foreignTreaties?: ForeignTreaty[];
   treatyOffers?: TreatyOffer[];
+  aidOffers?: AidOffer[];
+  foreignObligations?: ForeignObligation[];
   tradeRoutes?: TradeRoute[];
   occupation?: Occupation;
 }
@@ -357,7 +359,7 @@ export function advanceTick(
       });
   }
   for (const cmd of aiDiplomacy(scenario, result, humanCountries)) result = applyCommand(scenario, result, cmd);
-  result = settleAiTreatyOffers(result, humanCountries);
+  result = settleAiForeignOffers(result, humanCountries);
   return finalizeCampaign(scenario, advanceAchievements(state, result, date, settled.lastEconomy), date, true);
 }
 export function dispatch(scenario: Scenario, state: GameState, cmd: GameCommand): GameState {
@@ -453,6 +455,9 @@ function applyCommand(
     case "acceptTreaty":
     case "declineTreaty":
     case "endTreaty":
+    case "offerDiplomaticAid":
+    case "acceptDiplomaticAid":
+    case "declineDiplomaticAid":
       return applyForeignCommand(state, cmd);
     case "reorganizeBattalion":
       return applyBattalionOrder(state, cmd);

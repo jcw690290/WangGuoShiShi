@@ -19,7 +19,7 @@ import { isTaxLaw, taxLaws, taxReceiptSchema } from "./taxation.ts";
 import { isTradeLaw, tradeLaws } from "./trade-policy.ts";
 import { startingStateForm } from "./constitution.ts";
 import { industryOwnershipSchema, ownershipAmountsSchema, ownershipKinds, ownershipSchema } from "./ownership.ts";
-import { foreignPairKey, foreignRelationSchema, foreignTreatySchema, treatyOfferSchema } from "./foreign-relations.ts";
+import { aidOfferSchema, foreignObligationSchema, foreignPairKey, foreignRelationSchema, foreignTreatySchema, treatyOfferSchema } from "./foreign-relations.ts";
 import { barracksCapacity, battalionSize, battalionTrainingDays, equipmentDetails } from "./military.ts";
 import { injuredPersonnel, replacementTrainingDays } from "./military-health.ts";
 import { buildingCapacity, militaryProcurementCost, projects, unusedPrepaidConstruction } from "./economy.ts";
@@ -365,6 +365,8 @@ export function parseSave(scenario: Scenario, save: unknown): GameState {
     foreignRelations: z.array(foreignRelationSchema).optional(),
     foreignTreaties: z.array(foreignTreatySchema).optional(),
     treatyOffers: z.array(treatyOfferSchema).optional(),
+    aidOffers: z.array(aidOfferSchema).optional(),
+    foreignObligations: z.array(foreignObligationSchema).optional(),
     tradeRoutes: z.array(tradeRouteSchema.extend({ from: sites, to: sites, exporter: countries, importer: countries })).optional(),
     occupation: z.object({ stateId: sites, controllerId: countries }).optional(),
     lastEconomy: z
@@ -501,6 +503,18 @@ export function parseSave(scenario: Scenario, save: unknown): GameState {
     const key = offer.kind + foreignPairKey(offer.from, offer.to);
     if (treatyKeys.has(key) || !liveCountries.has(offer.from) || !liveCountries.has(offer.to) || offer.offeredDay > state.elapsedDays) invalid();
     treatyKeys.add(key);
+  }
+  const aidKeys = new Set<string>();
+  for (const obligation of state.foreignObligations ?? []) {
+    const { creditor, debtor, incurredDay } = obligation;
+    const key = foreignPairKey(creditor, debtor);
+    if (aidKeys.has(key) || !liveCountries.has(creditor) || !liveCountries.has(debtor) || incurredDay > state.elapsedDays) invalid();
+    aidKeys.add(key);
+  }
+  for (const offer of state.aidOffers ?? []) {
+    const key = foreignPairKey(offer.from, offer.to);
+    if (aidKeys.has(key) || !liveCountries.has(offer.from) || !liveCountries.has(offer.to) || offer.offeredDay > state.elapsedDays) invalid();
+    aidKeys.add(key);
   }
   if (data.version !== saveVersion && migrateCommercialProduction(state) && campaign?.outcome?.baseline && campaign.ending === null) {
     const fresh = openingMetrics(createGame(scenario, 1820, state.settings.difficulty), state.playerCountryId!);

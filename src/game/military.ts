@@ -40,6 +40,7 @@ export const equipmentDetails = {
 export const equipmentFits = (kind: BattalionKind, equipment: BattalionEquipment) =>
   (equipmentDetails[equipment].kinds as readonly BattalionKind[]).includes(kind);
 export const trainingDays = (nation: Nation) => nation.knowledge["常备军组织"] === 100 ? 70 : battalionTrainingDays;
+export const commandCapacity = (nation: Nation) => (nation.knowledge["参谋组织"] === 100 ? 400 : 300) * nation.generalRank;
 
 export const battalionSlotSchema = z.int().nonnegative().max(Math.floor(Number.MAX_SAFE_INTEGER / battalionSize));
 const trainingDay = z.int().nonnegative();
