@@ -17,7 +17,7 @@ import { allocateHouseholdIncome, basicEquivalentSupply, byExtraGood, extrasOrde
 import type { BasicPurchases, ExtrasReport, SubstituteOrders } from "./households.ts";
 import { administrationWage, advanceIntegration, integrationStaffNeeded,
   integrationWeekShare, localGovernanceRule } from "./governance.ts";
-import { expectedTrade, settleTrade, tradeRouteBlock } from "./trade.ts";
+import { expectedTrade, illicitOpiumEligible, settleTrade, tradeRouteBlock } from "./trade.ts";
 import type { TradeDelivery } from "./trade.ts";
 import { unrestEffects } from "./unrest.ts";
 import { affordableIndustryWorkers, electricityUse, electricIndustries, electricRetrofits, emptyIndustrialAccount,
@@ -52,7 +52,7 @@ import { activeReplacements, fitWorkforce, injuredPersonnel } from "./military-h
 import { closeNavy, navyMaintenance, warshipMaterials } from "./navy.ts";
 import type { NavyReport } from "./navy.ts";
 import { advanceOpiumBurden, opiumCommerceAllowed, opiumLaw, planOpium } from "./opium.ts";
-import type { OpiumReport } from "./opium.ts";
+import type { OpiumReport, OpiumSmuggling } from "./opium.ts";
 
 export { marketOf } from "./market.ts";
 
@@ -242,6 +242,7 @@ export interface EconomyReport {
   states: Record<string, SiteReport>;
   countries: Record<string, CountryReport>;
   trade?: TradeDelivery[];
+  opiumSmuggling?: OpiumSmuggling[];
 }
 
 export function weeklyBudgets(nations: GameState["nations"], report: EconomyReport) {
@@ -622,12 +623,16 @@ function projectSettlement(state: GameState, war?: WarPlan, closingTick?: number
   }
   for (const id of Object.keys(state.stateEconomies)) holdings[state.ownerByStateId[id]].push(id);
   const opiumMarkets = new Set<string>();
+  const illicitDestinations = new Set<string>();
   for (const [id, local] of Object.entries(state.stateEconomies)) {
     const owner = state.ownerByStateId[id];
     if (local.buildings.opium > 0 && opiumCommerceAllowed(state.nations[owner].laws)) opiumMarkets.add(marketOf(state, owner));
   }
-  for (const route of state.tradeRoutes ?? [])
-    if (route.good === "opium" && !tradeRouteBlock(state, route)) opiumMarkets.add(marketOf(state, route.importer));
+  for (const route of state.tradeRoutes ?? []) {
+    if (route.good !== "opium") continue;
+    if (!tradeRouteBlock(state, route)) opiumMarkets.add(marketOf(state, route.importer));
+    if (illicitOpiumEligible(state, route)) illicitDestinations.add(route.to);
+  }
   const garrisons = Object.fromEntries(Object.keys(state.stateEconomies).map((id) => [id, garrisonHeadcount(state, id)]));
   const rosters = Object.fromEntries(Object.keys(garrisons).map((id) => [id, battalionsAt(state, id, garrisons[id])]));
   const armamentOrders = planArmamentOrders(state, holdings, rosters, war);
@@ -711,7 +716,7 @@ function projectSettlement(state: GameState, war?: WarPlan, closingTick?: number
     }
     const lawfulOpium = opiumLaw(nation.laws);
     const opium = planOpium(local.population, site.opiumBurden ?? 0, opiumMarkets.has(marketOf(state, owner)), lawfulOpium,
-      services.healthcare.staff, local.basicBudget, cashToCommit[owner] + localCash, ceilings.opium);
+      services.healthcare.staff, local.basicBudget, cashToCommit[owner] + localCash, ceilings.opium, illicitDestinations.has(id));
     opiumPlans.set(id, { ...opium, localReserved: reserveService(opium.medicalReserve) });
     let workers = labour - universityStaff - administrators - office.staff - institutionStaff,
       conscripts = 0;
@@ -990,11 +995,15 @@ function projectSettlement(state: GameState, war?: WarPlan, closingTick?: number
       return Math.round(marketShare * market[g].price + (1 - marketShare) * Math.round(localQuotes[id][g]));
     });
   }
+  const illicitOrders = new Map<string, { quantity: number; budget: number }>();
+  for (const [id, plan] of opiumPlans)
+    if (plan.illicit > 0) illicitOrders.set(id, { quantity: plan.illicit, budget: plan.householdReserve });
   const trade = state.tradeRoutes?.length
-    ? settleTrade(state, supplies, demands, report.states, fills, militaryCargo, militaryPortUse, war?.naval)
+    ? settleTrade(state, supplies, demands, report.states, fills, militaryCargo, militaryPortUse, war?.naval, illicitOrders)
     : undefined;
   if (trade) {
     report.trade = trade.deliveries;
+    if (trade.smuggling.length > 0) report.opiumSmuggling = trade.smuggling;
     for (const [id, cargo] of trade.seaCargo) report.countries[id].tradeSeaCargo = cargo;
     for (const [id, cargo] of trade.portFreight) report.states[id].portTradeCargo = cargo;
   }
@@ -1025,6 +1034,7 @@ function projectSettlement(state: GameState, war?: WarPlan, closingTick?: number
       const account = local.industrial;
       const subsistence = s.subsistence;
       const militarySales = militaryReceipts.get(id);
+      const illicitSale = trade?.illicitExports.get(id);
       const margins = byGood(() => 0);
       let industrialIncome = 0, industrialSales = 0;
       const fillsByUse = byGood((g) => {
@@ -1047,6 +1057,10 @@ function projectSettlement(state: GameState, war?: WarPlan, closingTick?: number
           revenue -= ruralRevenue;
         }
         revenue += militarySales?.[g] ?? 0;
+        if (g === "opium" && illicitSale) {
+          production.sold += illicitSale.delivered;
+          revenue += illicitSale.receipts;
+        }
         margins[g] = revenue - production.wages;
         industrialSales += revenue;
         industrialIncome += margins[g];
@@ -1117,12 +1131,15 @@ function projectSettlement(state: GameState, war?: WarPlan, closingTick?: number
         c.welfareUpkeep! += paid;
         c.upkeep += paid;
       }
-      if (opium.medical > 0 || opium.nonMedical > 0 || site.opiumBurden) {
+      if (opium.medical > 0 || opium.nonMedical > 0 || opium.illicit > 0 || site.opiumBurden) {
         const { publicGoods, publicCost, residentGoods, residentCost } = fillsByUse.opium;
+        const illicit = trade?.illicitImports.get(id);
         s.opium = {
           recoverySupport: 0.45 * (s.education?.coverage ?? 0) + 0.35 * (s.welfare?.coverage ?? 0) + 0.20 * (s.healthcare?.coverage ?? 0),
           medical: { ordered: opium.medical, delivered: publicGoods, spending: publicCost },
-          nonMedical: { ordered: opium.nonMedical, consumed: residentGoods, spending: residentCost, budget: opium.householdReserve },
+          nonMedical: { ordered: opium.nonMedical + opium.illicit, consumed: residentGoods + (illicit?.delivered ?? 0),
+            spending: residentCost + (illicit?.spending ?? 0), budget: opium.householdReserve },
+          ...(illicit ? { illicit } : {}),
         };
         const paid = chargeService(publicCost, opium.localReserved);
         c.healthcareUpkeep! += paid;

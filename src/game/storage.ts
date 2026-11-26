@@ -39,7 +39,7 @@ import { diplomaticTieSchema } from "./diplomatic-ties.ts";
 import { routeTransport, tradeDeliverySchema, tradeRouteKey, tradeRouteSchema } from "./trade.ts";
 import { fleetReportSchema, fleetSpending, maximumConvoyCapacity } from "./fleet.ts";
 import { navyReportSchema } from "./navy.ts";
-import { opiumReportSchema } from "./opium.ts";
+import { opiumReportSchema, opiumSmugglingSchema } from "./opium.ts";
 import { achievementKey, achievementRecordSchema } from "./achievements.ts";
 import type { AchievementRecord } from "./achievements.ts";
 const storeName = "saves";
@@ -380,6 +380,7 @@ export function parseSave(scenario: Scenario, save: unknown): GameState {
         states: z.record(activeSite, siteReport),
         countries: z.record(countries, countryReport),
         trade: z.array(tradeDeliverySchema).optional(),
+        opiumSmuggling: z.array(opiumSmugglingSchema).optional(),
       })
       .nullable(),
     lastPopulation: lastPopulation.optional(),
@@ -567,6 +568,10 @@ export function parseSave(scenario: Scenario, save: unknown): GameState {
   }
   if (state.lastEconomy?.trade?.some(({ from, to, mode, good }) => isLocalGood(good) || !routeTransport(scenario, from, to, mode) ||
       !Object.hasOwn(state.ownerByStateId, from) || !Object.hasOwn(state.ownerByStateId, to))) invalid();
+  for (const shipment of state.lastEconomy?.opiumSmuggling ?? []) {
+    if (!routeTransport(scenario, shipment.from, shipment.to, shipment.mode) ||
+        state.ownerByStateId[shipment.from] !== shipment.exporter || state.ownerByStateId[shipment.to] !== shipment.importer) invalid();
+  }
   const configuredLevels = Object.fromEntries(Object.keys(state.nations).map((id) => [id, byInstitution(() => 1)]));
   for (const stateId of owned) {
     const levels = configuredLevels[state.ownerByStateId[stateId]];
