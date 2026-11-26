@@ -183,6 +183,7 @@ const countryReport = z.object({
   upkeep: uint,
   interestPaid: uint.optional(),
   universityWages: uint.optional(),
+  administrationWages: uint.optional(),
 });
 const siteReport = z.object({
   industries: z.object(byGood(() => industry)),
@@ -193,6 +194,7 @@ const siteReport = z.object({
   conscripts: uint,
   regulars: uint,
   universityStaff: z.number().nonnegative().optional(),
+  administrationStaff: z.number().nonnegative().optional(),
   builders: uint,
   armourers: uint,
   access: fraction,
@@ -323,7 +325,8 @@ export function parseSave(scenario: Scenario, save: unknown): GameState {
   }
   for (const [id, local] of Object.entries(state.stateEconomies)) {
     const owner = state.ownerByStateId[id],
-      pops = state.societies[id].pops;
+      { pops, governance } = state.societies[id];
+    if (governance?.integration && governance.integration.startedAtTick > elapsedTicks(state)) invalid();
     if (pops.reduce((sum, p) => sum + p.people, 0) !== local.population) invalid();
     for (const p of pops) {
       if (

@@ -8,6 +8,8 @@ import type { GameCommand, GameState } from "./game/engine.ts";
 import { goods, industries } from "./game/industry.ts";
 import type { Scenario } from "./scenario/scenario.ts";
 import { affinityLevel, culturalAffinityOf } from "./game/culture.ts";
+import { governanceModes, governanceOf, governanceRules, integrationDuration, integrationStaffNeeded } from "./game/governance.ts";
+import type { GovernanceMode } from "./game/governance.ts";
 
 function cultureName(scenario: Scenario, id: string) {
   const separator = id.indexOf("-");
@@ -48,12 +50,17 @@ function StateIndustry({
     report.states[stateId].builders -
     report.states[stateId].regulars -
     report.states[stateId].armourers -
-    Math.ceil(report.states[stateId].universityStaff ?? 0);
+    Math.ceil(report.states[stateId].universityStaff ?? 0) -
+    Math.ceil(report.states[stateId].administrationStaff ?? 0);
   const isOwnState = game.ownerByStateId[stateId] === playerId;
 
   const owner = game.ownerByStateId[stateId],
     society = game.societies[stateId],
     snapshot = report.states[stateId];
+  const governance = governanceOf(society);
+  const rule = governanceRules[governance.mode];
+  const occupied = game.occupation?.stateId === stateId;
+  const integrationActive = governance.integration !== null;
   return (
     <section className="panel" aria-labelledby="industry-title">
       <header className="panel-header">
@@ -209,6 +216,46 @@ function StateIndustry({
               </tbody>
             </table>
           </div>
+        </details>
+        <details>
+          <summary>地方治理 · {rule.name}</summary>
+          <p>{governance.integrated ? "已整合" : "未整合"} · 中央税权 {rule.centralTax}% · 驻军与征兵额度 {Math.round(rule.militaryShare * 100)}%</p>
+          {occupied && <p>军事占领暂停中央征收和行政整合。</p>}
+          {integrationActive && (
+            <p>整合 {governance.integration!.months.toFixed(1)} / {integrationDuration} 月 ·
+              实付行政岗位 {(snapshot.administrationStaff ?? 0).toFixed(1)} /
+              {integrationStaffNeeded(local.population, game.settings.difficulty)}
+            </p>
+          )}
+          {isOwnState && (
+            <>
+              <label>
+                治理方式
+                <select
+                  value={governance.mode}
+                  disabled={busy || occupied}
+                  onChange={(event) => send({
+                    type: "setLocalGovernance", countryId: playerId, stateId, mode: event.target.value as GovernanceMode,
+                  })}
+                >
+                  {governanceModes.map((mode) => (
+                    <option key={mode} value={mode} disabled={mode === "PROVINCE" && !governance.integrated}>
+                      {governanceRules[mode].name}
+                    </option>
+                  ))}
+                </select>
+              </label>
+              {!governance.integrated && (
+                <button
+                  className="build"
+                  disabled={busy || occupied}
+                  onClick={() => send({ type: integrationActive ? "cancelIntegration" : "startIntegration", countryId: playerId, stateId })}
+                >
+                  {integrationActive ? "取消整合并清除进度" : "安排行政整合"}
+                </button>
+              )}
+            </>
+          )}
         </details>
       </div>
     </section>

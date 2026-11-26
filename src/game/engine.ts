@@ -18,6 +18,10 @@ import type { Campaign, CampaignSetup } from "./campaign.ts";
 import { fiscalWeekFraction } from "./fiscal.ts";
 import type { Occupation } from "./occupation.ts";
 import type { DiplomaticTie } from "./diplomatic-ties.ts";
+import { applyGovernanceCommand, chooseIntegration } from "./governance.ts";
+import type { GovernanceCommand } from "./governance.ts";
+import { DAY_MS, elapsedTicks, TICKS_PER_DAY } from "./time.ts";
+export { DAY_MS, elapsedTicks, TICKS_PER_DAY } from "./time.ts";
 
 export interface GameState {
   elapsedDays: number;
@@ -48,6 +52,7 @@ export type GameCommand =
   | { type: "queueConstruction"; countryId: string; stateId: string; good: Building; privateBuild?: boolean }
   | { type: "advanceTick" | "advanceWeek" | "advanceDay" | "advanceHalfYear" }
   | PoliticsCommand
+  | GovernanceCommand
   | BorderCommand;
 
 export function createGame(scenario: Scenario, seed = 1820, difficulty: Difficulty = "standard", campaign?: CampaignSetup): GameState {
@@ -83,12 +88,6 @@ export function createGame(scenario: Scenario, seed = 1820, difficulty: Difficul
     ),
   };
 }
-export const DAY_MS = 86400000;
-export const TICKS_PER_DAY = 4;
-export function elapsedTicks(state: GameState) {
-  return state.elapsedDays * TICKS_PER_DAY + state.tickInDay;
-}
-
 export function getGameDate(scenario: Scenario, state: GameState) {
   return new Date(Date.parse(scenario.startDate) + DAY_MS * state.elapsedDays);
 }
@@ -151,6 +150,10 @@ export function advanceTick(
     const { market } = settled.lastEconomy.countries[id];
     if (!humanCountries.has(id)) {
       const job = chooseConstruction(scenario, result, id, market) ?? chooseUniversity(scenario, result, id);
+      if (result.elapsedDays % 28 === 0) {
+        const integration = chooseIntegration(result, id);
+        if (integration) result = applyGovernanceCommand(result, integration);
+      }
       if (job) result = applyCommand(scenario, result, { type: "queueConstruction", countryId: id, ...job });
       const n = result.nations[id];
       const pending = techs.filter((t) => availableTech(n, t));
@@ -225,6 +228,10 @@ function applyCommand(
       return { ...state, settings: { ...state.settings, tuning: cmd.tuning } };
     case "claimState":
       return applyClaim(scenario, state, cmd.stateId);
+    case "setLocalGovernance":
+    case "startIntegration":
+    case "cancelIntegration":
+      return applyGovernanceCommand(state, cmd);
     case "queueConstruction": {
       const { countryId: id, stateId, good, privateBuild } = cmd;
       const error = constructionError(scenario, state, id, stateId, good, privateBuild);
