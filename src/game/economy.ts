@@ -167,6 +167,7 @@ export interface SiteReport {
   healthcare?: InstitutionReport;
   policing?: InstitutionReport;
   welfare?: InstitutionReport;
+  education?: InstitutionReport;
   welfareRelief?: WelfareRelief;
   consumptionIndex?: number;
   conscripts: number;
@@ -198,6 +199,7 @@ export interface CountryReport {
   healthcareUpkeep?: number;
   policingUpkeep?: number;
   welfareUpkeep?: number;
+  educationUpkeep?: number;
   tradeTariff?: number;
   tradeSeaCargo?: number;
   fleet?: FleetReport;
@@ -512,6 +514,7 @@ function projectSettlement(state: GameState, war?: WarPlan, closingTick?: number
       healthcareUpkeep: 0,
       policingUpkeep: 0,
       welfareUpkeep: 0,
+      educationUpkeep: 0,
       tradeTariff: 0,
       tradeSeaCargo: 0,
       military: {
@@ -550,7 +553,7 @@ function projectSettlement(state: GameState, war?: WarPlan, closingTick?: number
     const universityStaff = Math.min(labour, workForce(engineers), site.university * universityJobs);
     const unassignedAfterUniversity = Math.min(labour - universityStaff, workForce(engineers) - universityStaff);
     const offices = state.occupation?.stateId === id ? 0 : site.bureaucracy;
-    const office = planOffice(officeNeed(local.population, site, nation, state.settings.difficulty),
+    const office = planOffice(officeNeed(local.population, site, state.settings.difficulty),
       offices, unassignedAfterUniversity, cashToCommit[owner]);
     officePlans.set(id, office);
     cashToCommit[owner] -= office.reserved;
@@ -1203,18 +1206,18 @@ export function settleEconomy(state: GameState, war?: WarPlan, fractionOfYear = 
       fractionOfYear, difficulty: state.settings.difficulty,
     });
     const { week } = closing.fiscal;
-    const educationDue = c.universityWages!;
+    const universityDue = c.universityWages!;
     const administrationDue = c.administrationWages!;
-    const civilianDue = educationDue + administrationDue;
+    const civilianDue = universityDue + administrationDue;
     const remainingDue = c.upkeep - prepaidUpkeep;
     const remainingPaid = week.upkeepPaid - prepaidUpkeep;
     const militaryDue = remainingDue - civilianDue;
-    const educationPaid = remainingDue > 0 ? Math.floor(remainingPaid * educationDue / remainingDue) : 0;
+    const universityPaid = remainingDue > 0 ? Math.floor(remainingPaid * universityDue / remainingDue) : 0;
     const civilianPaid = remainingDue > 0 ? Math.floor(remainingPaid * civilianDue / remainingDue) : 0;
-    const administrationPaid = civilianPaid - educationPaid;
-    c.universityWages = educationPaid;
+    const administrationPaid = civilianPaid - universityPaid;
+    c.universityWages = universityPaid;
     c.administrationWages = administrationPaid;
-    campusFunding[id] = educationDue > 0 ? educationPaid / educationDue : 0;
+    campusFunding[id] = universityDue > 0 ? universityPaid / universityDue : 0;
     administrationFunding[id] = administrationDue > 0 ? administrationPaid / administrationDue : 0;
     const militaryPaid = remainingPaid - civilianPaid;
     militaryPayroll[id] = { paid: militaryPaid, regulars: c.military.regulars, served: 0, allocated: 0 };

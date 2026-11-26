@@ -9,7 +9,7 @@ import { chooseConstruction, chooseElectrification, choosePort, chooseRailway, c
 import type { Building, CountryEconomy, EconomyReport, StateEconomy } from "./economy.ts";
 import { advancePolitics, applyPolitics, availableTech, politicsError } from "./politics.ts";
 import type { PoliticsCommand } from "./politics.ts";
-import { initSociety, techs, hash } from "./society.ts";
+import { initSociety, techs, hash, literacyOf } from "./society.ts";
 import type { Nation, SiteSocial } from "./society.ts";
 import { applyClaim } from "./territory.ts";
 import { settlePopulationMonth } from "./demographics.ts";
@@ -162,7 +162,8 @@ function chooseInstitutionUpgrade(state: GameState, report: EconomyReport, count
     const population = state.stateEconomies[stateId].population;
     const coverage = local[kind]?.coverage ?? 0;
     const weeklyReserve = institutionStaffNeed(population, level) * (kind === "welfare" ? 1_000 : 250);
-    const priority = kind === "policing" ? unrest : kind === "welfare" ? foodGap : 0;
+    const priority = kind === "policing" ? unrest : kind === "welfare" ? foodGap :
+      kind === "education" ? 100 - literacyOf(site.pops) : 0;
     return coverage >= 0.7 * site[kind] / 3 && treasury >= weeklyReserve * 26
       ? [{ stateId, level, population, priority }] : [];
   }).sort((a, b) => b.priority - a.priority || a.level - b.level || b.population - a.population)[0];
@@ -392,7 +393,8 @@ function applyCommand(
     }
     case "setHealthcareLevel":
     case "setPolicingLevel":
-    case "setWelfareLevel": {
+    case "setWelfareLevel":
+    case "setEducationLevel": {
       const { countryId, stateId, level } = cmd;
       const kind = institutions.find((institution) => institutionCommands[institution] === cmd.type)!;
       if (!institutionLevelSchema.safeParse(level).success) throw new GameRuleError(`${institutionNames[kind]}等级须为 0–3`);

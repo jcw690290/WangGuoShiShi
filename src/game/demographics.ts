@@ -36,9 +36,11 @@ export function settlePopulationMonth<T extends GameState>(scenario: Scenario, s
     const economy = stateEconomies[siteId];
     const site = societies[siteId];
     const population = economy.population;
-    const food = state.lastEconomy?.states[siteId].foodFulfillment ?? 1;
+    const occupied = state.occupation?.stateId === siteId;
+    const latest = state.lastEconomy?.states[siteId];
+    const food = latest?.foodFulfillment ?? 1;
     const additionalMortality = severeFoodShortageMortality * Math.max(0, 1 - food / 0.8);
-    const healthCoverage = state.lastEconomy?.states[siteId].healthcare?.coverage ?? 0;
+    const healthCoverage = latest?.healthcare?.coverage ?? 0;
     const baselineMortality = deathRate * (1 - healthcareMortalityReduction * healthCoverage);
     const populationAfter = population + Math.round(
       population * (birthRate - baselineMortality - additionalMortality) * fractionOfYear,
@@ -47,11 +49,12 @@ export function settlePopulationMonth<T extends GameState>(scenario: Scenario, s
     changes[siteId] = change;
     stateEconomies[siteId] = { ...economy, population: populationAfter };
 
-    // Funded teaching positions provide the educational coverage developed in this demo.
     const { knowledge } = state.nations[owner];
-    const education = knowledge["高等教育"] === 100 ? 2 : knowledge["公共教育"] === 100 ? 1 : 0;
-    const coverage = Math.min(1, (state.lastEconomy?.states[siteId].universityStaff ?? 0) * 1000 / population);
-    educationBySite[siteId] = coverage;
+    const universityLevel = knowledge["高等教育"] === 100 ? 2 : knowledge["公共教育"] === 100 ? 1 : 0;
+    const universityCoverage = Math.min(1, (latest?.universityStaff ?? 0) * 1000 / population);
+    const schoolCoverage = occupied ? 0 : latest?.education?.coverage ?? 0;
+    const literacyBonus = Math.min(0.0012, 0.0006 * universityLevel * universityCoverage + 0.0012 * schoolCoverage);
+    educationBySite[siteId] = Math.max(universityCoverage, schoolCoverage);
     let peopleSoFar = 0;
     let apportioned = 0;
     const pops = site.pops.map((pop) => {
@@ -59,7 +62,7 @@ export function settlePopulationMonth<T extends GameState>(scenario: Scenario, s
       const assigned = Math.round(change * (peopleSoFar / population));
       const people = pop.people + assigned - apportioned;
       apportioned = assigned;
-      const literacyGain = Math.min(0.002, (0.0001 + 0.0006 * education * coverage) * (1 - pop.literacy / 100));
+      const literacyGain = Math.min(0.002, (0.0001 + literacyBonus) * (1 - pop.literacy / 100));
       return { ...pop, people, literacy: pop.literacy + 100 * literacyGain };
     });
     const totals = pops.reduce((facts, pop) => {
@@ -68,8 +71,7 @@ export function settlePopulationMonth<T extends GameState>(scenario: Scenario, s
       if (!accepted(pop, owner, state.nations[owner])) facts.excluded += pop.people;
       return facts;
     }, { radicals: 0, living: 0, excluded: 0 });
-    const occupied = state.occupation?.stateId === siteId;
-    const policing = occupied ? 0 : state.lastEconomy?.states[siteId].policing?.coverage ?? 0;
+    const policing = occupied ? 0 : latest?.policing?.coverage ?? 0;
     const stability = advanceUnrest(site.stability ?? emptyStability(), date, state.elapsedDays, {
       radicals: totals.radicals / populationAfter, living: totals.living / populationAfter,
       excluded: totals.excluded / populationAfter, food,
