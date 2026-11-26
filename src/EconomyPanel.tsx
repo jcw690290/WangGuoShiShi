@@ -15,7 +15,7 @@ import { portCapacity } from "./game/transport.ts";
 import { effectiveConvoyCapacity, maxConvoyOrder, rubberPerMotor, shipGoodsPerConvoy, shipGoodsPerMotor } from "./game/fleet.ts";
 import { incidentNames, unrestEffects } from "./game/unrest.ts";
 import { basicEquivalentSupply, extraGoods } from "./game/households.ts";
-import { institutionCommands, institutionGoods, institutionNames, institutions } from "./game/institutions.ts";
+import { institutionCommands, institutionGoods, institutionNames, institutionRequiredTech, institutions } from "./game/institutions.ts";
 
 function cultureName(scenario: Scenario, id: string) {
   const separator = id.indexOf("-");
@@ -72,7 +72,6 @@ function StateIndustry({
   const movesOrder = order !== null && order.stateId !== stateId;
   const rule = governanceRules[governance.mode];
   const occupied = game.occupation?.stateId === stateId;
-  const healthLimit = nation.knowledge["公共卫生"] === 100 ? 3 : 1;
   const integrationActive = governance.integration !== null;
   const stability = society.stability;
   const incident = stability?.incident;
@@ -186,7 +185,9 @@ function StateIndustry({
       <div className="control-block">
         {institutions.filter((kind) => isOwnState || society[kind] > 0 || snapshot[kind]).map((kind) => {
           const name = institutionNames[kind], level = society[kind], service = snapshot[kind];
-          const limit = kind === "healthcare" ? healthLimit : 3;
+          const technology = institutionRequiredTech(kind, level + 1);
+          const locked = technology !== undefined && nation.knowledge[technology] < 100;
+          const relief = kind === "welfare" ? snapshot.welfareRelief : undefined;
           const updateLevel = (newLevel: number) =>
             send({ type: institutionCommands[kind], countryId: playerId, stateId, level: newLevel });
           return <details key={kind}>
@@ -197,13 +198,17 @@ function StateIndustry({
                 {institutionGoods.map((good) =>
                   `${industries[good].goodName} ${count(service.delivered[good])} / ${count(service.orders[good])}`).join(" · ")}</p>
             </>}
+            {relief && <>
+              <p>周救济实付 · 农民 {silver(relief.paid.农民)} · 劳工 {silver(relief.paid.劳工)}</p>
+              <p>符合条件 · 农民 {count(relief.eligible.农民)} 人 · 劳工 {count(relief.eligible.劳工)} 人</p>
+            </>}
             {isOwnState && <div className="diplomacy-actions">
               <button className="build" disabled={busy || level === 0} onClick={() => updateLevel(level - 1)}>
                 降低{name}等级
               </button>
-              <button className="build" disabled={busy || occupied || level >= limit} onClick={() => updateLevel(level + 1)}>
+              <button className="build" disabled={busy || occupied || level === 3 || locked} onClick={() => updateLevel(level + 1)}>
                 提升{name}等级
-                {kind === "healthcare" && limit === 1 && level >= 1 && <small>2–3 级需要公共卫生技术</small>}
+                {locked && <small>需要{technology}技术</small>}
               </button>
             </div>}
           </details>;
@@ -389,7 +394,7 @@ function StateIndustry({
 export function EconomyPanel({ scenario, game, playerId, selectedId, report, busy, send, onPopulationOpen }: Props) {
   const marketId = selectedId === null ? playerId : game.ownerByStateId[selectedId];
   const country = scenario.countries[marketId];
-  const { market, tax, wageTaxRate, upkeep, tribute, officeUpkeep, healthcareUpkeep, policingUpkeep, military, fleet, tradeSeaCargo } =
+  const { market, tax, wageTaxRate, upkeep, tribute, officeUpkeep, healthcareUpkeep, policingUpkeep, welfareUpkeep, military, fleet, tradeSeaCargo } =
     report.countries[marketId];
   const nation = game.nations[marketId];
   const { tributeReceived, balance } = weeklyBudgets(game.nations, report)[marketId];
@@ -435,6 +440,7 @@ export function EconomyPanel({ scenario, game, playerId, selectedId, report, bus
               {officeUpkeep !== undefined && <small>其中行政署 {silver(officeUpkeep)}</small>}
               {healthcareUpkeep !== undefined && healthcareUpkeep > 0 && <small>其中医疗 {silver(healthcareUpkeep)}</small>}
               {policingUpkeep !== undefined && policingUpkeep > 0 && <small>其中警务 {silver(policingUpkeep)}</small>}
+              {welfareUpkeep !== undefined && welfareUpkeep > 0 && <small>其中福利 {silver(welfareUpkeep)}</small>}
               {military.procurement && <small>军粮 {silver(military.procurement.grain)} · 军服 {silver(military.procurement.cloth)} ·
                 武器 {silver(military.procurement.arms ?? 0)} · 弹药 {silver(military.procurement.ammo ?? 0)}</small>}
             </div>

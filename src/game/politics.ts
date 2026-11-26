@@ -18,6 +18,8 @@ export const researchCategory = {
   电气化: "生产",
   内燃机: "生产",
   公共卫生: "社会",
+  劳工保障: "社会",
+  社会保障: "社会",
 } as const;
 const categories = ["生产", "军事", "社会"] as const;
 const prerequisite: Partial<Record<Tech, Tech>> = {
@@ -30,6 +32,8 @@ const prerequisite: Partial<Record<Tech, Tech>> = {
   电气化: "规模化钢铁",
   内燃机: "电气化",
   公共卫生: "高等教育",
+  劳工保障: "高等教育",
+  社会保障: "劳工保障",
 };
 export function availableTech(n: Nation, t: Tech) {
   const prior = prerequisite[t];
@@ -37,8 +41,8 @@ export function availableTech(n: Nation, t: Tech) {
 }
 export function researchCost(tech: Tech, year: number) {
   const advanced = prerequisite[tech] !== undefined;
-  const late = tech === "规模化钢铁" || tech === "电气化" || tech === "公共卫生";
-  const modern = tech === "内燃机";
+  const late = tech === "规模化钢铁" || tech === "电气化" || tech === "公共卫生" || tech === "劳工保障";
+  const modern = tech === "内燃机" || tech === "社会保障";
   const referenceYear = modern ? 1910 : late ? 1880 : advanced ? 1850 : 1820;
   const base = modern ? 45_000 : late ? 22_000 : advanced ? 10_000 : 4_000;
   return Math.round(base * (1 + 0.02 * Math.max(0, referenceYear - year)));
@@ -59,6 +63,8 @@ export const techEffect: Record<Tech, string> = {
   电气化: "允许发电设施及工具厂、钢铁厂的电动改造",
   内燃机: "允许开采石油，商船装设辅助内燃机",
   公共卫生: "允许将医疗机构提升到 2–3 级",
+  劳工保障: "允许将福利机构提升到 2 级",
+  社会保障: "允许将福利机构提升到 3 级",
 };
 export const lawEffect: Record<Law, string> = {
   工资税改革: "工资税从 10% 提高至 14%",

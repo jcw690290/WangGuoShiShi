@@ -7,7 +7,7 @@ import type { GameState } from "./engine.ts";
 import { byIndustrialGood, commercialLevels, goods, industries, isGood, isIndustrialGood, isLocalGood } from "./industry.ts";
 import { initialIndustrialAccount, industrialAccountSchema, industrialReportSchema } from "./industrial.ts";
 import { officeReportSchema } from "./administration.ts";
-import { institutionReportSchema } from "./institutions.ts";
+import { institutionReportSchema, welfareReliefSchema } from "./institutions.ts";
 import { basicPurchasesSchema, extrasReportSchema, openingBasicBudget, substituteOrdersSchema } from "./households.ts";
 import { reservedCropland, subsistenceReportSchema } from "./subsistence.ts";
 import { migrateCommercialProduction } from "./commercialMigration.ts";
@@ -239,11 +239,12 @@ const countryReport = z.object({
   officeUpkeep: uint.optional(),
   healthcareUpkeep: uint.optional(),
   policingUpkeep: uint.optional(),
+  welfareUpkeep: uint.optional(),
   tradeTariff: uint.optional(),
   tradeSeaCargo: uint.optional(),
   fleet: fleetReportSchema.optional(),
 }).refine((country) => (country.officeUpkeep ?? 0) + (country.healthcareUpkeep ?? 0) + (country.policingUpkeep ?? 0) +
-  militaryProcurementCost(country.military.procurement) +
+  (country.welfareUpkeep ?? 0) + militaryProcurementCost(country.military.procurement) +
   (country.construction === undefined ? 0 : constructionSpending(country.construction.public)) +
   (country.constructionMaintenance === undefined ? 0 : constructionSpending(country.constructionMaintenance)) +
   (country.fleet === undefined ? 0 : fleetSpending(country.fleet)) <= country.upkeep);
@@ -265,6 +266,8 @@ const siteReport = z.object({
   office: officeReportSchema.optional(),
   healthcare: institutionReportSchema.healthcare.optional(),
   policing: institutionReportSchema.policing.optional(),
+  welfare: institutionReportSchema.welfare.optional(),
+  welfareRelief: welfareReliefSchema.optional(),
   consumptionIndex: z.number().nonnegative().optional(),
   conscripts: uint,
   regulars: uint,
