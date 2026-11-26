@@ -20,7 +20,7 @@ import { isTradeLaw, tradeLaws } from "./trade-policy.ts";
 import { startingStateForm } from "./constitution.ts";
 import { industryOwnershipSchema, ownershipAmountsSchema, ownershipKinds, ownershipSchema } from "./ownership.ts";
 import { foreignPairKey, foreignRelationSchema, foreignTreatySchema, treatyOfferSchema } from "./foreign-relations.ts";
-import { barracksCapacity, battalionSize, battalionTrainingDays } from "./military.ts";
+import { barracksCapacity, battalionSize, battalionTrainingDays, equipmentDetails } from "./military.ts";
 import { injuredPersonnel, replacementTrainingDays } from "./military-health.ts";
 import { buildingCapacity, militaryProcurementCost, projects, unusedPrepaidConstruction } from "./economy.ts";
 import { constructionMaintenanceSchema, constructionReportSchema, constructionStockSchema, constructionSpending, constructionWage } from "./construction.ts";
@@ -594,6 +594,13 @@ export function parseSave(scenario: Scenario, save: unknown): GameState {
     const latestTrainingDay = state.elapsedDays + battalionTrainingDays;
     if (battalionOrders?.some((order) => order.slot >= Math.ceil(barracks * barracksCapacity / battalionSize) ||
         order.readyDay > latestTrainingDay)) invalid();
+    for (const order of battalionOrders ?? []) {
+      for (const gear of [order.equipment, order.pendingEquipment]) {
+        if (gear === undefined) continue;
+        const tech = equipmentDetails[gear].technology;
+        if (tech !== null && state.nations[owner].knowledge[tech] !== 100) invalid();
+      }
+    }
     if (barracksTraining && (barracksTraining.reduce((sum, group) => sum + group.levels, 0) > barracks ||
         barracksTraining.some((group, index) => group.readyDay > latestTrainingDay ||
           (index > 0 && group.readyDay <= barracksTraining[index - 1].readyDay)))) invalid();
