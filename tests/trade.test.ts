@@ -7,6 +7,7 @@ import { byGood, industries } from "../src/game/industry.ts";
 import { parseSave, saveVersion } from "../src/game/storage.ts";
 import { applyPlayerCommand, decodeSnapshot, encodeSnapshot } from "../src/online/protocol.ts";
 import { borderScenario, scenario as world } from "../src/scenario/scenario.ts";
+import { effectiveConvoyCapacity } from "../src/game/fleet.ts";
 import { convoyCargoCapacity, raidedConvoyCargoCapacity, seaVoyageCargoCost } from "../src/game/transport.ts";
 
 const qing = "country_01", vietnam = "country_26", to = "Tonkin", from = "Yunnan";
@@ -166,8 +167,9 @@ test("商运使用海军军需后的剩余船队，破交只暂停受影响口�
   const report = projectEconomy(game, planWar(coastal, game));
   const { military, tradeSeaCargo } = report.countries[qing];
   assert.ok(military.seaCargoUsed! > 0);
-  assert.ok(military.seaCargoUsed! + tradeSeaCargo! <= convoyCargoCapacity);
-  assert.equal(military.seaCargoUsed, convoyCargoCapacity);
+  const effectiveCapacity = effectiveConvoyCapacity(game.nations[qing]);
+  assert.ok(military.seaCargoUsed! + tradeSeaCargo! <= effectiveCapacity);
+  assert.equal(military.seaCargoUsed, effectiveCapacity);
   assert.equal(tradeSeaCargo, 0);
   const raided = dispatch(coastal, game, { type: "raid", countryId: vietnam });
   const raidedPlan = planWar(coastal, raided);
