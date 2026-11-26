@@ -8,7 +8,7 @@ import type { ByGood } from "./industry.ts";
 import type { MarketFill } from "./market.ts";
 import { marketOf } from "./market.ts";
 import { GameRuleError } from "./rules.ts";
-import { convoyCargoCapacity, seaVoyageCargoCost } from "./transport.ts";
+import { connectedRailway, convoyCargoCapacity, seaVoyageCargoCost } from "./transport.ts";
 import { unrestEffects } from "./unrest.ts";
 
 const units = z.int().nonnegative();
@@ -157,7 +157,8 @@ export function settleTrade(
     }
     return transfer;
   }
-  const use = new Map<string, number>();
+  const roadUse = new Map<string, number>();
+  const railUse = new Map<string, number>();
   const seaCargo = new Map<string, number>();
   const dispute = state.borderDispute;
   const fighters = dispute?.phase === "war" ? new Set(participants(dispute)) : new Set<string>();
@@ -178,13 +179,23 @@ export function settleTrade(
     if (exportingMarket === importingMarket) return { ...empty, status: "commonMarket" };
     const source = at(from), target = at(to);
     const sourceSite = state.societies[from], targetSite = state.societies[to];
-    const sourceCapacity = Math.floor(route.fromCapacity * sourceSite.infrastructure * unrestEffects(sourceSite.stability).transport);
-    const targetCapacity = Math.floor(route.toCapacity * targetSite.infrastructure * unrestEffects(targetSite.stability).transport);
-    const shippedFrom = use.get(from) ?? 0, shippedTo = use.get(to) ?? 0;
+    const sourceTransport = unrestEffects(sourceSite.stability).transport;
+    const targetTransport = unrestEffects(targetSite.stability).transport;
+    const roadFrom = roadUse.get(from) ?? 0, roadTo = roadUse.get(to) ?? 0;
+    const roadSpace = Math.max(0, Math.min(
+      Math.floor(route.fromCapacity * sourceSite.infrastructure * sourceTransport) - roadFrom,
+      Math.floor(route.toCapacity * targetSite.infrastructure * targetTransport) - roadTo,
+    ));
+    const railFrom = railUse.get(from) ?? 0, railTo = railUse.get(to) ?? 0;
+    const rail = mode === "land" ? connectedRailway(sourceSite.railway, targetSite.railway) : 0;
+    const railSpace = Math.max(0, Math.min(
+      Math.floor(route.fromCapacity * rail * sourceTransport) - railFrom,
+      Math.floor(route.toCapacity * rail * targetTransport) - railTo,
+    ));
     const usedAtSea = seaCargo.get(importer) ?? 0;
     const spaceAtSea = state.nations[importer].convoys * convoyCargoCapacity - (militaryCargo.get(importer) ?? 0) - usedAtSea;
     const quantity = Math.min(
-      route.limit, sourceCapacity - shippedFrom, targetCapacity - shippedTo,
+      route.limit, roadSpace + railSpace,
       mode === "sea" ? Math.floor(spaceAtSea / cargoCost) : Infinity,
       supplies[from][good] - fills[good][from].local - fills[good][from].poolSold - source.sent[good],
       demands[to][good] - fills[good][to].local - fills[good][to].poolBought - target.received[good],
@@ -201,8 +212,13 @@ export function settleTrade(
     const tariff = Math.floor(purchase * 0.10);
     const profit = sales - purchase - freight - tariff;
     if (profit <= 0) return { ...empty, status: "unprofitable" };
-    use.set(from, shippedFrom + quantity);
-    use.set(to, shippedTo + quantity);
+    const shippedByRail = Math.min(quantity, railSpace);
+    roadUse.set(from, roadFrom + quantity - shippedByRail);
+    roadUse.set(to, roadTo + quantity - shippedByRail);
+    if (shippedByRail > 0) {
+      railUse.set(from, railFrom + shippedByRail);
+      railUse.set(to, railTo + shippedByRail);
+    }
     if (mode === "sea") seaCargo.set(importer, usedAtSea + quantity * cargoCost);
     source.sent[good] += quantity;
     target.received[good] += quantity;

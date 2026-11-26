@@ -203,7 +203,8 @@ function StateIndustry({
             >
               {facilityNames[g]} {society[g]} 级 · 扩建
               <small>
-                按周实付 · {projectPoints(g)} 施工点
+                {g === "railway" && game.nations[playerId].knowledge["铁路"] < 100
+                  ? "需要掌握铁路技术" : `按周实付 · ${projectPoints(g)} 施工点`}
               </small>
             </button>
           ))}

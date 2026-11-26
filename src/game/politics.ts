@@ -12,12 +12,16 @@ export const researchCategory = {
   机械织造: "生产",
   运输调度: "军事",
   高等教育: "社会",
+  蒸汽动力: "生产",
+  铁路: "生产",
 } as const;
 const categories = ["生产", "军事", "社会"] as const;
 const prerequisite: Partial<Record<Tech, Tech>> = {
   机械织造: "纺织工艺",
   运输调度: "野战后勤",
   高等教育: "公共教育",
+  蒸汽动力: "机械织造",
+  铁路: "蒸汽动力",
 };
 export function availableTech(n: Nation, t: Tech) {
   const prior = prerequisite[t];
@@ -39,6 +43,8 @@ export const techEffect: Record<Tech, string> = {
   运输调度: "前线运输容量 +30%",
   公共教育: "有教育覆盖的州每月增加识字率",
   高等教育: "教育覆盖带来的识字率增益提高",
+  蒸汽动力: "研究铁路的前置技术",
+  铁路: "允许建设铁路，改善市场接入和陆运",
 };
 export const lawEffect: Record<Law, string> = {
   工资税改革: "工资税从 10% 提高至 14%",

@@ -2,7 +2,7 @@ import { GameRuleError } from "./rules.ts";
 import { z } from "zod";
 import { diplomaticTie, removeDiplomaticTies } from "./diplomatic-ties.ts";
 import { newFrontier } from "./governance.ts";
-import { convoyCargoCapacity, raidedConvoyCargoCapacity } from "./transport.ts";
+import { connectedRailway, convoyCargoCapacity, raidedConvoyCargoCapacity } from "./transport.ts";
 import { unrestEffects } from "./unrest.ts";
 import type { Scenario } from "../scenario/scenario.ts";
 import type { GameState } from "./engine.ts";
@@ -395,7 +395,11 @@ export function planWar(scenario: Scenario, state: GameState): WarPlan | undefin
     let grainTransport = starts.reduce(
       (n, s) => {
         const site = state.societies[s.id];
-        return n + Math.floor(s.grainTransport * site.infrastructure * unrestEffects(site.stability).transport);
+        const rail = state.occupation?.stateId === s.id ? 0 : s.neighbors.reduce((bonus, neighbor) => {
+          if (state.ownerByStateId[neighbor] !== id || state.occupation?.stateId === neighbor) return bonus;
+          return Math.max(bonus, connectedRailway(site.railway, state.societies[neighbor].railway));
+        }, 0);
+        return n + Math.floor(s.grainTransport * (site.infrastructure + rail) * unrestEffects(site.stability).transport);
       },
       0,
     );

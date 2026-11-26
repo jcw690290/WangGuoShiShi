@@ -56,6 +56,7 @@ export const siteSocialSchema = z.object({
   governance: localGovernanceSchema.optional(),
   stability: stabilitySchema.optional(),
   infrastructure: z.int().positive(),
+  railway: z.int().nonnegative().default(0),
   university: z.int().nonnegative(),
   bureaucracy: z.int().nonnegative().default(0),
   construction: z.int().positive(),
@@ -75,7 +76,7 @@ export const laws = [
   "小农自耕",
 ] as const;
 export type Law = (typeof laws)[number];
-export const techs = ["纺织工艺", "野战后勤", "公共教育", "机械织造", "运输调度", "高等教育"] as const;
+export const techs = ["纺织工艺", "野战后勤", "公共教育", "机械织造", "运输调度", "高等教育", "蒸汽动力", "铁路"] as const;
 export type Tech = (typeof techs)[number];
 export const emptyKnowledge = (): Record<Tech, number> => ({
   纺织工艺: 0,
@@ -84,6 +85,12 @@ export const emptyKnowledge = (): Record<Tech, number> => ({
   机械织造: 0,
   运输调度: 0,
   高等教育: 0,
+  蒸汽动力: 0,
+  铁路: 0,
+});
+const knowledgeSchema = z.object({
+  纺织工艺: percent, 野战后勤: percent, 公共教育: percent, 机械织造: percent, 运输调度: percent, 高等教育: percent,
+  蒸汽动力: percent.default(0), 铁路: percent.default(0),
 });
 export const privateProject = z.object({
   stateId: z.string(),
@@ -93,6 +100,7 @@ export const privateProject = z.object({
 });
 export const facilityTypes = [
   "infrastructure",
+  "railway",
   "university",
   "bureaucracy",
   "construction",
@@ -101,6 +109,7 @@ export const facilityTypes = [
 ] as const;
 export const facilityNames = {
   infrastructure: "交通设施",
+  railway: "铁路",
   university: "大学",
   bureaucracy: "行政署",
   construction: "建造部门",
@@ -117,8 +126,8 @@ export const nationSchema = z.object({
   reform: z.enum(laws).nullable(),
   reformProgress: z.number().nonnegative(),
   research: z.enum(techs).nullable(),
-  knowledge: z.record(z.enum(techs), percent),
-  diffusion: z.record(z.enum(techs), percent),
+  knowledge: knowledgeSchema,
+  diffusion: knowledgeSchema,
   investment: z.int().nonnegative(),
   privateQueue: z.array(privateProject),
   infamy: z.number().nonnegative(),
@@ -161,6 +170,7 @@ export function initSiteSociety(site: Scenario["states"][string]): SiteSocial {
     culturalAffinity: initialCulturalAffinity(pops),
     stability: emptyStability(),
     infrastructure: 1 + (hash(site.id) % 3),
+    railway: 0,
     university: 0,
     bureaucracy: site.startingOffices ?? 0,
     construction: 1,

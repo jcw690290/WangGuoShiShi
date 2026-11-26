@@ -31,6 +31,7 @@ import { affordableCrew, constructionJobs, constructionMaterials, constructionPo
   constructionSpending, crewMaterials, deliverConstruction, emptyConstructionReport, materialOrder,
   planConstructionMaintenance, reserveCrew, shareCrew } from "./construction.ts";
 import type { ConstructionMaintenance, ConstructionReport, ConstructionSector, ConstructionStock } from "./construction.ts";
+import { railCapacityPerLevel } from "./transport.ts";
 
 export { marketOf } from "./market.ts";
 
@@ -41,6 +42,7 @@ export type Building = Good | (typeof facilityTypes)[number];
 export const projects = {
   ...industries,
   infrastructure: { cost: 210000, weeks: 2 },
+  railway: { cost: 300000, weeks: 5 },
   university: { cost: 360000, weeks: 3 },
   bureaucracy: { cost: 180000, weeks: 4 },
   construction: { cost: 300000, weeks: 3 },
@@ -73,6 +75,7 @@ export interface Project {
   levels?: number;
 }
 export function projectPoints(good: Building) {
+  if (good === "railway") return 250;
   if (isGood(good)) {
     if (isCrop(good)) return 100;
     if (good === "wood" || good === "iron" || good === "coal") return 150;
@@ -486,7 +489,7 @@ function projectSettlement(state: GameState, war?: WarPlan, closingTick?: number
     let skilledWages = 0;
     const access = Math.min(
       1,
-      (site.infrastructure * 11000) /
+      ((site.infrastructure + site.railway * railCapacityPerLevel) * 11000) /
         (local.population + 2000 * (local.buildings.cloth / commercialLevels.cloth + local.buildings.grain / commercialLevels.grain) +
           250 * (local.buildings.wood + local.buildings.iron + local.buildings.coal + local.buildings.tools + local.buildings.paper)),
     ) * effects.transport;
@@ -856,6 +859,7 @@ export function constructionError(
   if (state.occupation?.stateId === stateId) return "该州处于军事占领中";
   const country = state.countryEconomies[countryId],
     nation = state.nations[countryId];
+  if (good === "railway" && nation.knowledge["铁路"] !== 100) return "需要掌握铁路技术";
   const fiscalRisk = country.fiscal?.week.risk;
   if (!privateBuild && (fiscalRisk === "restricted" || fiscalRisk === "defaulted"))
     return "公共支出不足，暂缓批准新工程";
@@ -907,6 +911,23 @@ export function chooseUniversity(scenario: Scenario, state: GameState, countryId
     .sort((a, b) => state.stateEconomies[b].population - state.stateEconomies[a].population)[0];
   if (site && !constructionError(scenario, state, countryId, site, "university"))
     return { stateId: site, good: "university" as const };
+}
+
+export function chooseRailway(scenario: Scenario, state: GameState, countryId: string, report: EconomyReport) {
+  const country = state.countryEconomies[countryId];
+  if (country.queue.length || state.elapsedDays % 28 !== 0 || country.treasury < projects.railway.cost ||
+      state.nations[countryId].knowledge["铁路"] !== 100) return;
+  const owned = Object.keys(state.stateEconomies).filter((id) => state.ownerByStateId[id] === countryId);
+  const candidates = owned.flatMap((id) => {
+    if (state.societies[id].railway > 0 || constructionError(scenario, state, countryId, id, "railway")) return [];
+    const neighbors = scenario.states[id].neighbors.filter((neighbor) =>
+      state.ownerByStateId[neighbor] === countryId && state.occupation?.stateId !== neighbor);
+    if (neighbors.length === 0) return [];
+    const connected = neighbors.some((neighbor) => state.societies[neighbor].railway > 0);
+    const access = report.states[id].access;
+    return access < 0.85 || connected ? [{ id, connected, access }] : [];
+  }).sort((left, right) => Number(right.connected) - Number(left.connected) || left.access - right.access);
+  if (candidates.length > 0) return { stateId: candidates[0].id, good: "railway" as const };
 }
 
 export function settleEconomy(state: GameState, war?: WarPlan, fractionOfYear = 7 / 365): GameState & { lastEconomy: EconomyReport } {
