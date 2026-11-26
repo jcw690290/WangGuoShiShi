@@ -13,6 +13,7 @@ import type { GovernanceMode } from "./game/governance.ts";
 import { TradePanel } from "./TradePanel.tsx";
 import { convoyCargoCapacity } from "./game/transport.ts";
 import { incidentNames, unrestEffects } from "./game/unrest.ts";
+import { extraGoods } from "./game/households.ts";
 
 function cultureName(scenario: Scenario, id: string) {
   const separator = id.indexOf("-");
@@ -160,6 +161,11 @@ function StateIndustry({
         })}
       </ul>
       <div className="control-block">
+        {snapshot.householdExtras && <details>
+          <summary>家庭可选消费</summary>
+          <p>可用资金 {silver(snapshot.householdExtras.budget)} · 实付 {silver(snapshot.householdExtras.spending)}</p>
+          <ul>{extraGoods.map((good) => <li key={good}>{industries[good].goodName} {count(snapshot.householdExtras!.delivered[good])} / {count(snapshot.householdExtras!.orders[good])}</li>)}</ul>
+        </details>}
         {snapshot.industrial && <details>
           <summary>工业库存与周转资金</summary>
           <p>周转金 {silver(snapshot.industrial.capital)} · 销售 {silver(snapshot.industrial.sales)} · 采购 {silver(snapshot.industrial.spent)} · 可分配结余 {silver(snapshot.industrial.distributed)}</p>

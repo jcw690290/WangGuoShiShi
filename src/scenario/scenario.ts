@@ -142,10 +142,14 @@ export const atlas = z.record(z.string(), siteSchema).parse(
     const tools = state.population >= 12_000 ? 5 : 1;
     const paper = state.population >= 16_000 ? 5 : 1;
     const services = Math.max(1, Math.ceil(state.population / 8_000) + 1);
+    const food = Math.max(1, Math.ceil(state.population / 12_000) + 1);
+    const fiber = state.terrain === "平原" ? 5 : 2;
+    const dailyGoods = Math.max(1, Math.ceil(state.population / 16_000));
+    const luxury = Math.max(1, Math.ceil(state.population / 35_000));
     const owned = sourceStates.has(id);
     return [id, {
       ...state, name: (stateNames as Record<string, string>)[id],
-      capacity: { ...state.capacity, wood, iron, coal, tools, paper, services },
+      capacity: { ...state.capacity, wood, iron, coal, tools, paper, services, food, fiber, dailyGoods, luxury },
       buildings: {
         ...state.buildings,
         wood: owned ? Math.min(wood, Math.max(1, Math.ceil(state.population / 24_000))) : 0,
@@ -154,6 +158,10 @@ export const atlas = z.record(z.string(), siteSchema).parse(
         tools: owned && state.buildings.cloth > 0 && state.population >= 18_000 ? 1 : 0,
         paper: owned && state.buildings.cloth > 0 && state.population >= 22_000 ? 1 : 0,
         services: owned && state.population >= 3_000 ? Math.ceil(state.population / 12_000) : 0,
+        food: owned && state.population >= 8_000 ? 1 : 0,
+        fiber: owned && state.terrain === "平原" && state.buildings.cloth > 0 ? 1 : 0,
+        dailyGoods: owned && state.buildings.cloth > 0 && state.population >= 16_000 ? 1 : 0,
+        luxury: owned && state.buildings.cloth > 0 && state.population >= 32_000 ? 1 : 0,
       },
     }];
   })),
