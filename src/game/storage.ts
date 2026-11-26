@@ -610,6 +610,19 @@ export function parseSave(scenario: Scenario, save: unknown): GameState {
       parties.some((id) => !state.nations[id]) ||
       new Set(parties).size !== parties.length ||
       d.since > state.elapsedDays ||
+      (d.lastPeaceOfferDay !== undefined && d.lastPeaceOfferDay > state.elapsedDays) ||
+      (d.peaceOffer !== undefined && (
+        (d.phase !== "countdown" && d.phase !== "war") ||
+        (d.peaceOffer.from !== d.claimantId && d.peaceOffer.from !== d.defenderId) ||
+        d.peaceOffer.offeredDay !== d.lastPeaceOfferDay ||
+        d.peaceOffer.offeredDay < d.since ||
+        d.peaceOffer.goals.some((goal) => !d.goals.includes(goal))
+      )) ||
+      (d.agreedPeace !== undefined && (
+        d.phase !== "resolved" || d.unacceptedGoals !== undefined ||
+        d.outcome !== (d.agreedPeace.goals.length > 0 ? "victory" : "statusQuo") ||
+        d.agreedPeace.goals.some((goal) => !d.goals.includes(goal))
+      )) ||
       (d.unacceptedGoals !== undefined && (
         d.phase !== "resolved" || d.outcome !== "victory" || d.goals.length !== 1 ||
         new Set([...d.goals, ...d.unacceptedGoals]).size !== d.goals.length + d.unacceptedGoals.length
@@ -618,7 +631,8 @@ export function parseSave(scenario: Scenario, save: unknown): GameState {
       d.promises.some((id) => !d.allies.includes(id))
     )
       invalid();
-    const transferred = d.outcome === "victory" && (d.goals.includes("cession") || d.goals.includes("annex"));
+    const executed = d.agreedPeace?.goals ?? d.goals;
+    const transferred = d.outcome === "victory" && (executed.includes("cession") || executed.includes("annex"));
     if (state.ownerByStateId[d.targetStateId] !== (transferred ? d.claimantId : d.defenderId)) invalid();
   }
   const controlled = syncOccupation(scenario, state);

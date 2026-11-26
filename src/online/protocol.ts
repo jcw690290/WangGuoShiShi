@@ -1,5 +1,5 @@
 import { z } from "zod";
-import { disputeSchema, goals } from "../game/diplomacy.ts";
+import { disputeSchema, goals, peaceGoalsSchema } from "../game/diplomacy.ts";
 import { dispatch } from "../game/engine.ts";
 import type { GameState } from "../game/engine.ts";
 import { GameRuleError } from "../game/rules.ts";
@@ -47,6 +47,8 @@ const commandSchema = z.discriminatedUnion("type", [
   z.strictObject({ type: z.literal("declareInterest"), countryId: id, targetStateId: id }),
   z.strictObject({ type: z.literal("demandBorder"), countryId: id, targetStateId: id, goal: z.enum(goals) }),
   z.strictObject({ type: z.literal("addGoal"), countryId: id, goal: z.enum(goals) }),
+  z.strictObject({ type: z.literal("proposePeace"), countryId: id, goals: peaceGoalsSchema, commercial: z.boolean() }),
+  z.strictObject({ type: z.literal(["acceptPeace", "rejectPeace"]), countryId: id }),
   z.strictObject({ type: z.literal("sway"), countryId: id, allyId: id }),
   z.strictObject({ type: z.literal("joinUnion"), countryId: id, leaderId: id }),
   z.strictObject({ type: z.literal("endDiplomaticTie"), countryId: id, partnerId: id }),

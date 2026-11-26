@@ -59,6 +59,14 @@ export function adjustForeignRelation(state: GameState, actor: string, partner: 
 export const treatyBetween = (state: GameState, one: string, other: string, kind: TreatyKind) =>
   state.foreignTreaties?.find((treaty) => treaty.kind === kind && isPair(treaty.a, treaty.b, one, other));
 
+export function signForeignTreaty(state: GameState, one: string, other: string, kind: TreatyKind): GameState {
+  if (treatyBetween(state, one, other, kind)) return state;
+  const signed = adjustForeignRelation(adjustForeignRelation(state, one, other, 5, 4), other, one, 0, 4);
+  const treatyOffers = (state.treatyOffers ?? []).filter((offer) => !(offer.kind === kind && isPair(offer.from, offer.to, one, other)));
+  return { ...signed, treatyOffers, foreignTreaties: [...(state.foreignTreaties ?? []),
+    { ...canonical(one, other), kind, signedDay: state.elapsedDays }] };
+}
+
 export function treatyPartners(state: GameState, countryId: string, kind: TreatyKind) {
   return (state.foreignTreaties ?? []).flatMap((treaty) => {
     if (treaty.kind !== kind) return [];
@@ -132,9 +140,7 @@ export function applyForeignCommand(state: GameState, cmd: ForeignCommand): Game
   }
   const treatyOffers = offers.filter((offer) => !(offer.from === partnerId && offer.to === countryId && offer.kind === cmd.kind));
   if (cmd.type === "declineTreaty") return { ...state, treatyOffers };
-  const signed = adjustForeignRelation(adjustForeignRelation(state, countryId, partnerId, 5, 4), partnerId, countryId, 0, 4);
-  return { ...signed, treatyOffers, foreignTreaties: [...treaties,
-    { ...canonical(countryId, partnerId), kind: cmd.kind, signedDay: state.elapsedDays }] };
+  return signForeignTreaty(state, countryId, partnerId, cmd.kind);
 }
 
 export function expireTreatyOffers(state: GameState) {

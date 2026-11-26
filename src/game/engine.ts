@@ -245,7 +245,7 @@ export function advanceTick(
   if (isScenarioFinished(scenario, state)) return state;
   const tickInDay = state.tickInDay + 1;
   if (tickInDay < TICKS_PER_DAY) return { ...state, tickInDay };
-  const next = tickDiplomacy(scenario, { ...state, elapsedDays: state.elapsedDays + 1, tickInDay: 0 });
+  const next = tickDiplomacy(scenario, { ...state, elapsedDays: state.elapsedDays + 1, tickInDay: 0 }, humanCountries);
   const date = getGameDate(scenario, next);
   const monthly = isPopulationMonth(scenario, next);
   if (next.elapsedDays % 7 !== 0) {
