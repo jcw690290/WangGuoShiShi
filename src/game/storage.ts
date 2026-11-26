@@ -12,7 +12,7 @@ import { reservedCropland, subsistenceReportSchema } from "./subsistence.ts";
 import { migrateCommercialProduction } from "./commercialMigration.ts";
 import { openingMetrics } from "./campaignMetrics.ts";
 import { buildingCapacity, militaryProcurementCost, projects, unusedPrepaidConstruction } from "./economy.ts";
-import { constructionReportSchema, constructionStockSchema, constructionSpending, constructionWage } from "./construction.ts";
+import { constructionMaintenanceSchema, constructionReportSchema, constructionStockSchema, constructionSpending, constructionWage } from "./construction.ts";
 import { nationSchema, siteSocialSchema, projectTypes } from "./society.ts";
 import { importRegionalSave } from "./legacySave.ts";
 import { borderScenario } from "../scenario/scenario.ts";
@@ -228,6 +228,7 @@ const countryReport = z.object({
   investment: uint,
   capacity: z.number().nonnegative(),
   construction: constructionReportSchema.optional(),
+  constructionMaintenance: constructionMaintenanceSchema.optional(),
   tribute: uint,
   upkeep: uint,
   interestPaid: uint.optional(),
@@ -237,7 +238,8 @@ const countryReport = z.object({
   tradeTariff: uint.optional(),
   tradeSeaCargo: uint.optional(),
 }).refine((country) => (country.officeUpkeep ?? 0) + militaryProcurementCost(country.military.procurement) +
-  (country.construction === undefined ? 0 : constructionSpending(country.construction.public)) <= country.upkeep);
+  (country.construction === undefined ? 0 : constructionSpending(country.construction.public)) +
+  (country.constructionMaintenance === undefined ? 0 : constructionSpending(country.constructionMaintenance)) <= country.upkeep);
 const siteReport = z.object({
   industries: z.object({ grain: industry, cloth: industry, ...byIndustrialGood(() =>
     industry.default({ employed: 0, output: 0, wages: 0 })) }),
@@ -251,6 +253,7 @@ const siteReport = z.object({
   householdExtras: extrasReportSchema.optional(),
   constructionGoods: goodsNumbers.optional(),
   construction: constructionReportSchema.optional(),
+  constructionMaintenance: constructionMaintenanceSchema.optional(),
   industrial: industrialReportSchema.optional(),
   office: officeReportSchema.optional(),
   consumptionIndex: z.number().nonnegative().optional(),

@@ -24,7 +24,7 @@ test("实付军粮和军服从商品供给发出，国库与生产企业只各�
   const forecast = projectEconomy(initial);
   assert.deepEqual(initial, original);
   const settled = dispatch(scenario, initial, { type: "advanceWeek" });
-  const { military: m, upkeep, tax, market } = settled.lastEconomy!.countries[countryId];
+  const { military: m, upkeep, tax, market, constructionMaintenance } = settled.lastEconomy!.countries[countryId];
   const { industries: production, industrial, access } = settled.lastEconomy!.states[stateId];
   assert.deepEqual(m.procurement, forecast.countries[countryId].military.procurement);
   assert.ok(m.grainDrawn > 0 && m.equipment.uniforms.delivered > 0);
@@ -37,7 +37,8 @@ test("实付军粮和军服从商品供给发出，国库与生产企业只各�
 
   const { treasury, fiscal } = settled.countryEconomies[countryId];
   assert.equal(fiscal!.week.upkeepPaid, upkeep);
-  assert.equal(upkeep, purchases + m.regulars * 12);
+  assert.deepEqual(constructionMaintenance, { workers: 10, wages: 1000, tools: 0, materials: 0 });
+  assert.equal(upkeep, purchases + m.regulars * 12 + constructionMaintenance.wages);
   assert.equal(treasury, initial.countryEconomies[countryId].treasury + tax - upkeep);
   assert.deepEqual(parseSave(scenario, { version: saveVersion, scenarioId: scenario.id, state: settled }), settled);
 });
@@ -48,10 +49,11 @@ test("预付受现款限制，剩余物资进入市场，当周税收不补记�
   const settled = dispatch(scenario, initial, { type: "advanceWeek" });
   const { military, market, tax } = settled.lastEconomy!.countries[countryId];
   assert.ok(tax > 0 && military.grainDemand > 40);
-  assert.equal(military.grainDrawn, 40);
+  // Standby payroll and the highest possible price of its tool are reserved before military orders.
+  assert.equal(military.grainDrawn, 28);
   assert.equal(military.equipment.uniforms.delivered, 0);
-  assert.deepEqual(military.procurement, { grain: 5_000, cloth: 0, arms: 0, ammo: 0 });
-  assert.equal(market.grain.supply, settled.lastEconomy!.states[stateId].industries.grain.output - 40);
+  assert.deepEqual(military.procurement, { grain: 3_500, cloth: 0, arms: 0, ammo: 0 });
+  assert.equal(market.grain.supply, settled.lastEconomy!.states[stateId].industries.grain.output - 28);
   assert.equal(military.readiness, 0);
 });
 
