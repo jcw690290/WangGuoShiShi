@@ -2,7 +2,7 @@ import { GameRuleError } from "./rules.ts";
 import { z } from "zod";
 import { diplomaticTie, removeDiplomaticTies } from "./diplomatic-ties.ts";
 import { localGovernanceRule, newFrontier } from "./governance.ts";
-import { connectedRailway, convoyCargoCapacity, portCapacity, raidedConvoyCargoCapacity } from "./transport.ts";
+import { connectedRailway, convoyCargoCapacity, portCapacity } from "./transport.ts";
 import { effectiveConvoyCapacity } from "./fleet.ts";
 import type { MaritimeTerminal } from "./transport.ts";
 import { unrestEffects } from "./unrest.ts";
@@ -17,6 +17,8 @@ import { adjustForeignRelation, breakOpposedTreaties, diplomaticTrust, expireTre
 import { governmentLegitimacy, hash, influence, unrestOf } from "./society.ts";
 import { battalionDetails, battalionTrainingDays, battalionsAt } from "./military.ts";
 import { applyMilitaryLoss, warLossesSchema } from "./military-health.ts";
+import { fleetPower, navalMissionSchema, navalMissionTargets, planNavalOperations } from "./naval-operations.ts";
+import type { NavalMissionCommand } from "./naval-operations.ts";
 
 export const goals = ["cession", "reparations", "puppet", "vassal", "protectorate", "annex"] as const;
 export type Goal = (typeof goals)[number];
@@ -94,6 +96,7 @@ export const disputeSchema = z.object({
   retreating: z.array(z.string()).optional(),
   frontOrders: z.record(z.string(), frontOrderSchema).optional(),
   raid: z.array(z.string()),
+  navalMissions: z.record(z.string(), navalMissionSchema).optional(),
   progress: z.int().min(0).max(100),
   lastChange: z.int().nullable(),
   outcome: z.enum(["victory", "withdrawal", "statusQuo"]).nullable(),
@@ -112,6 +115,7 @@ export type BorderCommand =
   | { type: "proposePeace"; countryId: string; goals: Goal[]; commercial: boolean }
   | { type: "acceptPeace" | "rejectPeace"; countryId: string }
   | ({ type: "setFrontOrder"; countryId: string } & FrontOrder)
+  | NavalMissionCommand
   | { type: "endDiplomaticTie"; countryId: string; partnerId: string }
   | {
       type:
@@ -477,9 +481,20 @@ export function applyBorderCommand(scenario: Scenario, state: GameState, cmd: Bo
     });
   }
   if (cmd.type === "raid") {
-    if (!holdings(scenario, state, id).some((s) => s.coastal) || d.raid.includes(id))
-      throw new GameRuleError("没有可派遣的舰队");
-    return patch({ raid: [...d.raid, id] });
+    const target = navalMissionTargets(scenario, state, d, id, "blockade")[0];
+    if (!target || fleetPower(state, id) === 0) throw new GameRuleError("没有可派遣的舰队或可达港口");
+    return patch({ navalMissions: { ...d.navalMissions, [id]: { task: "blockade", portId: target.id } },
+      raid: d.raid.filter((countryId) => countryId !== id) });
+  }
+  if (cmd.type === "setNavalMission") {
+    const mission = cmd.mission;
+    if (mission && (fleetPower(state, id) === 0 ||
+        !navalMissionTargets(scenario, state, d, id, mission.task).some((site) => site.id === mission.portId)))
+      throw new GameRuleError("没有可派遣的舰队或可达港口");
+    const navalMissions = { ...d.navalMissions };
+    if (mission) navalMissions[id] = mission;
+    else delete navalMissions[id];
+    return patch({ navalMissions, raid: d.raid.filter((countryId) => countryId !== id) });
   }
   return patch({
     advance: [...d.advance.filter((x) => x !== id), ...(cmd.type === "orderAdvance" ? [id] : [])],
@@ -528,7 +543,6 @@ interface SupplyRoute {
   grainTransport: number;
   mobilized: boolean;
   overseas: boolean;
-  raided: boolean;
   maritimeTerminals?: MaritimeTerminal[][];
 }
 export interface WarPlan {
@@ -536,6 +550,7 @@ export interface WarPlan {
   recruitPercent: number;
   supplyPercent: number;
   grainPerRecruit: number;
+  naval: ReturnType<typeof planNavalOperations>;
 }
 function mobilizationOrigins(state: GameState, route: SupplyRoute) {
   return [...route.recruitmentStates].filter((id) => state.occupation?.stateId !== id && state.societies[id].conscription > 0);
@@ -558,6 +573,7 @@ export function planWar(scenario: Scenario, state: GameState): WarPlan | undefin
   const d = state.borderDispute;
   if (d?.phase !== "war") return;
   const routes: Record<string, SupplyRoute> = {};
+  const naval = planNavalOperations(scenario, state, d);
   const line = new Set(frontLine(scenario, state, d).map((site) => site.id));
   for (const id of participants(d)) {
     const order = d.frontOrders?.[id];
@@ -598,8 +614,6 @@ export function planWar(scenario: Scenario, state: GameState): WarPlan | undefin
       },
       0,
     );
-    const raided = overseas && d.raid.some((x) => attacking(d, x) !== attacking(d, id) &&
-      holdings(scenario, state, x).some((site) => site.coastal));
     if (state.nations[id].knowledge["运输调度"] === 100) grainTransport = Math.floor(grainTransport * 1.3);
     let maritimeTerminals: MaritimeTerminal[][] | undefined;
     if (overseas) {
@@ -613,9 +627,14 @@ export function planWar(scenario: Scenario, state: GameState): WarPlan | undefin
           for (const site of home) connectedStates.add(site);
         }
       }
+      const portAccess = (port: MaritimeTerminal) => naval.portAccess.get(port.stateId) ?? 1;
+      const safestAccess = Math.min(...maritimeTerminals.map((group) => Math.max(0, ...group.map(portAccess))));
+      maritimeTerminals = maritimeTerminals.map((group) => group.map((port) => ({
+        ...port, capacity: Math.floor(port.capacity * portAccess(port)),
+      })).sort((a, b) => portAccess(b) - portAccess(a) || b.capacity - a.capacity));
       grainTransport = Math.min(
         grainTransport,
-        effectiveConvoyCapacity(state.nations[id], raided ? raidedConvoyCargoCapacity : convoyCargoCapacity),
+        effectiveConvoyCapacity(state.nations[id], Math.round(convoyCargoCapacity * safestAccess)),
         ...maritimeTerminals.map((group) => group.reduce((sum, port) => sum + port.capacity, 0)),
       );
     }
@@ -627,15 +646,15 @@ export function planWar(scenario: Scenario, state: GameState): WarPlan | undefin
     if (d.retreating?.includes(id)) {
       routes[id] = {
         objective, priorityShare, recruitmentStates: new Set(), connectedStates: new Set(),
-        draftOrigins, draftReady, deployedDrafts: new Set(), grainTransport: 0, mobilized, overseas: false, raided: false,
+        draftOrigins, draftReady, deployedDrafts: new Set(), grainTransport: 0, mobilized, overseas: false,
       };
     } else {
       const deployedDrafts = new Set(draftReady ? [...draftOrigins].filter((siteId) => connectedStates.has(siteId)) : []);
       routes[id] = { objective, priorityShare, recruitmentStates, connectedStates, draftOrigins, draftReady, deployedDrafts,
-        grainTransport, mobilized, overseas, raided, ...(maritimeTerminals ? { maritimeTerminals } : {}) };
+        grainTransport, mobilized, overseas, ...(maritimeTerminals ? { maritimeTerminals } : {}) };
     }
   }
-  return { ...scenario.borderDispute, routes };
+  return { ...scenario.borderDispute, routes, naval };
 }
 export function advanceFront(scenario: Scenario, state: GameState, report: EconomyReport): GameState {
   const d = state.borderDispute;
@@ -661,7 +680,9 @@ export function advanceFront(scenario: Scenario, state: GameState, report: Econo
     const effective = origins.reduce((sum, x) => sum + x.effective, 0);
     const nation = state.nations[id], military = report.countries[id].military;
     const available = Math.min(soldiers, 300 * nation.generalRank, frontWidth(route.objective));
-    const landing = attacking(d, id) && !landBorder(scenario, state, id, route.objective) ? 0.65 : 1;
+    const support = plan.naval.landing.get(id);
+    const navalBonus = support?.portId === route.objective ? 0.35 * support.power / (1 + support.power) : 0;
+    const landing = attacking(d, id) && !landBorder(scenario, state, id, route.objective) ? 0.65 + navalBonus : 1;
     const logistics = nation.knowledge["野战后勤"] === 100 ? 1.25 : 1;
     const random = 0.9 + randomFraction(id) * 0.2;
     const power = soldiers === 0 ? 0 :
@@ -765,6 +786,16 @@ export function aiDiplomacy(
     const cautious = state.elapsedDays - d.since >= 28 && warWillingness(state, d, id) <= 25;
     if (cautious && d.advance.includes(id)) orders.push({ type: "orderDefend", countryId: id });
     if (!cautious && !d.advance.includes(id)) orders.push({ type: "orderAdvance", countryId: id });
+    if (fleetPower(state, id) > 0 && !d.navalMissions?.[id] && !d.raid.includes(id)) {
+      const escort = navalMissionTargets(scenario, state, d, id, "escort").find((site) => plan.naval.portAccess.has(site.id));
+      const landing = !escort && plan.routes[id].overseas &&
+        navalMissionTargets(scenario, state, d, id, "landing").find((site) => site.id === plan.routes[id].objective);
+      const interdiction = !escort && !landing && navalMissionTargets(scenario, state, d, id, "raid")[0];
+      const mission = escort ? { task: "escort" as const, portId: escort.id } :
+        landing ? { task: "landing" as const, portId: landing.id } :
+        interdiction ? { task: "raid" as const, portId: interdiction.id } : null;
+      if (mission) orders.push({ type: "setNavalMission", countryId: id, mission });
+    }
   }
   if (!humanCountries.has(d.claimantId) && d.progress >= scenario.borderDispute.cessionProgress)
     orders.push({ type: "signTreaty", countryId: d.claimantId });

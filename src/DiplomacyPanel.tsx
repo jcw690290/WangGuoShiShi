@@ -30,6 +30,8 @@ import { silver } from "./format.ts";
 import { battalionDetails, battalionKinds, battalionOrderError, battalionSize, battalionsAt } from "./game/military.ts";
 import { injuredPersonnel } from "./game/military-health.ts";
 import { maxWarshipOrder, shipGoodsPerWarship } from "./game/navy.ts";
+import { fleetPower, navalMissionTargets, navalTaskNames, navalTasks } from "./game/naval-operations.ts";
+import type { NavalMission } from "./game/naval-operations.ts";
 interface Props {
   scenario: Scenario;
   game: GameState;
@@ -157,6 +159,37 @@ function NavalYard({ scenario, game, report, playerId, busy, send }: Omit<Props,
   );
 }
 
+function NavalOrders({ scenario, game, dispute, playerId, busy, send }: Omit<Props, "report" | "selectedId"> & { dispute: BorderDispute }) {
+  const current = dispute.navalMissions?.[playerId];
+  const [task, setTask] = useState<NavalMission["task"]>(current?.task ?? "escort");
+  const [portId, setPort] = useState(current?.portId ?? "");
+  const power = fleetPower(game, playerId);
+  if (power === 0 && !current && !dispute.raid.includes(playerId)) return null;
+  const targets = navalMissionTargets(scenario, game, dispute, playerId, task);
+  const target = targets.find((site) => site.id === portId) ?? targets[0];
+  return (
+    <div className="control-block">
+      <label>舰队任务{" "}
+        <select value={task} disabled={busy} onChange={(event) => setTask(navalTasks[event.target.selectedIndex])}>
+          {navalTasks.map((kind) => <option key={kind} value={kind}>{navalTaskNames[kind]}</option>)}
+        </select>
+      </label>
+      {target && <label> 目标港口{" "}
+        <select value={target.id} disabled={busy} onChange={(event) => setPort(event.target.value)}>
+          {targets.map((site) => <option key={site.id} value={site.id}>{site.name}</option>)}
+        </select>
+      </label>}
+      <div className="diplomacy-actions">
+        {target && <button className="build" disabled={busy || power === 0 || (current?.task === task && current.portId === target.id)}
+          onClick={() => send({ type: "setNavalMission", countryId: playerId, mission: { task, portId: target.id } })}>派遣舰队</button>}
+        {(current || dispute.raid.includes(playerId)) && <button className="build" disabled={busy}
+          onClick={() => send({ type: "setNavalMission", countryId: playerId, mission: null })}>结束舰队任务</button>}
+      </div>
+      {current && <p>{navalTaskNames[current.task]} · {scenario.states[current.portId].name}</p>}
+    </div>
+  );
+}
+
 function PeaceNegotiation({ game, dispute, id, busy, send }: {
   game: GameState; dispute: BorderDispute; id: string; busy: boolean; send: Props["send"];
 }) {
@@ -250,7 +283,6 @@ export function DiplomacyPanel({ scenario, game, playerId: id, report, busy, sen
       | "orderDefend"
       | "orderRetreat"
       | "mobilize"
-      | "raid"
       | "signTreaty"
       | "armistice"
       | "leaveUnion",
@@ -408,16 +440,12 @@ export function DiplomacyPanel({ scenario, game, playerId: id, report, busy, sen
                 {involved && (
                   <>
                     <FrontOrders scenario={scenario} game={game} dispute={d} playerId={id} busy={busy} send={send} />
+                    <NavalOrders key={d.since} scenario={scenario} game={game} dispute={d} playerId={id} busy={busy} send={send} />
                     <div className="diplomacy-actions">
                       {btn("下令动员", simple("mobilize"), d.mobilized.includes(id))}
                       {btn("命令推进", simple("orderAdvance"), d.advance.includes(id))}
                       {btn("命令防御", simple("orderDefend"), !d.advance.includes(id) && !d.retreating?.includes(id))}
                       {btn("撤至后方", simple("orderRetreat"), d.retreating?.includes(id))}
-                      {btn(
-                        "舰队破交",
-                        simple("raid"),
-                        d.raid.includes(id) || !holdings(scenario, game, id).some((s) => s.coastal),
-                      )}
                       {primary &&
                         btn(
                           "执行战争目标",

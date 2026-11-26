@@ -28,8 +28,7 @@ export type NavyReport = z.infer<typeof navyReportSchema>;
 
 export const navyMaintenance = (warships: number) => Math.ceil(warships / 2);
 
-export function closeNavy(navy: Navy, delivered: number, port: string | null, berths: number) {
-  const maintenanceDue = navyMaintenance(navy.warships);
+export function closeNavy(navy: Navy, delivered: number, port: string | null, berths: number, maintenanceDue: number) {
   let stores = navy.stores + delivered;
   const maintained = port === null ? 0 : Math.min(stores, maintenanceDue);
   stores -= maintained;

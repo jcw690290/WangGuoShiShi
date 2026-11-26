@@ -8,7 +8,7 @@ import { parseSave, saveVersion } from "../src/game/storage.ts";
 import { applyPlayerCommand, decodeSnapshot, encodeSnapshot } from "../src/online/protocol.ts";
 import { borderScenario, scenario as world } from "../src/scenario/scenario.ts";
 import { effectiveConvoyCapacity } from "../src/game/fleet.ts";
-import { raidedConvoyCargoCapacity, seaVoyageCargoCost } from "../src/game/transport.ts";
+import { seaVoyageCargoCost } from "../src/game/transport.ts";
 
 const qing = "country_01", vietnam = "country_26", to = "Tonkin", from = "Yunnan";
 const scenario = {
@@ -178,5 +178,18 @@ test("商运使用海军军需后的剩余船队，破交只暂停受影响口�
   const blocked = projectEconomy(raided, planWar(coastal, raided));
   assert.equal(blocked.trade![0].status, "blockaded");
   assert.notEqual(blocked.trade![1].status, "blockaded");
-  assert.ok(blocked.countries[qing].military.seaCargoUsed! <= raidedConvoyCargoCapacity);
+  assert.equal(blocked.states.Guangxi.portMilitaryCargo ?? 0, 0);
+  assert.ok(blocked.states.Yunnan.portMilitaryCargo! > 0);
+  const raiding = dispatch(coastal, game, { type: "setNavalMission", countryId: vietnam,
+    mission: { task: "raid", portId: "Guangxi" } });
+  const raid = planWar(coastal, raiding)!.naval;
+  assert.ok(raid.portAccess.get("Guangxi")! < 1);
+  assert.equal(raid.blockadedPorts.has("Guangxi"), false);
+  const escorted = dispatch(coastal, raided, { type: "setNavalMission", countryId: qing,
+    mission: { task: "escort", portId: "Guangxi" } });
+  const loaded = parseSave(coastal, { version: saveVersion, scenarioId: coastal.id, state: escorted });
+  assert.equal(planWar(coastal, loaded)!.naval.blockadedPorts.has("Guangxi"), false);
+  const landing = dispatch(coastal, game, { type: "setNavalMission", countryId: qing,
+    mission: { task: "landing", portId: "Tonkin" } });
+  assert.ok(planWar(coastal, landing)!.naval.landing.get(qing)!.power > 0);
 });
