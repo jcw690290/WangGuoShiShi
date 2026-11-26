@@ -69,7 +69,7 @@ export function advanceAchievements(before: GameState, game: GameState, date: Da
     const country = weekly.countries[countryId];
     award("materials", country.capacity > 0 && holdings.some((site) => {
       const materials = weekly.states[site].constructionGoods;
-      return !!materials && materials.grain > 0 && materials.cloth > 0;
+      return !!materials && materials.wood > 0 && materials.tools > 0 && materials.iron > 0;
     }));
     award("education", (country.universityWages ?? 0) > 0);
     award("trade", !!weekly.trade?.some(({ from, to, quantity }) =>

@@ -85,8 +85,9 @@ test("实际建设、教育与外交结算解锁成就，读取存档和归档�
   game = dispatch(scenario, game, { type: "queueConstruction", countryId, stateId: "Yunnan", good: "university" });
   const medals = () => game.campaign!.achievements!.records;
   assert.equal(medals().length, 0);
-  for (let week = 0; week < 10 && !medals().some((record) => record.id === "education"); week++)
-    game = dispatch(scenario, game, { type: "advanceWeek" });
+  const participants = new Set(Object.keys(scenario.countries));
+  for (let day = 0; day < 224 && !medals().some((record) => record.id === "education"); day++)
+    game = advanceDay(scenario, game, participants);
   assert.deepEqual(new Set(medals().map((record) => record.id)), new Set(["construction", "materials", "education"]));
   game = dispatch(scenario, game, { type: "demandBorder", countryId, targetStateId: "Tonkin", goal: "cession" });
   assert.equal(medals().length, 3);

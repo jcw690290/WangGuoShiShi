@@ -4,6 +4,7 @@ import { constructionError, projectEconomy } from "../src/game/economy.ts";
 import { createGame, dispatch } from "../src/game/engine.ts";
 import { reformWork } from "../src/game/society.ts";
 import { parseSave, saveVersion } from "../src/game/storage.ts";
+import { unrestEffects } from "../src/game/unrest.ts";
 import { borderScenario, scenario as world } from "../src/scenario/scenario.ts";
 
 const countryId = "country_01", stateId = "Yunnan";
@@ -62,13 +63,14 @@ test("政府与私人作物工程共享耕地，实际开业后挤出自给岗�
   game = dispatch(map, game, { type: "queueConstruction", countryId, stateId, good: "food", privateBuild: true });
   assert.match(constructionError(map, game, countryId, stateId, "fiber")!, /可用耕地不足/);
   assert.equal(projectEconomy(game).states[stateId].subsistence!.employed, before.employed);
-  for (let i = 0; i < 12 && (game.countryEconomies[countryId].queue.length || game.nations[countryId].privateQueue.length); i++)
+  for (let i = 0; i < 32 && (game.countryEconomies[countryId].queue.length || game.nations[countryId].privateQueue.length); i++)
     game = dispatch(map, game, { type: "advanceWeek" });
   const completed = projectEconomy(game).states[stateId].subsistence!;
   assert.equal(completed.occupied, 200);
   assert.equal(completed.employed, 50);
-  assert.equal(completed.produced.grain, 40);
-  assert.equal(completed.produced.wood, 5);
+  const efficiency = unrestEffects(game.societies[stateId].stability).output;
+  assert.equal(completed.produced.grain, Math.floor(40 * efficiency));
+  assert.equal(completed.produced.wood, Math.floor(5 * efficiency));
 });
 
 test("1820 开局剧本既有完全自用的州，也有真实余粮和地租", () => {

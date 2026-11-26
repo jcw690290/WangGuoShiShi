@@ -16,7 +16,7 @@ test("大学建成后从下一周开始用工和付薪，科研按实付岗位�
   game = week(game);
   assert.equal(game.nations[countryId].knowledge["纺织工艺"], 0);
   game = dispatch(scenario, game, { type: "queueConstruction", countryId, stateId: "Yunnan", good: "university" });
-  for (let i = 0; i < 10 && game.countryEconomies[countryId].queue.length; i++) game = week(game);
+  for (let i = 0; i < 32 && game.countryEconomies[countryId].queue.length; i++) game = week(game);
   assert.equal(game.societies.Yunnan.university, 1);
   assert.equal(game.lastEconomy!.states.Yunnan.universityStaff, 0);
   const before = game;

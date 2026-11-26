@@ -27,6 +27,7 @@ const commandSchema = z.discriminatedUnion("type", [
   z.strictObject({ type: z.literal("removeTradeRoute"), countryId: id, from: id, to: id, good: z.enum(goods),
     mode: z.enum(tradeModes).optional() }),
   z.strictObject({ type: z.literal("queueConstruction"), countryId: id, stateId: id, good: z.enum(projectTypes), privateBuild: z.boolean().optional() }),
+  z.strictObject({ type: z.literal("cancelConstruction"), countryId: id, index: seq, stateId: id, good: z.enum(projectTypes), privateBuild: z.boolean().optional() }),
   z.strictObject({ type: z.literal("setGovernment"), countryId: id, government: z.array(z.enum(groups)).max(groups.length) }),
   z.strictObject({ type: z.literal("proposeLaw"), countryId: id, law: z.enum(laws) }),
   z.strictObject({ type: z.literal("startResearch"), countryId: id, tech: z.enum(techs) }),
@@ -76,7 +77,7 @@ export async function encodeSnapshot(scenario: Scenario, state: GameState) {
   if (settings.difficulty !== "standard" || settings.difficultyHistory.length !== 1 || settings.tuning)
     throw new GameRuleError("联机房间使用标准规则");
   // Protocol 1 clients share the existing whole-day snapshot format.
-  const envelope = JSON.stringify({ version: 5, scenarioId: scenario.id, state: world });
+  const envelope = JSON.stringify({ version: 5, scenarioId: scenario.id, weeklyConstruction: true, state: world });
   const stream = new Blob([envelope]).stream().pipeThrough(new CompressionStream("gzip"));
   const bytes = new Uint8Array(await new Response(stream).arrayBuffer());
   return btoa(Array.from(bytes, (byte) => String.fromCharCode(byte)).join(""));

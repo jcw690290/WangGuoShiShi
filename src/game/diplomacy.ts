@@ -7,6 +7,7 @@ import { unrestEffects } from "./unrest.ts";
 import type { Scenario } from "../scenario/scenario.ts";
 import type { GameState } from "./engine.ts";
 import type { EconomyReport } from "./economy.ts";
+import { projectOpeningCapital } from "./economy.ts";
 import { ruleTuning } from "./settings.ts";
 import { syncOccupation } from "./occupation.ts";
 
@@ -134,10 +135,14 @@ function treaty(state: GameState, d: BorderDispute, victory: boolean, withdrawal
         }
       countryEconomies[b] = {
         ...countryEconomies[b],
+        treasury: countryEconomies[b].treasury + countryEconomies[b].queue.reduce((sum, p) =>
+          sum + (ownerByStateId[p.stateId] === b ? 0 : projectOpeningCapital(p)), 0),
         queue: countryEconomies[b].queue.filter((p) => ownerByStateId[p.stateId] === b),
       };
       nations[b] = {
         ...nations[b],
+        investment: nations[b].investment + nations[b].privateQueue.reduce((sum, p) =>
+          sum + (ownerByStateId[p.stateId] === b ? 0 : projectOpeningCapital(p)), 0),
         privateQueue: nations[b].privateQueue.filter((p) => ownerByStateId[p.stateId] === b),
       };
     }

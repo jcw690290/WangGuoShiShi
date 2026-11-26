@@ -4,7 +4,7 @@ import type { Difficulty, GameSettings, RuleTuning } from "./settings.ts";
 import type { Scenario } from "../scenario/scenario.ts";
 import { advanceFront, aiDiplomacy, applyBorderCommand, planWar, tickDiplomacy } from "./diplomacy.ts";
 import type { BorderCommand, BorderDispute } from "./diplomacy.ts";
-import { chooseConstruction, chooseUniversity, constructionError, initialStateEconomy, projects, settleEconomy } from "./economy.ts";
+import { chooseConstruction, chooseUniversity, constructionError, initialStateEconomy, projectDeposit, projectOpeningCapital, projects, settleEconomy } from "./economy.ts";
 import type { Building, CountryEconomy, EconomyReport, StateEconomy } from "./economy.ts";
 import { advancePolitics, applyPolitics, availableTech, politicsError } from "./politics.ts";
 import type { PoliticsCommand } from "./politics.ts";
@@ -58,6 +58,7 @@ export type GameCommand =
   | { type: "settleCampaignVictory" }
   | { type: "claimState"; stateId: string }
   | { type: "queueConstruction"; countryId: string; stateId: string; good: Building; privateBuild?: boolean }
+  | { type: "cancelConstruction"; countryId: string; index: number; stateId: string; good: Building; privateBuild?: boolean }
   | { type: "advanceTick" | "advanceWeek" | "advanceDay" | "advanceHalfYear" }
   | PoliticsCommand
   | GovernanceCommand
@@ -259,7 +260,7 @@ function applyCommand(
       const { countryId: id, stateId, good, privateBuild } = cmd;
       const error = constructionError(scenario, state, id, stateId, good, privateBuild);
       if (error) throw new GameRuleError(error);
-      const { cost, weeks } = projects[good],
+      const cost = projectDeposit(good), { weeks } = projects[good],
         job = { stateId, good, weeksLeft: weeks };
       if (privateBuild && isGood(good)) {
         const n = state.nations[id];
@@ -282,6 +283,26 @@ function applyCommand(
           ...state.countryEconomies,
           [id]: { ...c, treasury: c.treasury - cost, queue: [...c.queue, job] },
         },
+      };
+    }
+    case "cancelConstruction": {
+      const { countryId: id, index, stateId, good, privateBuild } = cmd;
+      const c = state.countryEconomies[id], n = state.nations[id];
+      const queue = privateBuild ? n.privateQueue : c.queue;
+      const job = queue[index];
+      if (!job || job.stateId !== stateId || job.good !== good) throw new GameRuleError("该工程已不在队列中");
+      const returned = projectOpeningCapital(job);
+      if (privateBuild) return {
+        ...state,
+        nations: { ...state.nations, [id]: {
+          ...n, investment: n.investment + returned, privateQueue: n.privateQueue.filter((_, i) => i !== index),
+        } },
+      };
+      return {
+        ...state,
+        countryEconomies: { ...state.countryEconomies, [id]: {
+          ...c, treasury: c.treasury + returned, queue: c.queue.filter((_, i) => i !== index),
+        } },
       };
     }
     case "setGovernment":

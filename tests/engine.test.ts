@@ -2,8 +2,10 @@ import assert from "node:assert/strict";
 import { test } from "node:test";
 import { advanceDay, createGame, dispatch, getGameDate, spanDays } from "../src/game/engine.ts";
 import type { GameState, GameCommand } from "../src/game/engine.ts";
-import { projectEconomy, constructionError, projects } from "../src/game/economy.ts";
+import { projectEconomy, constructionError, projectDeposit, projects, remainingProjectPoints } from "../src/game/economy.ts";
+import { constructionSpending } from "../src/game/construction.ts";
 import { parseSave, saveVersion } from "../src/game/storage.ts";
+import { decodeSnapshot, encodeSnapshot } from "../src/online/protocol.ts";
 import { influence, reformConditions, reformWork } from "../src/game/society.ts";
 import type { Scenario } from "../src/scenario/scenario.ts";
 const scenario: Scenario = {
@@ -78,11 +80,12 @@ test("政府队列付款、所有权与容量校验，完工带来就业、产�
   const job = { type: "queueConstruction", countryId: "first", stateId: "border", good: "cloth" } as const;
   const old = g;
   g = send(g, job);
-  assert.equal(g.countryEconomies.first.treasury, old.countryEconomies.first.treasury - projects.cloth.cost);
+  assert.equal(g.countryEconomies.first.treasury, old.countryEconomies.first.treasury - projectDeposit("cloth"));
   assert.throws(() => send(g, job), /容量已满/);
   assert.throws(() => send(g, { ...job, stateId: "coast" }), /本国州内/);
-  for (let i = 0; i < 15 && !g.stateEconomies.border.buildings.cloth; i++) g = week(g);
+  for (let i = 0; i < 60 && !g.stateEconomies.border.buildings.cloth; i++) g = week(g);
   assert.equal(g.stateEconomies.border.buildings.cloth, 1);
+  assert.equal(g.lastEconomy!.states.border.industries.cloth.employed, 0);
   for (let i = 0; i < 3 && g.lastEconomy!.states.border.industries.cloth.employed < 100; i++) g = week(g);
   const report = g.lastEconomy!;
   assert.equal(report.states.border.industries.cloth.employed, 100);
@@ -115,19 +118,39 @@ test("AI 使用共用建设指令，全国市场价格与本州供需按接入�
   bad.countryEconomies.second.queue[0].stateId = "border";
   assert.throws(() => load(bad), /无效/);
 });
-test("投资池与国库单独扣款，两类工程共享建造力，闲置份额可接管", () => {
+test("投资池与国库单独扣款，两类工程共享建造力，闲置份额可接管", async () => {
   const old = start();
   old.nations.first.investment = 500000;
   const both = send(
     send(old, { type: "queueConstruction", countryId: "first", stateId: "border", good: "grain" }),
     { type: "queueConstruction", countryId: "first", stateId: "border", good: "cloth", privateBuild: true },
   );
-  assert.equal(both.nations.first.investment, old.nations.first.investment - projects.cloth.cost);
-  assert.equal(both.countryEconomies.first.treasury, old.countryEconomies.first.treasury - projects.grain.cost);
+  assert.equal(both.nations.first.investment, old.nations.first.investment - projectDeposit("cloth"));
+  assert.equal(both.countryEconomies.first.treasury, old.countryEconomies.first.treasury - projectDeposit("grain"));
+  const legacy = structuredClone(both);
+  legacy.countryEconomies.first.treasury = old.countryEconomies.first.treasury - projects.grain.cost;
+  legacy.nations.first.investment = old.nations.first.investment - projects.cloth.cost;
+  assert.deepEqual(parseSave(scenario, { version: 11, scenarioId: scenario.id, state: legacy }), both);
   const g = week(both);
   assert.ok(g.nations.first.privateQueue[0].weeksLeft < 3);
   assert.ok(g.countryEconomies.first.queue[0].weeksLeft < 2);
-  assert.ok(g.lastEconomy!.countries.first.investment > 0);
+  const report = g.lastEconomy!.countries.first;
+  const { public: publicBill, private: privateBill } = report.construction!;
+  assert.ok(publicBill.wages > 0 && publicBill.materials > 0 && privateBill.wages > 0 && privateBill.materials > 0);
+  const used = g.lastEconomy!.states.border.constructionGoods!;
+  assert.ok(used.wood > 0 && used.iron > 0 && used.tools > 0);
+  assert.equal(used.grain + used.cloth, 0);
+  const stock = g.stateEconomies.border.constructionStock!;
+  assert.ok(stock.public.tools + stock.private.tools > 0);
+  assert.ok(Math.abs(remainingProjectPoints(g.countryEconomies.first.queue[0]) + publicBill.points - 100) < 1e-6);
+  assert.equal(g.nations.first.investment, both.nations.first.investment + report.investment - constructionSpending(privateBill));
+  assert.equal(g.countryEconomies.first.treasury, both.countryEconomies.first.treasury + report.tax - report.upkeep);
+  const canceled = send(g, { type: "cancelConstruction", countryId: "first", stateId: "border",
+    good: "cloth", index: 0, privateBuild: true });
+  assert.equal(canceled.nations.first.privateQueue.length, 0);
+  assert.equal(canceled.nations.first.investment - g.nations.first.investment, projectDeposit("cloth"));
+  assert.deepEqual(load(canceled), canceled);
+  assert.deepEqual(await decodeSnapshot(scenario, await encodeSnapshot(scenario, canceled)), canceled);
   assert.match(constructionError(scenario, g, "first", "border", "university", true)!, /私人资金/);
 });
 test("职业支持分配与选举权重改变八个集团，合法性和激进度影响审议", () => {
