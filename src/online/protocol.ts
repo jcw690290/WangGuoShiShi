@@ -35,6 +35,7 @@ const commandSchema = z.discriminatedUnion("type", [
   z.strictObject({ type: z.literal("queueConstruction"), countryId: id, stateId: id, good: z.enum(projectTypes), privateBuild: z.boolean().optional() }),
   z.strictObject({ type: z.literal("cancelConstruction"), countryId: id, index: seq, stateId: id, good: z.enum(projectTypes), privateBuild: z.boolean().optional() }),
   z.strictObject({ type: z.literal("setConvoyOrder"), countryId: id, stateId: id, operation: z.enum(["add", "move", "cancel"]) }),
+  z.strictObject({ type: z.literal("setWarshipOrder"), countryId: id, stateId: id, operation: z.enum(["add", "move", "cancel"]) }),
   z.strictObject({ type: z.literal("setFleetMotorization"), countryId: id, stateId: id, enabled: z.boolean() }),
   z.strictObject({ type: z.enum(institutionCommands), countryId: id, stateId: id, level: institutionLevelSchema }),
   z.strictObject({ type: z.literal("setTaxBand"), countryId: id, band: taxBandSchema }),
