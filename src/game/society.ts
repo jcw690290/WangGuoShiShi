@@ -16,6 +16,7 @@ import { civicLawCategory, civicLaws, civicPolicy, civicStanding, isBaselineCivi
 import { constitutionalFormSchema, constitutionalLaws, constitutionalMandate, constitutionLawCategory,
   powerDistribution, startingStateForm } from "./constitution.ts";
 import { economicLaws, isEconomicLaw, ownershipSchema } from "./ownership.ts";
+import { barracksTrainingSchema, battalionOrdersSchema } from "./military.ts";
 
 export const occupations = ["农民", "劳工", "工程师", "军官", "教士", "店主", "资本家", "贵族"] as const;
 export type Occupation = (typeof occupations)[number];
@@ -79,6 +80,8 @@ export const siteSocialSchema = z.object({
   laborParticipation: z.number().min(0.30).max(0.60).default(0.40),
   construction: z.int().positive(),
   barracks: z.int().nonnegative(),
+  barracksTraining: barracksTrainingSchema.optional(),
+  battalionOrders: battalionOrdersSchema.optional(),
   conscription: z.int().nonnegative(),
 });
 export type SiteSocial = z.infer<typeof siteSocialSchema>;

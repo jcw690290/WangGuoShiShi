@@ -15,6 +15,7 @@ import { syncOccupation } from "./occupation.ts";
 import { adjustForeignRelation, breakOpposedTreaties, diplomaticTrust, expireTreatyOffers, influenceBudget, reconcileTreaties,
   relationBetween, signForeignTreaty, treatyBetween, treatyInfluence, treatyPartners } from "./foreign-relations.ts";
 import { governmentLegitimacy, influence, unrestOf } from "./society.ts";
+import { battalionDetails, battalionTrainingDays, battalionsAt } from "./military.ts";
 
 export const goals = ["cession", "reparations", "puppet", "vassal", "protectorate", "annex"] as const;
 export type Goal = (typeof goals)[number];
@@ -152,7 +153,11 @@ function treaty(state: GameState, d: BorderDispute, victory: boolean, withdrawal
       for (const id of Object.keys(ownerByStateId))
         if (ownerByStateId[id] === b && (id === d.targetStateId || terms.includes("annex"))) {
           ownerByStateId[id] = a;
-          societies[id] = { ...societies[id], governance: { ...newFrontier } };
+          const site = societies[id];
+          societies[id] = {
+            ...site, governance: { ...newFrontier }, battalionOrders: [],
+            barracksTraining: site.barracks === 0 ? [] : [{ levels: site.barracks, readyDay: state.elapsedDays + battalionTrainingDays }],
+          };
         }
       const subsidies = countryEconomies[b].industrySubsidies;
       countryEconomies[b] = {
@@ -555,28 +560,25 @@ export function advanceFront(scenario: Scenario, state: GameState, report: Econo
     ({ 山地: 180, 森林: 350, 平原: 650 } as const)[target.terrain ?? "平原"] *
     state.societies[target.id].infrastructure;
   const plan = planWar(scenario, state)!;
-  const strength = (ids: string[]) =>
-    Math.min(
-      width,
-      ids.reduce((n, id) => {
-        const m = report.countries[id].military,
-          route = plan.routes[id];
-        const soldiers = [...route.recruitmentStates].reduce(
-          (s, v) => s + report.states[v].regulars + report.states[v].conscripts,
-          0,
-        );
-        const landing = attacking(d, id) && !landBorder(scenario, state, id, d.targetStateId) ? 0.65 : 1;
-        const logistics = state.nations[id].knowledge["野战后勤"] === 100 ? 1.25 : 1;
-        return (
-          n +
-          Math.min(soldiers, 300 * state.nations[id].generalRank) *
-            m.readiness *
-            (state.nations[id].morale / 100) *
-            landing *
-            logistics
-        );
-      }, 0),
-    );
+  const strength = (ids: string[]) => {
+    let committed = 0, power = 0;
+    for (const id of ids) {
+      const sites = [...plan.routes[id].recruitmentStates];
+      const roster = sites.flatMap((siteId) => battalionsAt(state, siteId, report.states[siteId].regulars));
+      const conscripts = sites.reduce((sum, siteId) => sum + report.states[siteId].conscripts, 0);
+      const soldiers = roster.reduce((sum, unit) => sum + unit.trained, conscripts);
+      if (soldiers === 0) continue;
+      const role = d.advance.includes(id) ? "attack" : "defense";
+      const effective = roster.reduce((sum, unit) => sum + unit.trained * battalionDetails[unit.kind][role] / 10, conscripts);
+      const nation = state.nations[id];
+      const available = Math.min(soldiers, 300 * nation.generalRank);
+      const landing = attacking(d, id) && !landBorder(scenario, state, id, d.targetStateId) ? 0.65 : 1;
+      const logistics = nation.knowledge["野战后勤"] === 100 ? 1.25 : 1;
+      committed += available;
+      power += available * effective / soldiers * report.countries[id].military.readiness * (nation.morale / 100) * landing * logistics;
+    }
+    return committed === 0 ? 0 : power * Math.min(1, width / committed);
+  };
   const left = [d.claimantId, ...d.allies],
     right = [d.defenderId, ...d.defenders];
   let delta = 0;

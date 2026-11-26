@@ -46,6 +46,8 @@ import { civicPolicy, civicStanding } from "./civic-policy.ts";
 import { allocateIndustrialSurplus, economicLaw, economicOwnershipRules, emptyOwnershipAmounts, openingOwnership,
   ownedLevels, ownershipKinds, projectOwnership } from "./ownership.ts";
 import type { IndustryOwnership, Ownership, OwnershipAmounts } from "./ownership.ts";
+import { battalionsAt, equipmentNeeds, garrisonHeadcount, inTraining, trainNewBarracks } from "./military.ts";
+import type { Battalion } from "./military.ts";
 
 export { marketOf } from "./market.ts";
 
@@ -145,6 +147,7 @@ interface IndustryReport {
 }
 export interface MilitarySupply {
   regulars: number;
+  trainedRegulars?: number;
   conscripts: number;
   grainDemand: number;
   grainDrawn: number;
@@ -283,18 +286,6 @@ export function militaryProcurementCost(spending: MilitarySupply["procurement"])
   return spending === undefined ? 0 : spending.grain + spending.cloth + (spending.arms ?? 0) + (spending.ammo ?? 0);
 }
 
-function equipmentNeeds(strength: number, field: boolean) {
-  return {
-    weapons: Math.ceil(strength * (field ? 20 : 5) / 1000),
-    ammunition: Math.ceil(strength * (field ? 40 : 5) / 1000),
-    uniforms: Math.ceil(strength * (field ? 20 : 10) / 1000),
-  };
-}
-
-function garrisonSize(site: SiteSocial, population: number, militaryShare: number) {
-  return Math.floor(Math.min(site.barracks * 100, population * 0.03) * militaryShare);
-}
-
 function availableEngineers(site: SiteSocial, owner: string, nation: GameState["nations"][string]) {
   const policy = civicPolicy(nation.laws);
   return site.pops.filter((p) => p.occupation === "工程师")
@@ -307,14 +298,13 @@ function militarySources(ids: string[], route: WarPlan["routes"][string]) {
   return { front, rear };
 }
 
-function planArmamentOrders(state: GameState, holdings: Record<string, string[]>, war?: WarPlan) {
+function planArmamentOrders(state: GameState, holdings: Record<string, string[]>, rosters: Record<string, Battalion[]>, war?: WarPlan) {
   const orders: Record<string, ArmamentOrders> = Object.fromEntries(
     Object.keys(state.stateEconomies).map((id) => [id, { arms: 0, ammo: 0 }]),
   );
-  function assign(owner: string, sources: string[], strength: number, field: boolean) {
+  function assign(owner: string, sources: string[], needs: ReturnType<typeof equipmentNeeds>) {
     const nation = state.nations[owner];
     const { ordinaryWage } = laborProtection(nation.laws);
-    const needs = equipmentNeeds(strength, field);
     for (const good of armamentGoods) {
       let remaining = good === "arms" ? needs.weapons : needs.ammunition;
       const spec = industries[good];
@@ -347,13 +337,9 @@ function planArmamentOrders(state: GameState, holdings: Record<string, string[]>
     const { treasury, fiscal } = state.countryEconomies[owner];
     const laws = state.nations[owner].laws;
     if (Math.max(0, treasury) + availablePrepaymentCredit(fiscal, treasury) === 0) continue;
-    const regulars = (sites: string[]) => sites.reduce((sum, id) =>
-      sum + garrisonSize(state.societies[id], state.stateEconomies[id].population, localGovernanceRule(state.societies[id], laws).militaryShare), 0);
     const route = war?.routes[owner];
     if (route) {
       const { front, rear } = militarySources(ids, route);
-      const rearRegulars = regulars(rear);
-      const deployed = regulars(ids) - rearRegulars;
       const mobilized = !route.mobilized ? 0 : [...route.recruitmentStates].reduce((sum, id) => {
         const site = state.societies[id];
         const eligible = workForce(state.stateEconomies[id].population, site.laborParticipation) -
@@ -361,10 +347,11 @@ function planArmamentOrders(state: GameState, holdings: Record<string, string[]>
         return sum + Math.min(Math.floor(site.conscription * 500 * localGovernanceRule(site, laws).militaryShare),
           Math.floor(eligible * war!.recruitPercent / 100));
       }, 0);
-      assign(owner, front, deployed + mobilized, true);
-      assign(owner, rear, rearRegulars, false);
+      const deployed = ids.filter((id) => route.recruitmentStates.has(id)).flatMap((id) => rosters[id]);
+      assign(owner, front, equipmentNeeds(deployed, mobilized, true));
+      assign(owner, rear, equipmentNeeds(rear.flatMap((id) => rosters[id]), 0, false));
     } else {
-      assign(owner, ids, regulars(ids), false);
+      assign(owner, ids, equipmentNeeds(ids.flatMap((id) => rosters[id]), 0, false));
     }
   }
   return orders;
@@ -373,7 +360,7 @@ function planArmamentOrders(state: GameState, holdings: Record<string, string[]>
 // Add this force's issues to the national report, returning its own fulfilment for combat.
 function issueSupplies(
   military: MilitarySupply, contract: SupplyContract, stocks: Record<string, ByGood<number>>, sources: string[],
-  regulars: number, fieldStrength: number, campaignGrain: number, transport: number, grainShare: number, overseas = false,
+  demand: number, needs: ReturnType<typeof equipmentNeeds>, transport: number, grainShare: number, overseas = false,
 ) {
   function pay(id: string, good: keyof MilitaryGoods, units: number) {
     if (units === 0) return;
@@ -384,7 +371,6 @@ function issueSupplies(
     proceeds[good] += price;
     contract.proceeds.set(id, proceeds);
   }
-  const demand = regulars + campaignGrain;
   const grain = sources.reduce((total, id) => total + stocks[id].grain, 0);
   const delivered = Math.min(demand, transport, Math.floor(grain * grainShare), Math.floor(contract.cash / contract.prices.grain));
   military.grainDemand += demand;
@@ -399,7 +385,6 @@ function issueSupplies(
     pay(id, "grain", share - allocated);
     allocated = share;
   }
-  const needs = equipmentNeeds(fieldStrength > 0 ? fieldStrength : regulars, fieldStrength > 0);
   let seaCargo = delivered;
   for (const kind of ["weapons", "ammunition", "uniforms"] as const) {
     const good = equipmentGoods[kind];
@@ -560,6 +545,7 @@ function projectSettlement(state: GameState, war?: WarPlan, closingTick?: number
       tradeSeaCargo: 0,
       military: {
         regulars: 0,
+        trainedRegulars: 0,
         conscripts: 0,
         grainDemand: 0,
         grainDrawn: 0,
@@ -574,7 +560,9 @@ function projectSettlement(state: GameState, war?: WarPlan, closingTick?: number
     };
   }
   for (const id of Object.keys(state.stateEconomies)) holdings[state.ownerByStateId[id]].push(id);
-  const armamentOrders = planArmamentOrders(state, holdings, war);
+  const garrisons = Object.fromEntries(Object.keys(state.stateEconomies).map((id) => [id, garrisonHeadcount(state, id)]));
+  const rosters = Object.fromEntries(Object.keys(garrisons).map((id) => [id, battalionsAt(state, id, garrisons[id])]));
+  const armamentOrders = planArmamentOrders(state, holdings, rosters, war);
   const fleets = fleetPlans(state, holdings, scenario);
   const fleetProduction = byFleetGood((good) => fleetIndustryOrders(state, fleets, good));
   for (const [id, local] of Object.entries(state.stateEconomies)) {
@@ -586,7 +574,7 @@ function projectSettlement(state: GameState, war?: WarPlan, closingTick?: number
       front = route?.recruitmentStates.has(id);
     const effects = unrestEffects(site.stability);
     const { militaryShare, integrationCost } = localGovernanceRule(site, nation.laws);
-    const regulars = garrisonSize(site, local.population, militaryShare);
+    const regulars = garrisons[id];
     const draftRate = front && route!.mobilized ? war!.recruitPercent : 0;
     const draftQuota = Math.floor(site.conscription * 500 * militaryShare);
     const engineers = availableEngineers(site, owner, nation);
@@ -718,6 +706,7 @@ function projectSettlement(state: GameState, war?: WarPlan, closingTick?: number
     powerLeft = suppliesFirst.electricity.output;
     const activity = byGood((g) => Object.hasOwn(suppliesFirst, g) ? suppliesFirst[g as keyof typeof suppliesFirst] : produce(g));
     c.military.regulars += regulars;
+    c.military.trainedRegulars! += rosters[id].reduce((sum, unit) => sum + unit.trained, 0);
     c.military.conscripts += conscripts;
     c.universityWages! += universityStaff * universityWage;
     c.administrationWages! += administrationDue;
@@ -801,9 +790,11 @@ function projectSettlement(state: GameState, war?: WarPlan, closingTick?: number
       const rearRegulars = rear.reduce((sum, id) => sum + report.states[id].regulars, 0);
       const deployed = m.regulars - rearRegulars;
       const fieldStrength = deployed + m.conscripts;
+      const deployedRoster = ids.filter((id) => route.recruitmentStates.has(id)).flatMap((id) => rosters[id]);
       m.readiness = issueSupplies(
         m, contract, supplies, front,
-        deployed, fieldStrength, fieldStrength * war!.grainPerRecruit, route.grainTransport, war!.supplyPercent / 100, route.overseas,
+        deployed + fieldStrength * war!.grainPerRecruit, equipmentNeeds(deployedRoster, m.conscripts, true),
+        route.grainTransport, war!.supplyPercent / 100, route.overseas,
       );
       if (route.overseas) {
         const cargo = m.seaCargoUsed!;
@@ -824,9 +815,10 @@ function projectSettlement(state: GameState, war?: WarPlan, closingTick?: number
       if (route.raided && route.maritimeTerminals === undefined)
         for (const stateId of route.recruitmentStates) blockadedPorts.add(stateId);
       // Rear garrisons draw from the remaining domestic output, outside the front's transport limit.
-      if (rearRegulars > 0) issueSupplies(m, contract, supplies, rear, rearRegulars, 0, 0, Infinity, 1);
+      if (rearRegulars > 0)
+        issueSupplies(m, contract, supplies, rear, rearRegulars, equipmentNeeds(rear.flatMap((id) => rosters[id]), 0, false), Infinity, 1);
     } else {
-      m.readiness = issueSupplies(m, contract, supplies, ids, m.regulars, 0, 0, Infinity, 1);
+      m.readiness = issueSupplies(m, contract, supplies, ids, m.regulars, equipmentNeeds(ids.flatMap((id) => rosters[id]), 0, false), Infinity, 1);
     }
     m.procurement = contract.spending;
     c.upkeep += militaryProcurementCost(contract.spending);
@@ -1417,6 +1409,10 @@ export function settleEconomy(state: GameState, war?: WarPlan, fractionOfYear = 
       standardTarget: livingStandardTarget(s.consumptionIndex!, s.foodFulfillment!),
       relief,
     }, tuning);
+    if (site.barracksTraining) {
+      const groups = inTraining(site, state.elapsedDays);
+      if (groups.length !== site.barracksTraining.length) societies[id] = { ...societies[id], barracksTraining: groups };
+    }
   }
   function complete<T extends Project>(queue: T[], points: number, privateBuild: boolean, nation: Nation) {
     const remaining: T[] = [];
@@ -1445,7 +1441,11 @@ export function settleEconomy(state: GameState, war?: WarPlan, fractionOfYear = 
           ownership: { ...local.ownership, [good]: owned },
           industrial: { ...industrial, capital: industrial.capital + projectOpeningCapital(job) },
         };
-      } else societies[stateId] = { ...societies[stateId], [good]: societies[stateId][good] + 1 };
+      } else {
+        const site = societies[stateId];
+        societies[stateId] = { ...site, [good]: site[good] + 1,
+          ...(good === "barracks" ? { barracksTraining: trainNewBarracks(site, 1, state.elapsedDays) } : {}) };
+      }
     }
     return remaining;
   }
