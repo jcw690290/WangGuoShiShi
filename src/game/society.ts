@@ -247,7 +247,7 @@ export function approval(nation: Nation, g: Group) {
 export const reformWork = 2;
 export const baselineReformWeeks = 26;
 const recognizedSuccessors: Group[] = ["地主", "教会", "武装部队"];
-export function reformConditions(nation: Nation, power: Record<Group, number>, law: Law, resistance = 0) {
+export function governmentLegitimacy(nation: Nation, power: Record<Group, number>) {
   const government = nation.government;
   const conflict =
     (government.includes("地主") && government.includes("工会") ? 50 : 0) +
@@ -260,9 +260,13 @@ export function reformConditions(nation: Nation, power: Record<Group, number>, l
   const mandateGroups = powerDistribution(nation) === "autocracy" ? recognizedSuccessors
     : [...groups].sort((a, b) => power[b] - power[a]).slice(0, government.length);
   const mandate = 100 * government.filter((group) => mandateGroups.includes(group)).length / government.length;
-  const legitimacy = Math.round(Math.max(0, Math.min(100,
+  return Math.round(Math.max(0, Math.min(100,
     0.45 * institutionalSupport + 0.35 * governmentPower + 0.20 * mandate - 0.30 * conflict,
   )));
+}
+export function reformConditions(nation: Nation, power: Record<Group, number>, law: Law, resistance = 0) {
+  const government = nation.government;
+  const legitimacy = governmentLegitimacy(nation, power);
   const support = supporters[law].reduce((n, g) => n + power[g], 0);
   const backed = government.some((g) => supporters[law].includes(g)) || support >= 25;
   const pace = Math.max(0.25, 1 + (legitimacy - 50) / 50 + (support - 50) / 50 - resistance / 100);

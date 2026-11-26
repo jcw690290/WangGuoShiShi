@@ -13,7 +13,7 @@ import { archiveAchievements, archiveEnding, autoSaveSlot, autoSaveSlots, listGa
 import type { SaveSlot, SaveSummary } from "./game/storage.ts";
 import { difficultyLevels, difficultyNames, difficultySchema } from "./game/settings.ts";
 import type { Difficulty } from "./game/settings.ts";
-import { completeGuideStep, defaultEndYear, endYearSchema } from "./game/campaign.ts";
+import { canSettleVictory, completeGuideStep, defaultEndYear, endYearSchema } from "./game/campaign.ts";
 import { CLAIM_COST, claimError } from "./game/territory.ts";
 import { StateMap } from "./map/StateMap.tsx";
 import { capitals } from "./map/capitals.ts";
@@ -23,7 +23,7 @@ import { RoomDialog, useOnlineRoom } from "./online/RoomDialog.tsx";
 import type { Speed } from "./online/protocol.ts";
 import { atlas } from "./scenario/scenario.ts";
 import type { Scenario } from "./scenario/scenario.ts";
-import { endingCatalog } from "./scenario/endings.ts";
+import { endingStory, endingTitle } from "./scenario/endings.ts";
 
 const dateFormat = new Intl.DateTimeFormat("zh-CN", { dateStyle: "long", timeZone: "UTC" });
 const tickRates = [1, 2, 4, 8];
@@ -440,24 +440,32 @@ export function App({ scenario, geometry, initialSaves, initialSaveNotice }: {
             </select>
           </label>
           <small>本局最低难度 · {difficultyNames[game.settings.lowestDifficulty]}</small>
+          {canSettleVictory(game, date) && <button className="advance" onClick={() => send({ type: "settleCampaignVictory" })}>
+            结算胜利
+          </button>}
           <button className="menu-button" onClick={showStartMenu}>返回主菜单</button>
         </div>}
         {finished && player && (
           <section className="panel scenario-result" aria-labelledby="result-title">
             <header className="panel-header">
               <h2 id="result-title">{ending
-                ? ending.kind === "extinct" ? endingCatalog[player]?.defeat.title ?? "正式灭国" : "未竟之志"
+                ? endingTitle(ending)
                 : dateISO === deadline ? "剧本结束 · 期末结算" : "剧本结束 · 存档实况"}</h2>
             </header>
             <div className="control-block">
               <p role="status">
                 {ending?.kind === "extinct"
                   ? "本国已失去最后一个正式拥有的州。"
+                  : ending
+                  ? `已于 ${ending.date} 结算战役。`
                   : dateISO === deadline
                   ? `已于 ${dateFormat.format(date)} 到达剧本期限。`
                   : `此存档已超过剧本期限，以下为 ${dateFormat.format(date)} 的存档实况。`}
               </p>
-              {ending?.kind === "neutral" && <button className="advance" onClick={() => {
+              {ending && endingStory(ending) && <p>{endingStory(ending)}</p>}
+              {ending?.kind === "neutral" && <p>本局取得 {game.campaign!.achievements?.records.length ?? 0} 项成就。{ending.metrics?.SOL !== undefined &&
+                `结算时居民平均生活水平为 ${ending.metrics.SOL.toFixed(1)}。`}</p>}
+              {ending && ending.kind !== "extinct" && <button className="advance" onClick={() => {
                 setUntil(null);
                 send({ type: "continueSandbox" });
                 menu.current!.close();

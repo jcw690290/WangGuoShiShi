@@ -11,7 +11,7 @@ import { importRegionalSave } from "./legacySave.ts";
 import { borderScenario } from "../scenario/scenario.ts";
 import type { Scenario } from "../scenario/scenario.ts";
 import { initialSettings, settingsSchema, validDifficultyHistory } from "./settings.ts";
-import { campaignSchema, endingSchema } from "./campaign.ts";
+import { campaignSchema, endingId, endingSchema } from "./campaign.ts";
 import type { EndingRecord } from "./campaign.ts";
 import { fiscalAccountSchema } from "./fiscal.ts";
 import { syncOccupation } from "./occupation.ts";
@@ -321,8 +321,11 @@ export function parseSave(scenario: Scenario, save: unknown): GameState {
     if (
       Date.UTC(campaign.endYear, 0, 1) <= beginning ||
       (ending !== null && (ending.campaignId !== campaign.id || ending.countryId !== state.playerCountryId ||
-        Date.parse(ending.date) > currentTime))
+        Date.parse(ending.date) > currentTime || (ending.endingId !== undefined && ending.endingId !== endingId(ending.countryId, ending.kind))))
     ) invalid();
+    const outcome = campaign.outcome;
+    if (outcome && [outcome.lossSince, outcome.victorySince, outcome.genericSince, outcome.aggressionFreeSince]
+      .some((day) => day !== null && day > state.elapsedDays)) throw new Error("存档终局计时无效");
     const progress = campaign.achievements;
     const latestAward = ending === null ? currentTime : Date.parse(ending.date);
     if (progress && ((progress.peaceSince !== null && progress.peaceSince > state.elapsedDays) ||
