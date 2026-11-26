@@ -29,12 +29,18 @@ export function updateCulturalAffinity(
   residents: ReadonlyMap<string, number>,
   neighbors: readonly ReadonlyMap<string, number>[],
   educationCoverage: number,
+  tradeContacts: readonly { shares: ReadonlyMap<string, number>; strength: number }[],
 ): Record<string, number> {
   const contact = new Map(residents);
   for (const shares of neighbors) {
     for (const [culture, share] of shares) {
       const strength = 0.5 * share;
       contact.set(culture, Math.max(contact.get(culture) ?? 0, strength));
+    }
+  }
+  for (const { shares, strength } of tradeContacts) {
+    for (const [culture, share] of shares) {
+      contact.set(culture, Math.min(1, (contact.get(culture) ?? 0) + share * strength));
     }
   }
   const affinity = new Map<string, number>();
