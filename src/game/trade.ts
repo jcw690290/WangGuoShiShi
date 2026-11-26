@@ -11,6 +11,7 @@ import { GameRuleError } from "./rules.ts";
 import { connectedRailway, portCapacity, seaVoyageCargoCost } from "./transport.ts";
 import { effectiveConvoyCapacity } from "./fleet.ts";
 import { unrestEffects } from "./unrest.ts";
+import { tariffRate, tradeRestriction } from "./trade-policy.ts";
 
 const units = z.int().nonnegative();
 export const tradeLimit = z.int().positive().max(100_000);
@@ -48,12 +49,15 @@ export const tradeStatuses = {
   war: "两国交战",
   blockaded: "口岸受封锁",
   commonMarket: "同一关税市场",
+  importPolicy: "进口国未授予通商许可",
+  exportPolicy: "出口国未授予通商许可",
   noVolume: "暂无可运货量",
   unprofitable: "价差无法覆盖运费和关税",
 } as const;
 export const tradeDeliverySchema = z.object({
   ...tradeEndpoint,
-  status: z.enum(["shipped", "paused", "sovereignty", "occupied", "war", "blockaded", "commonMarket", "noVolume", "unprofitable"]),
+  status: z.enum(["shipped", "paused", "sovereignty", "occupied", "war", "blockaded", "commonMarket",
+    "importPolicy", "exportPolicy", "noVolume", "unprofitable"]),
   quantity: units,
   purchase: units,
   freight: units,
@@ -78,6 +82,25 @@ export function routeTransport(scenario: Scenario, from: string, to: string, mod
   };
 }
 
+export function foreignTradeStatus(state: GameState, exporter: string, importer: string) {
+  const dispute = state.borderDispute;
+  if (dispute?.phase === "war") {
+    const fighters = participants(dispute);
+    if (fighters.includes(exporter) && fighters.includes(importer) && attacking(dispute, exporter) !== attacking(dispute, importer))
+      return "war";
+  }
+  return tradeRestriction(state, exporter, importer);
+}
+
+export function tradeRouteBlock(state: GameState, route: TradeRoute) {
+  const { from, to, exporter, importer } = route;
+  if (route.paused) return "paused";
+  if (state.ownerByStateId[from] !== exporter || state.ownerByStateId[to] !== importer) return "sovereignty";
+  if (state.occupation?.stateId === from || state.occupation?.stateId === to) return "occupied";
+  if (marketOf(state, exporter) === marketOf(state, importer)) return "commonMarket";
+  return foreignTradeStatus(state, exporter, importer);
+}
+
 export function applyTradeCommand(scenario: Scenario, state: GameState, cmd: TradeCommand): GameState {
   if (isLocalGood(cmd.good)) throw new GameRuleError(`${cmd.good === "services" ? "服务" : industries[cmd.good].goodName}只能在本州成交`);
   const routes = state.tradeRoutes ?? [];
@@ -91,6 +114,10 @@ export function applyTradeCommand(scenario: Scenario, state: GameState, cmd: Tra
       throw new GameRuleError(mode === "sea" ? "请选择本国沿海进口州与沿海外国出口州" : "请选择本国进口州与接壤的出口州");
     if (marketOf(state, exporter) === marketOf(state, importer))
       throw new GameRuleError("贸易连接不同关税市场");
+    if (state.occupation?.stateId === from || state.occupation?.stateId === to)
+      throw new GameRuleError(tradeStatuses.occupied);
+    const restriction = foreignTradeStatus(state, exporter, importer);
+    if (restriction) throw new GameRuleError(tradeStatuses[restriction]);
     if (route?.exporter === exporter && route.importer === cmd.countryId)
       throw new GameRuleError("该商品的线路已存在");
     if (!tradeLimit.safeParse(limit).success) throw new GameRuleError("周运量上限应为 1–100000");
@@ -112,9 +139,8 @@ export function expectedTrade(state: GameState) {
   const markets = new Map<string, ByGood<{ incoming: number; outgoing: number }>>();
   const delivered = state.lastEconomy?.trade;
   if (!delivered?.length || !state.tradeRoutes?.length) return { sites, markets };
-  const active = new Map(state.tradeRoutes.filter((route) => !route.paused &&
-    state.ownerByStateId[route.from] === route.exporter &&
-    state.ownerByStateId[route.to] === route.importer).map((route) => [tradeRouteKey(route), route]));
+  const active = new Map(state.tradeRoutes.filter((route) => !tradeRouteBlock(state, route))
+    .map((route) => [tradeRouteKey(route), route]));
   function add(book: typeof sites, id: string, good: TradeRoute["good"], side: "incoming" | "outgoing", quantity: number) {
     const quantities = book.get(id) ?? byGood(() => ({ incoming: 0, outgoing: 0 }));
     quantities[good][side] += quantity;
@@ -125,7 +151,6 @@ export function expectedTrade(state: GameState) {
     const route = active.get(tradeRouteKey(shipment));
     if (!route) continue;
     const fromMarket = marketOf(state, route.exporter), toMarket = marketOf(state, route.importer);
-    if (fromMarket === toMarket) continue;
     const quantity = Math.min(shipment.quantity, route.limit);
     add(sites, route.from, route.good, "outgoing", quantity);
     add(sites, route.to, route.good, "incoming", quantity);
@@ -163,23 +188,13 @@ export function settleTrade(
   const railUse = new Map<string, number>();
   const seaCargo = new Map<string, number>();
   const portFreight = new Map<string, number>();
-  const dispute = state.borderDispute;
-  const fighters = dispute?.phase === "war" ? new Set(participants(dispute)) : new Set<string>();
   const deliveries = (state.tradeRoutes ?? []).map((route): TradeDelivery => {
-    const { from, to, importer, exporter, good, mode, cargoCost } = route;
+    const { from, to, importer, good, mode, cargoCost } = route;
     const empty = { from, to, good, mode, quantity: 0, purchase: 0, freight: 0, tariff: 0, sales: 0, profit: 0 };
-    if (route.paused) return { ...empty, status: "paused" };
-    if (state.ownerByStateId[from] !== exporter || state.ownerByStateId[to] !== importer)
-      return { ...empty, status: "sovereignty" };
-    if (state.occupation?.stateId === from || state.occupation?.stateId === to)
-      return { ...empty, status: "occupied" };
-    if (dispute?.phase === "war" && fighters.has(importer) && fighters.has(exporter) &&
-        attacking(dispute, importer) !== attacking(dispute, exporter))
-      return { ...empty, status: "war" };
+    const restriction = tradeRouteBlock(state, route);
+    if (restriction) return { ...empty, status: restriction };
     if (mode === "sea" && (blockadedPorts.has(from) || blockadedPorts.has(to)))
       return { ...empty, status: "blockaded" };
-    const exportingMarket = marketOf(state, exporter), importingMarket = marketOf(state, importer);
-    if (exportingMarket === importingMarket) return { ...empty, status: "commonMarket" };
     const source = at(from), target = at(to);
     const sourceSite = state.societies[from], targetSite = state.societies[to];
     const sourceTransport = unrestEffects(sourceSite.stability).transport;
@@ -217,7 +232,7 @@ export function settleTrade(
     const purchase = ask * quantity, sales = bid * quantity;
     const standardFreight = Math.ceil(purchase * 0.05 * cargoCost);
     const freight = standardFreight - Math.floor(standardFreight * familiarity / 1000);
-    const tariff = Math.floor(purchase * 0.10);
+    const tariff = Math.floor(purchase * tariffRate(state.nations[importer]) / 100);
     const profit = sales - purchase - freight - tariff;
     if (profit <= 0) return { ...empty, status: "unprofitable" };
     if (mode === "sea") {

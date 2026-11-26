@@ -34,6 +34,8 @@ import { institutionCommands, institutionLawKinds, institutionLawLimit, institut
 import type { Institution } from "./institutions.ts";
 import { laborStatus } from "./labor.ts";
 import { exciseGoodsSchema, taxBands, taxBandSchema, taxPolicy } from "./taxation.ts";
+import { applyTradePolicy, tariffBands, tariffRate, tariffRates } from "./trade-policy.ts";
+import type { TradePolicyCommand } from "./trade-policy.ts";
 export { DAY_MS, elapsedTicks, TICKS_PER_DAY } from "./time.ts";
 
 export interface GameState {
@@ -75,6 +77,7 @@ export type GameCommand =
   | PoliticsCommand
   | GovernanceCommand
   | TradeCommand
+  | TradePolicyCommand
   | LocalUnrestCommand
   | BorderCommand;
 
@@ -231,6 +234,14 @@ export function advanceTick(
         if ((fiscal.week.risk === "restricted" || fiscal.week.risk === "defaulted") && band < taxBands.length - 1) {
           result = applyCommand(scenario, result, { type: "setTaxBand", countryId: id, band: taxBands[band + 1] });
         }
+        const nation = result.nations[id];
+        const nextTariff = tariffBands[tariffBands.indexOf(nation.tariffBand) + 1];
+        if (fiscal.week.risk === "restricted" && tariffRate(nation) > 0 && nextTariff) {
+          const shipments = settled.lastEconomy.trade?.filter((row) => row.status === "shipped" && settled.ownerByStateId[row.to] === id);
+          if (shipments?.length && shipments.every((row) =>
+            row.profit > Math.floor(row.purchase * tariffRates[nextTariff] / 100) - row.tariff))
+            result = applyCommand(scenario, result, { type: "setTariffBand", countryId: id, band: nextTariff });
+        }
         const integration = chooseIntegration(result, id);
         if (integration) result = applyGovernanceCommand(result, integration);
         const agreement = chooseLocalNegotiation(result, id);
@@ -364,6 +375,9 @@ function applyCommand(
     case "setTradeRoute":
     case "removeTradeRoute":
       return applyTradeCommand(scenario, state, cmd);
+    case "setTariffBand":
+    case "setTradePartner":
+      return applyTradePolicy(state, cmd);
     case "negotiateLocalUnrest":
       return negotiateLocalUnrest(state, cmd);
     case "queueConstruction": {

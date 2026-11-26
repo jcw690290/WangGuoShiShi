@@ -4,6 +4,7 @@ import type { EconomyReport } from "./economy.ts";
 import { institutionLawDetails, institutionRequiredTech } from "./institutions.ts";
 import { laborLawCategory, laborLawTechnology } from "./labor.ts";
 import { isTaxLaw } from "./taxation.ts";
+import { isTradeLaw } from "./trade-policy.ts";
 import { groups, influence, literacyOf, reformConditions, reformWork, techs, unrestOf } from "./society.ts";
 import type { Group, Law, Nation, SiteSocial, Tech } from "./society.ts";
 
@@ -108,11 +109,14 @@ export const lawEffect: Record<Law, string> = {
   比例所得税: "各职业按实际所得统一征收 15%",
   累进所得税: "下、中、上层分别按实际所得征收 10%、18%、28%",
   消费税制: "按实际所得征收 5%，另对选定的可选消费品征收 10%",
+  贸易保护: "按进口国关税档位对实际进口计征",
+  自由贸易: "进口关税全额减免",
+  许可贸易: "普通进出口限已获通商许可的对象或朝贡贸易伙伴",
 };
 
 function exclusiveLawCategory(law: Law) {
   return institutionLawDetails(law)?.kind ?? laborLawCategory(law) ??
-    (isTaxLaw(law) ? "tax" : law === "自由放任" || law === "干预主义" ? "economy" :
+    (isTaxLaw(law) ? "tax" : isTradeLaw(law) ? "trade" : law === "自由放任" || law === "干预主义" ? "economy" :
       law === "小农自耕" || law === "地主租佃" ? "land" : undefined);
 }
 export type PoliticsCommand =
