@@ -1,6 +1,7 @@
 import { z } from "zod";
 import type { GameState } from "./engine.ts";
 import { difficultySchema } from "./settings.ts";
+import { achievementProgressSchema, initialAchievementProgress } from "./achievements.ts";
 
 export const defaultEndYear = 1936;
 export const endYearSchema = z.int().min(1821).max(9999);
@@ -26,12 +27,14 @@ export const campaignSchema = z.object({
   guideWeek: z.int().nonnegative().nullable(),
   sandbox: z.boolean(),
   ending: endingSchema.nullable(),
+  achievements: achievementProgressSchema.optional(),
 }).refine((campaign) => !campaign.sandbox || campaign.ending?.kind === "neutral");
 export type Campaign = z.infer<typeof campaignSchema>;
 export type CampaignSetup = Pick<Campaign, "id" | "endYear" | "tutorialEnabled">;
 
 export function startCampaign(setup: CampaignSetup): Campaign {
-  return { ...setup, guideSkipped: false, guideStep: 0, guideWeek: null, sandbox: false, ending: null };
+  return { ...setup, guideSkipped: false, guideStep: 0, guideWeek: null, sandbox: false, ending: null,
+    achievements: initialAchievementProgress(0) };
 }
 
 export function finalizeCampaign(state: GameState, date: Date, ownershipChanged: boolean): GameState {

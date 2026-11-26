@@ -95,6 +95,8 @@ test("世界开局俄罗斯可在奥卢通过陆路获得诺尔兰剩余的布�
   assert.equal(shipment.status, "shipped");
   assert.ok(shipment.quantity > 0 && shipment.quantity <= 500);
   assert.equal(settled.lastEconomy!.countries[countryId].tradeTariff, shipment.tariff);
+  assert.ok(approved.campaign!.achievements!.records.every((record) => record.id !== "trade"));
+  assert.ok(settled.campaign!.achievements!.records.some((record) => record.id === "trade"));
 });
 
 test("沿海州能按海运结算，旧陆路档继续可读，跨图边界按短航程计算", async () => {

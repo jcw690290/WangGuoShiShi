@@ -18,9 +18,12 @@ import { syncOccupation } from "./occupation.ts";
 import { diplomaticTieSchema } from "./diplomatic-ties.ts";
 import { routeTransport, tradeDeliverySchema, tradeRouteKey, tradeRouteSchema } from "./trade.ts";
 import { convoyCargoCapacity } from "./transport.ts";
+import { achievementKey, achievementRecordSchema } from "./achievements.ts";
+import type { AchievementRecord } from "./achievements.ts";
 const storeName = "saves";
 const indexName = "saveIndex";
 const archiveName = "endings";
+const achievementArchiveName = "achievements";
 export const saveVersion = 8;
 export const manualSaveSlots = ["local", "manual-2", "manual-3", "manual-4", "manual-5"] as const;
 export const autoSaveSlots = ["auto-1", "auto-2", "auto-3"] as const;
@@ -38,14 +41,16 @@ interface SaveDatabase extends DBSchema {
   saves: { key: SaveSlot; value: unknown };
   saveIndex: { key: SaveSlot; value: unknown };
   endings: { key: string; value: unknown };
+  achievements: { key: string; value: unknown };
 }
 
 function openSaves() {
-  return openDB<SaveDatabase>("wang-guo-shi-shi", 3, {
+  return openDB<SaveDatabase>("wang-guo-shi-shi", 4, {
     upgrade(db, previous) {
       if (previous === 0) db.createObjectStore(storeName);
       if (previous < 2) db.createObjectStore(indexName);
-      db.createObjectStore(archiveName);
+      if (previous < 3) db.createObjectStore(archiveName);
+      if (previous < 4) db.createObjectStore(achievementArchiveName);
     },
   });
 }
@@ -150,6 +155,32 @@ export async function listEndings() {
   }
 }
 
+export async function archiveAchievements(records: readonly AchievementRecord[]) {
+  const db = await openSaves();
+  try {
+    const tx = db.transaction(achievementArchiveName, "readwrite");
+    for (const record of records) {
+      const key = achievementKey(record);
+      const previous = await tx.store.get(key);
+      if (previous === undefined || achievementRecordSchema.parse(previous).date > record.date)
+        await tx.store.put(record, key);
+    }
+    await tx.done;
+  } finally {
+    db.close();
+  }
+}
+
+export async function listAchievements() {
+  const db = await openSaves();
+  try {
+    return (await db.getAll(achievementArchiveName)).map((entry) => achievementRecordSchema.parse(entry))
+      .sort((a, b) => b.date.localeCompare(a.date));
+  } finally {
+    db.close();
+  }
+}
+
 const uint = z.int().nonnegative(),
   cash = z.int(),
   fraction = z.number().min(0).max(1);
@@ -195,6 +226,7 @@ const siteReport = z.object({
   populationChange: cash.optional(),
   foodFulfillment: fraction.optional(),
   householdConsumption: goodsNumbers.optional(),
+  constructionGoods: goodsNumbers.optional(),
   consumptionIndex: z.number().nonnegative().optional(),
   conscripts: uint,
   regulars: uint,
@@ -284,11 +316,20 @@ export function parseSave(scenario: Scenario, save: unknown): GameState {
   const campaign = state.campaign;
   if (campaign) {
     const ending = campaign.ending;
+    const beginning = Date.parse(scenario.startDate);
+    const currentTime = getGameDate(scenario, state).getTime();
     if (
-      Date.UTC(campaign.endYear, 0, 1) <= Date.parse(scenario.startDate) ||
+      Date.UTC(campaign.endYear, 0, 1) <= beginning ||
       (ending !== null && (ending.campaignId !== campaign.id || ending.countryId !== state.playerCountryId ||
-        Date.parse(ending.date) > getGameDate(scenario, state).getTime()))
+        Date.parse(ending.date) > currentTime))
     ) invalid();
+    const progress = campaign.achievements;
+    const latestAward = ending === null ? currentTime : Date.parse(ending.date);
+    if (progress && ((progress.peaceSince !== null && progress.peaceSince > state.elapsedDays) ||
+      progress.records.some((record) => record.campaignId !== campaign.id ||
+        record.countryId !== state.playerCountryId ||
+        Date.parse(record.date) < beginning || Date.parse(record.date) > latestAward)))
+      throw new Error("存档成就记录无效");
   }
   const population = state.lastPopulation;
   if (population && (

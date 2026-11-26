@@ -23,6 +23,7 @@ import type { GovernanceCommand } from "./governance.ts";
 import { DAY_MS, elapsedTicks, TICKS_PER_DAY } from "./time.ts";
 import { applyTradeCommand } from "./trade.ts";
 import type { TradeCommand, TradeRoute } from "./trade.ts";
+import { advanceAchievements } from "./achievements.ts";
 export { DAY_MS, elapsedTicks, TICKS_PER_DAY } from "./time.ts";
 
 export interface GameState {
@@ -142,7 +143,7 @@ export function advanceTick(
   const monthly = isPopulationMonth(scenario, next);
   if (next.elapsedDays % 7 !== 0) {
     const result = monthly ? settlePopulationMonth(scenario, next, date) : next;
-    return finalizeCampaign(result, date, result.ownerByStateId !== state.ownerByStateId);
+    return finalizeCampaign(advanceAchievements(state, result, date), date, result.ownerByStateId !== state.ownerByStateId);
   }
   const yearFraction = fiscalWeekFraction(date);
   const weekly = settleEconomy(next, planWar(scenario, next), yearFraction);
@@ -182,7 +183,8 @@ export function advanceTick(
       });
   }
   for (const cmd of aiDiplomacy(scenario, result, humanCountries)) result = applyCommand(scenario, result, cmd);
-  return finalizeCampaign(result, date, result.ownerByStateId !== state.ownerByStateId);
+  return finalizeCampaign(advanceAchievements(state, result, date, settled.lastEconomy), date,
+    result.ownerByStateId !== state.ownerByStateId);
 }
 export function dispatch(scenario: Scenario, state: GameState, cmd: GameCommand): GameState {
   switch (cmd.type) {
@@ -208,7 +210,9 @@ export function dispatch(scenario: Scenario, state: GameState, cmd: GameCommand)
     default:
       if (isScenarioFinished(scenario, state)) throw new GameRuleError("剧本已结束");
       const next = applyCommand(scenario, state, cmd);
-      return next.ownerByStateId === state.ownerByStateId ? next : finalizeCampaign(next, getGameDate(scenario, next), true);
+      const date = getGameDate(scenario, next);
+      const awarded = advanceAchievements(state, next, date);
+      return next.ownerByStateId === state.ownerByStateId ? awarded : finalizeCampaign(awarded, date, true);
   }
 }
 function applyCommand(
