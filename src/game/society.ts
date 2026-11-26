@@ -57,6 +57,7 @@ export const siteSocialSchema = z.object({
   stability: stabilitySchema.optional(),
   infrastructure: z.int().positive(),
   railway: z.int().nonnegative().default(0),
+  port: z.int().nonnegative().default(0),
   university: z.int().nonnegative(),
   bureaucracy: z.int().nonnegative().default(0),
   construction: z.int().positive(),
@@ -101,6 +102,7 @@ export const privateProject = z.object({
 export const facilityTypes = [
   "infrastructure",
   "railway",
+  "port",
   "university",
   "bureaucracy",
   "construction",
@@ -110,6 +112,7 @@ export const facilityTypes = [
 export const facilityNames = {
   infrastructure: "交通设施",
   railway: "铁路",
+  port: "港口",
   university: "大学",
   bureaucracy: "行政署",
   construction: "建造部门",
@@ -171,6 +174,7 @@ export function initSiteSociety(site: Scenario["states"][string]): SiteSocial {
     stability: emptyStability(),
     infrastructure: 1 + (hash(site.id) % 3),
     railway: 0,
+    port: 0,
     university: 0,
     bureaucracy: site.startingOffices ?? 0,
     construction: 1,

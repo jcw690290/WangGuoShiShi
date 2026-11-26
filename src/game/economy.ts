@@ -31,7 +31,7 @@ import { affordableCrew, constructionJobs, constructionMaterials, constructionPo
   constructionSpending, crewMaterials, deliverConstruction, emptyConstructionReport, materialOrder,
   planConstructionMaintenance, reserveCrew, shareCrew } from "./construction.ts";
 import type { ConstructionMaintenance, ConstructionReport, ConstructionSector, ConstructionStock } from "./construction.ts";
-import { railCapacityPerLevel } from "./transport.ts";
+import { portCapacity, railCapacityPerLevel } from "./transport.ts";
 
 export { marketOf } from "./market.ts";
 
@@ -43,6 +43,7 @@ export const projects = {
   ...industries,
   infrastructure: { cost: 210000, weeks: 2 },
   railway: { cost: 300000, weeks: 5 },
+  port: { cost: 330000, weeks: 6 },
   university: { cost: 360000, weeks: 3 },
   bureaucracy: { cost: 180000, weeks: 4 },
   construction: { cost: 300000, weeks: 3 },
@@ -76,6 +77,7 @@ export interface Project {
 }
 export function projectPoints(good: Building) {
   if (good === "railway") return 250;
+  if (good === "port") return 300;
   if (isGood(good)) {
     if (isCrop(good)) return 100;
     if (good === "wood" || good === "iron" || good === "coal") return 150;
@@ -135,6 +137,8 @@ export interface SiteReport {
   universityStaff?: number;
   administrationStaff?: number;
   freightWages?: number;
+  portTradeCargo?: number;
+  portMilitaryCargo?: number;
   industries: ByGood<IndustryReport>;
   populationChange?: number;
   foodFulfillment?: number;
@@ -576,6 +580,7 @@ function projectSettlement(state: GameState, war?: WarPlan, closingTick?: number
     };
   }
   const militaryCargo = new Map<string, number>();
+  const militaryPortUse = new Map<string, number>();
   const militaryReceipts = new Map<string, number>();
   const blockadedPorts = new Set<string>();
   for (const [owner, ids] of Object.entries(holdings)) {
@@ -605,8 +610,24 @@ function projectSettlement(state: GameState, war?: WarPlan, closingTick?: number
         m, contract, supplies, front,
         deployed, fieldStrength, fieldStrength * war!.grainPerRecruit, route.grainTransport, war!.supplyPercent / 100, route.overseas,
       );
-      if (route.overseas) militaryCargo.set(owner, m.seaCargoUsed!);
-      if (route.raided) for (const stateId of route.recruitmentStates) blockadedPorts.add(stateId);
+      if (route.overseas) {
+        const cargo = m.seaCargoUsed!;
+        militaryCargo.set(owner, cargo);
+        for (const terminals of route.maritimeTerminals ?? []) {
+          let remaining = cargo;
+          if (route.raided && terminals.length > 0) blockadedPorts.add(terminals[0].stateId);
+          for (const { stateId, capacity } of terminals) {
+            if (remaining === 0) break;
+            const handled = Math.min(remaining, capacity);
+            militaryPortUse.set(stateId, handled);
+            report.states[stateId].portMilitaryCargo = handled;
+            if (route.raided) blockadedPorts.add(stateId);
+            remaining -= handled;
+          }
+        }
+      }
+      if (route.raided && route.maritimeTerminals === undefined)
+        for (const stateId of route.recruitmentStates) blockadedPorts.add(stateId);
       // Rear garrisons draw from the remaining domestic output, outside the front's transport limit.
       if (rearRegulars > 0) issueSupplies(m, contract, supplies, rear, rearRegulars, 0, 0, Infinity, 1);
     } else {
@@ -663,11 +684,12 @@ function projectSettlement(state: GameState, war?: WarPlan, closingTick?: number
     });
   }
   const trade = state.tradeRoutes?.length
-    ? settleTrade(state, supplies, demands, report.states, fills, militaryCargo, blockadedPorts)
+    ? settleTrade(state, supplies, demands, report.states, fills, militaryCargo, blockadedPorts, militaryPortUse)
     : undefined;
   if (trade) {
     report.trade = trade.deliveries;
     for (const [id, cargo] of trade.seaCargo) report.countries[id].tradeSeaCargo = cargo;
+    for (const [id, cargo] of trade.portFreight) report.states[id].portTradeCargo = cargo;
   }
   for (const [owner, ids] of Object.entries(holdings)) {
     const c = report.countries[owner],
@@ -860,6 +882,7 @@ export function constructionError(
   const country = state.countryEconomies[countryId],
     nation = state.nations[countryId];
   if (good === "railway" && nation.knowledge["铁路"] !== 100) return "需要掌握铁路技术";
+  if (good === "port" && !scenario.states[stateId].coastal) return "只能在沿海州建设港口";
   const fiscalRisk = country.fiscal?.week.risk;
   if (!privateBuild && (fiscalRisk === "restricted" || fiscalRisk === "defaulted"))
     return "公共支出不足，暂缓批准新工程";
@@ -928,6 +951,19 @@ export function chooseRailway(scenario: Scenario, state: GameState, countryId: s
     return access < 0.85 || connected ? [{ id, connected, access }] : [];
   }).sort((left, right) => Number(right.connected) - Number(left.connected) || left.access - right.access);
   if (candidates.length > 0) return { stateId: candidates[0].id, good: "railway" as const };
+}
+
+export function choosePort(scenario: Scenario, state: GameState, countryId: string, report: EconomyReport) {
+  const country = state.countryEconomies[countryId];
+  if (country.queue.length || state.elapsedDays % 28 !== 0 || country.treasury < projects.port.cost) return;
+  const candidates = Object.entries(report.states).flatMap(([id, site]) => {
+    if (state.ownerByStateId[id] !== countryId || !scenario.states[id].coastal ||
+        constructionError(scenario, state, countryId, id, "port")) return [];
+    const capacity = portCapacity(scenario.states[id].grainTransport, state.societies[id]);
+    const utilized = (site.portTradeCargo ?? 0) + (site.portMilitaryCargo ?? 0);
+    return utilized > 0 && utilized >= capacity * 0.8 ? [{ id, utilized }] : [];
+  }).sort((left, right) => right.utilized - left.utilized);
+  if (candidates.length > 0) return { stateId: candidates[0].id, good: "port" as const };
 }
 
 export function settleEconomy(state: GameState, war?: WarPlan, fractionOfYear = 7 / 365): GameState & { lastEconomy: EconomyReport } {
