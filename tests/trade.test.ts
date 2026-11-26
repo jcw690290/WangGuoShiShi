@@ -7,6 +7,7 @@ import { byGood, industries } from "../src/game/industry.ts";
 import { parseSave, saveVersion } from "../src/game/storage.ts";
 import { applyPlayerCommand, decodeSnapshot, encodeSnapshot } from "../src/online/protocol.ts";
 import { borderScenario, scenario as world } from "../src/scenario/scenario.ts";
+import { effectiveConvoyCapacity } from "../src/game/fleet.ts";
 import { convoyCargoCapacity, raidedConvoyCargoCapacity, seaVoyageCargoCost } from "../src/game/transport.ts";
 
 const qing = "country_01", vietnam = "country_26", to = "Tonkin", from = "Yunnan";
@@ -99,7 +100,9 @@ test("地方运输受阻降低实际进口容量", () => {
 
 test("世界开局俄罗斯可在奥卢通过陆路获得诺尔兰剩余的布匹", () => {
   const countryId = "country_09";
-  const initial = dispatch(world, createGame(world), { type: "selectCountry", countryId });
+  const initial = dispatch(world, createGame(world, 1820, "standard", {
+    id: "f2a10071-5c11-4b3e-a1ec-d56607cee5b8", endYear: 1936, tutorialEnabled: false,
+  }), { type: "selectCountry", countryId });
   const approved = dispatch(world, initial, { type: "openTradeRoute", countryId, from: "Norrland", to: "Oulu",
     good: "cloth", limit: 500 });
   const settled = dispatch(world, approved, { type: "advanceWeek" });
@@ -164,11 +167,13 @@ test("商运使用海军军需后的剩余船队，破交只暂停受影响口�
   const report = projectEconomy(game, planWar(coastal, game));
   const { military, tradeSeaCargo } = report.countries[qing];
   assert.ok(military.seaCargoUsed! > 0);
-  assert.ok(military.seaCargoUsed! + tradeSeaCargo! <= convoyCargoCapacity);
-  assert.equal(military.seaCargoUsed, convoyCargoCapacity);
+  const effectiveCapacity = effectiveConvoyCapacity(game.nations[qing]);
+  assert.ok(military.seaCargoUsed! + tradeSeaCargo! <= effectiveCapacity);
+  assert.equal(military.seaCargoUsed, effectiveCapacity);
   assert.equal(tradeSeaCargo, 0);
   const raided = dispatch(coastal, game, { type: "raid", countryId: vietnam });
-  const blocked = projectEconomy(raided, planWar(coastal, raided));
+  const raidedPlan = planWar(coastal, raided);
+  const blocked = projectEconomy(raided, raidedPlan);
   assert.equal(blocked.trade![0].status, "blockaded");
   assert.notEqual(blocked.trade![1].status, "blockaded");
   assert.ok(blocked.countries[qing].military.seaCargoUsed! <= raidedConvoyCargoCapacity);
