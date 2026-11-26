@@ -1,7 +1,10 @@
 export const originalGoods = ["grain", "cloth"] as const;
-export const industrialGoods = ["wood", "iron", "coal", "tools", "paper", "services", "food", "fiber", "dailyGoods", "luxury", "steel", "arms", "ammo", "shipGoods"] as const;
+export const industrialGoods = ["wood", "iron", "coal", "tools", "paper", "services", "food", "fiber", "dailyGoods", "luxury", "steel", "arms", "ammo", "shipGoods", "electricity"] as const;
 export const goods = [...originalGoods, ...industrialGoods] as const;
-export const tradableGoods = goods.filter((good) => good !== "services");
+export function isLocalGood(good: Good) {
+  return good === "services" || good === "electricity";
+}
+export const tradableGoods = goods.filter((good) => !isLocalGood(good));
 export type Good = typeof goods[number];
 export type IndustrialGood = typeof industrialGoods[number];
 export type ByGood<T> = Record<Good, T>;
@@ -56,6 +59,8 @@ export const industries = {
     basePrice: 500, cost: 220_000, weeks: 3 },
   shipGoods: { goodName: "船舶制品", name: "造船厂", jobs: 100, output: 40, demandPerPerson: 0,
     basePrice: 1000, cost: 320_000, weeks: 5 },
+  electricity: { goodName: "电力", name: "发电设施", jobs: 100, output: 120, demandPerPerson: 0,
+    basePrice: 250, cost: 350_000, weeks: 5 },
 } satisfies ByGood<{
   goodName: string;
   name: string;
@@ -76,6 +81,6 @@ export function byIndustrialGood<T>(make: (good: IndustrialGood) => T): ByIndust
     wood: make("wood"), iron: make("iron"), coal: make("coal"), tools: make("tools"),
     paper: make("paper"), services: make("services"),
     food: make("food"), fiber: make("fiber"), dailyGoods: make("dailyGoods"), luxury: make("luxury"),
-    steel: make("steel"), arms: make("arms"), ammo: make("ammo"), shipGoods: make("shipGoods"),
+    steel: make("steel"), arms: make("arms"), ammo: make("ammo"), shipGoods: make("shipGoods"), electricity: make("electricity"),
   };
 }

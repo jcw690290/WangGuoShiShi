@@ -3,7 +3,7 @@ import type { Scenario } from "../scenario/scenario.ts";
 import { culturalAffinityOf, cultureShares } from "./culture.ts";
 import { attacking, participants } from "./diplomacy.ts";
 import type { GameState } from "./engine.ts";
-import { byGood, goods } from "./industry.ts";
+import { byGood, goods, industries, isLocalGood } from "./industry.ts";
 import type { ByGood } from "./industry.ts";
 import type { MarketFill } from "./market.ts";
 import { marketOf } from "./market.ts";
@@ -79,7 +79,7 @@ export function routeTransport(scenario: Scenario, from: string, to: string, mod
 }
 
 export function applyTradeCommand(scenario: Scenario, state: GameState, cmd: TradeCommand): GameState {
-  if (cmd.good === "services") throw new GameRuleError("服务只能在本州成交");
+  if (isLocalGood(cmd.good)) throw new GameRuleError(`${cmd.good === "services" ? "服务" : industries[cmd.good].goodName}只能在本州成交`);
   const routes = state.tradeRoutes ?? [];
   const key = tradeRouteKey(cmd);
   const route = routes.find((candidate) => tradeRouteKey(candidate) === key);

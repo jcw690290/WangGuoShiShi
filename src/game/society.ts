@@ -59,6 +59,8 @@ export const siteSocialSchema = z.object({
   infrastructure: z.int().positive(),
   railway: z.int().nonnegative().default(0),
   port: z.int().nonnegative().default(0),
+  electrifyTools: z.int().min(0).max(1).default(0),
+  electrifySteel: z.int().min(0).max(1).default(0),
   university: z.int().nonnegative(),
   bureaucracy: z.int().nonnegative().default(0),
   construction: z.int().positive(),
@@ -78,7 +80,7 @@ export const laws = [
   "小农自耕",
 ] as const;
 export type Law = (typeof laws)[number];
-export const techs = ["纺织工艺", "野战后勤", "公共教育", "机械织造", "运输调度", "高等教育", "蒸汽动力", "铁路"] as const;
+export const techs = ["纺织工艺", "野战后勤", "公共教育", "机械织造", "运输调度", "高等教育", "蒸汽动力", "铁路", "规模化钢铁", "电气化"] as const;
 export type Tech = (typeof techs)[number];
 export const emptyKnowledge = (): Record<Tech, number> => ({
   纺织工艺: 0,
@@ -89,10 +91,12 @@ export const emptyKnowledge = (): Record<Tech, number> => ({
   高等教育: 0,
   蒸汽动力: 0,
   铁路: 0,
+  规模化钢铁: 0,
+  电气化: 0,
 });
 const knowledgeSchema = z.object({
   纺织工艺: percent, 野战后勤: percent, 公共教育: percent, 机械织造: percent, 运输调度: percent, 高等教育: percent,
-  蒸汽动力: percent.default(0), 铁路: percent.default(0),
+  蒸汽动力: percent.default(0), 铁路: percent.default(0), 规模化钢铁: percent.default(0), 电气化: percent.default(0),
 });
 export const privateProject = z.object({
   stateId: z.string(),
@@ -104,6 +108,8 @@ export const facilityTypes = [
   "infrastructure",
   "railway",
   "port",
+  "electrifyTools",
+  "electrifySteel",
   "university",
   "bureaucracy",
   "construction",
@@ -114,6 +120,8 @@ export const facilityNames = {
   infrastructure: "交通设施",
   railway: "铁路",
   port: "港口",
+  electrifyTools: "工具厂电气化改造",
+  electrifySteel: "钢铁厂电气化改造",
   university: "大学",
   bureaucracy: "行政署",
   construction: "建造部门",
@@ -177,6 +185,8 @@ export function initSiteSociety(site: Scenario["states"][string]): SiteSocial {
     infrastructure: 1 + (hash(site.id) % 3),
     railway: 0,
     port: 0,
+    electrifyTools: 0,
+    electrifySteel: 0,
     university: 0,
     bureaucracy: site.startingOffices ?? 0,
     construction: 1,

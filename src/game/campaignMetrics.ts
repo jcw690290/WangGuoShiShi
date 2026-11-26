@@ -7,7 +7,7 @@ import { projectEconomy, weeklyBudgets, workForce } from "./economy.ts";
 import type { EconomyReport } from "./economy.ts";
 import type { GameState } from "./engine.ts";
 import { goods, industrialGoods, industries } from "./industry.ts";
-import { inputs } from "./industrial.ts";
+import { industryMethod } from "./industrial.ts";
 import { accepted, governmentLegitimacy, influence } from "./society.ts";
 import { basicEquivalentSupply, essentialGoods } from "./households.ts";
 
@@ -19,17 +19,20 @@ type CampaignBaseline = z.infer<typeof campaignBaselineSchema>;
 function civilianOutput(report: EconomyReport, holdings: readonly string[]) {
   let total = 0, manufacturing = 0, subsistenceOutput = 0;
   for (const id of holdings) {
-    const { industries: activity, industrial, subsistence } = report.states[id];
+    const { industries: activity, industrial, subsistence, power } = report.states[id];
     if (subsistence) subsistenceOutput += subsistence.produced.grain * industries.grain.basePrice +
       subsistence.produced.wood * industries.wood.basePrice;
     for (const good of goods) total += activity[good].output * industries[good].basePrice;
     if (industrial) for (const good of industrialGoods) total -= industrial.used[good] * industries[good].basePrice;
     for (const line of ["cloth", "tools", "paper", "dailyGoods", "luxury", "steel", "arms", "ammo", "shipGoods"] as const) {
-      const recipe: Partial<Record<(typeof industrialGoods)[number], number>> = inputs[line];
+      const { recipe, jobs } = industryMethod(line, activity[line].electric);
       const inputsCost = industrialGoods.reduce((sum, good) =>
-        sum + Math.ceil(activity[line].employed * (recipe[good] ?? 0) / industries[line].jobs) * industries[good].basePrice, 0);
+        sum + Math.ceil(activity[line].employed * (recipe[good] ?? 0) / jobs) * industries[good].basePrice, 0);
       manufacturing += activity[line].output * industries[line].basePrice - inputsCost;
     }
+    const powerCost = (power?.delivered ?? 0) * industries.electricity.basePrice;
+    total -= powerCost;
+    manufacturing -= powerCost;
   }
   return { total: total + subsistenceOutput, manufacturing, subsistenceOutput };
 }
