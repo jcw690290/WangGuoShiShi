@@ -24,6 +24,8 @@ import { DAY_MS, elapsedTicks, TICKS_PER_DAY } from "./time.ts";
 import { applyTradeCommand } from "./trade.ts";
 import type { TradeCommand, TradeRoute } from "./trade.ts";
 import { advanceAchievements } from "./achievements.ts";
+import { chooseLocalNegotiation, negotiateLocalUnrest } from "./unrest.ts";
+import type { LocalUnrestCommand } from "./unrest.ts";
 export { DAY_MS, elapsedTicks, TICKS_PER_DAY } from "./time.ts";
 
 export interface GameState {
@@ -59,6 +61,7 @@ export type GameCommand =
   | PoliticsCommand
   | GovernanceCommand
   | TradeCommand
+  | LocalUnrestCommand
   | BorderCommand;
 
 export function createGame(scenario: Scenario, seed = 1820, difficulty: Difficulty = "standard", campaign?: CampaignSetup): GameState {
@@ -160,6 +163,8 @@ export function advanceTick(
       if (result.elapsedDays % 28 === 0) {
         const integration = chooseIntegration(result, id);
         if (integration) result = applyGovernanceCommand(result, integration);
+        const agreement = chooseLocalNegotiation(result, id);
+        if (agreement) result = negotiateLocalUnrest(result, agreement);
       }
       if (job) result = applyCommand(scenario, result, { type: "queueConstruction", countryId: id, ...job });
       const n = result.nations[id];
@@ -247,6 +252,8 @@ function applyCommand(
     case "setTradeRoute":
     case "removeTradeRoute":
       return applyTradeCommand(scenario, state, cmd);
+    case "negotiateLocalUnrest":
+      return negotiateLocalUnrest(state, cmd);
     case "queueConstruction": {
       const { countryId: id, stateId, good, privateBuild } = cmd;
       const error = constructionError(scenario, state, id, stateId, good, privateBuild);

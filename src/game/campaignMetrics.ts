@@ -43,11 +43,12 @@ export function measureCampaign(
   const nation = state.nations[countryId];
   const held = Object.keys(state.ownerByStateId).filter((id) => state.ownerByStateId[id] === countryId);
   const locals = held.map((id) => state.societies[id]);
-  let people = 0, living = 0, literacy = 0, discriminated = 0, core = 0, coreControlled = 0;
+  let people = 0, living = 0, literacy = 0, discriminated = 0, unrest = 0, core = 0, coreControlled = 0;
   for (const site of locals) for (const pop of site.pops) {
     people += pop.people;
     living += pop.livingStandard * pop.people;
     literacy += pop.literacy * pop.people;
+    unrest += (site.stability?.unrest ?? 0) * pop.people;
     if (!accepted(pop, countryId, nation)) discriminated += pop.people;
   }
   let culturalContacts = 0;
@@ -71,6 +72,7 @@ export function measureCampaign(
     AGGRESSION_FREE_20: peacefulForeignPolicy ? 1 : 0,
   };
   const treasury = state.countryEconomies[countryId];
+  if (people > 0 && locals.every((site) => site.stability !== undefined)) metrics.TUR = unrest / people;
   const fiscal = treasury.fiscal;
   if (fiscal) {
     const { creditLimit, upkeepDue, upkeepPaid } = fiscal.week;

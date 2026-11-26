@@ -12,6 +12,7 @@ import { governanceModes, governanceOf, governanceRules, integrationDuration, in
 import type { GovernanceMode } from "./game/governance.ts";
 import { TradePanel } from "./TradePanel.tsx";
 import { convoyCargoCapacity } from "./game/transport.ts";
+import { incidentNames, unrestEffects } from "./game/unrest.ts";
 
 function cultureName(scenario: Scenario, id: string) {
   const separator = id.indexOf("-");
@@ -63,6 +64,9 @@ function StateIndustry({
   const rule = governanceRules[governance.mode];
   const occupied = game.occupation?.stateId === stateId;
   const integrationActive = governance.integration !== null;
+  const stability = society.stability;
+  const incident = stability?.incident;
+  const localEffects = unrestEffects(stability);
   return (
     <section className="panel" aria-labelledby="industry-title">
       <header className="panel-header">
@@ -222,6 +226,15 @@ function StateIndustry({
         <details>
           <summary>地方治理 · {rule.name}</summary>
           <p>{governance.integrated ? "已整合" : "未整合"} · 中央税权 {rule.centralTax}% · 驻军与征兵额度 {Math.round(rule.militaryShare * 100)}%</p>
+          {stability && <p>地方动乱 {stability.unrest.toFixed(1)} / 100</p>}
+          {incident && <>
+            <p>{incidentNames[incident.cause]} · 已持续 {count(game.elapsedDays - incident.since)} 天{incident.negotiated && " · 已达成减税协议"}</p>
+            <p>当地产出 {Math.round(localEffects.output * 100)}% · 中央征收效率 {Math.round(localEffects.collection * 100)}% · 运力 {Math.round(localEffects.transport * 100)}%</p>
+            {isOwnState && !incident.negotiated && <button className="build" disabled={busy || occupied}
+              onClick={() => send({ type: "negotiateLocalUnrest", countryId: playerId, stateId })}>
+              协商减税以缓解动乱
+            </button>}
+          </>}
           {occupied && <p>军事占领暂停中央征收和行政整合。</p>}
           {integrationActive && (
             <p>整合 {governance.integration!.months.toFixed(1)} / {integrationDuration} 月 ·

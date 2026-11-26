@@ -16,6 +16,7 @@ import { administrationWage, advanceIntegration, governanceOf, governanceRules,
   integrationStaffNeeded, integrationWeekShare } from "./governance.ts";
 import { expectedTrade, settleTrade } from "./trade.ts";
 import type { TradeDelivery } from "./trade.ts";
+import { unrestEffects } from "./unrest.ts";
 
 export { marketOf } from "./market.ts";
 
@@ -235,6 +236,7 @@ function projectSettlement(state: GameState, war?: WarPlan, activeSites = state.
     holdings[owner].push(id);
     const route = war?.routes[owner],
       front = route?.recruitmentStates.has(id);
+    const effects = unrestEffects(site.stability);
     const militaryShare = governanceRules[governanceOf(site).mode].militaryShare;
     const regulars = Math.floor(Math.min(site.barracks * 100, local.population * 0.03) * militaryShare);
     const builders =
@@ -262,7 +264,7 @@ function projectSettlement(state: GameState, war?: WarPlan, activeSites = state.
       1,
       (site.infrastructure * 11000) /
         (local.population + 2000 * (local.buildings.cloth + local.buildings.grain)),
-    );
+    ) * effects.transport;
     const activity = byGood((g) => {
       const spec = industries[g];
       const jobs = Math.min(
@@ -280,7 +282,7 @@ function projectSettlement(state: GameState, war?: WarPlan, activeSites = state.
       conscripts += drafted;
       workers -= jobs;
       const employed = jobs - drafted,
-        base = Math.floor((employed * spec.output) / spec.jobs);
+        base = Math.floor((employed * spec.output * effects.output) / spec.jobs);
       const output = g === "cloth" ? Math.floor((base * (100 + c.clothOutputBonus)) / 100) : base;
       if (g === "cloth") c.clothOutputGain += output - base;
       return { employed, output, wages: 0 };
@@ -290,7 +292,7 @@ function projectSettlement(state: GameState, war?: WarPlan, activeSites = state.
     c.universityWages! += universityStaff * universityWage;
     c.administrationWages! += administrationDue;
     c.upkeep += regulars * 12 + armourers * 8 + universityStaff * universityWage + administrationDue;
-    const staffed = armourers / Math.max(1, 30 * (site.arsenal + site.ammunition));
+    const staffed = effects.output * armourers / Math.max(1, 30 * (site.arsenal + site.ammunition));
     supplies[id] = {
       ...byGood((g) => activity[g].output),
       weapons: Math.floor(170 * site.arsenal * staffed),
@@ -399,7 +401,9 @@ function projectSettlement(state: GameState, war?: WarPlan, activeSites = state.
     for (const id of ids) {
       const s = report.states[id],
         site = state.societies[id];
-      const taxShare = id === state.occupation?.stateId ? 0 : governanceRules[governanceOf(site).mode].centralTax / 100;
+      const effects = unrestEffects(site.stability);
+      const taxShare = id === state.occupation?.stateId ? 0 :
+        effects.collection * governanceRules[governanceOf(site).mode].centralTax / 100;
       const transfer = trade?.transfers.get(id);
       const household = householdOrders[id];
       const fillsByUse = byGood((g) => {
@@ -449,7 +453,7 @@ function projectSettlement(state: GameState, war?: WarPlan, activeSites = state.
       taxableDividends += s.dividends * taxShare;
       // Each staffed department buys a weekly grain/cloth basket; shortages constrain the work done.
       capacity +=
-        (s.builders / 50) *
+        (s.builders / 50) * effects.output *
         (0.25 + 0.75 * Math.min(fillsByUse.cloth.constructionFulfillment, fillsByUse.grain.constructionFulfillment));
     }
     c.capacity = Math.floor(capacity * 100) / 100;
@@ -618,7 +622,7 @@ export function settleEconomy(state: GameState, war?: WarPlan, fractionOfYear = 
     if (governance?.integration) {
       societies[id] = { ...site, governance: advanceIntegration(
         governance, s.administrationStaff!, integrationStaffNeeded(stateEconomies[id].population, state.settings.difficulty),
-        s.access, fractionOfYear,
+        s.access * (1 - (site.stability?.unrest ?? 0) / 250), fractionOfYear,
       ) };
     }
     societies[id] = evolvePops(societies[id], owner, nations[owner], {

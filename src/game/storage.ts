@@ -394,8 +394,9 @@ export function parseSave(scenario: Scenario, save: unknown): GameState {
   }
   for (const [id, local] of Object.entries(state.stateEconomies)) {
     const owner = state.ownerByStateId[id],
-      { pops, governance } = state.societies[id];
+      { pops, governance, stability } = state.societies[id];
     if (governance?.integration && governance.integration.startedAtTick > elapsedTicks(state)) invalid();
+    if (stability && Object.values(stability.lastIncident).some((day) => day > state.elapsedDays)) invalid();
     if (pops.reduce((sum, p) => sum + p.people, 0) !== local.population) invalid();
     for (const p of pops) {
       if (

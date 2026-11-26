@@ -4,6 +4,7 @@ import type { RuleTuning } from "./settings.ts";
 import { startingLivingStandard, updateLivingStandard } from "./households.ts";
 import { initialCulturalAffinity } from "./culture.ts";
 import { localGovernanceSchema } from "./governance.ts";
+import { emptyStability, stabilitySchema } from "./unrest.ts";
 
 export const occupations = ["农民", "劳工", "工程师", "军官", "教士", "店主", "资本家", "贵族"] as const;
 export type Occupation = (typeof occupations)[number];
@@ -52,6 +53,7 @@ export const siteSocialSchema = z.object({
   pops: z.array(popSchema).min(1),
   culturalAffinity: z.record(z.string(), percent).optional(),
   governance: localGovernanceSchema.optional(),
+  stability: stabilitySchema.optional(),
   infrastructure: z.int().positive(),
   university: z.int().nonnegative(),
   construction: z.int().positive(),
@@ -156,6 +158,7 @@ export function initSiteSociety(site: Scenario["states"][string]): SiteSocial {
   return {
     pops,
     culturalAffinity: initialCulturalAffinity(pops),
+    stability: emptyStability(),
     infrastructure: 1 + (hash(site.id) % 3),
     university: 0,
     construction: 1,
