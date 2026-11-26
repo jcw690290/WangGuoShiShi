@@ -1,5 +1,5 @@
 import { z } from "zod";
-import { industrialGoods } from "../game/industry.ts";
+import { industrialGoods, byIndustrialGood } from "../game/industry.ts";
 import type { ScenarioLevels } from "../game/industry.ts";
 import type { DiplomaticTie } from "../game/diplomatic-ties.ts";
 import gameData from "../../resources/1820_game_data.json" with { type: "json" };
@@ -118,9 +118,7 @@ export const borderScenario: Scenario = {
   ),
 };
 
-const worldCounts = counts.extend({
-  wood: z.int().nonnegative(), iron: z.int().nonnegative(), coal: z.int().nonnegative(), tools: z.int().nonnegative(),
-});
+const worldCounts = counts.extend(byIndustrialGood(() => z.int().nonnegative()));
 const baseSiteSchema = z.object({
   label: z.tuple([z.number(), z.number()]),
   neighbors: z.array(z.string()),
@@ -141,16 +139,20 @@ export const atlas = z.record(z.string(), siteSchema).parse(
     const iron = resource % 5 === 0 || state.terrain === "山地" ? 6 : 0;
     const coal = resource % 7 === 0 || state.terrain === "山地" ? 5 : 0;
     const tools = state.population >= 12_000 ? 5 : 1;
+    const paper = state.population >= 16_000 ? 5 : 1;
+    const services = Math.max(1, Math.ceil(state.population / 8_000) + 1);
     const owned = sourceStates.has(id);
     return [id, {
       ...state, name: (stateNames as Record<string, string>)[id],
-      capacity: { ...state.capacity, wood, iron, coal, tools },
+      capacity: { ...state.capacity, wood, iron, coal, tools, paper, services },
       buildings: {
         ...state.buildings,
         wood: owned ? Math.min(wood, Math.max(1, Math.ceil(state.population / 24_000))) : 0,
         iron: owned && iron > 0 ? 1 : 0,
         coal: owned && coal > 0 ? 1 : 0,
         tools: owned && state.buildings.cloth > 0 && state.population >= 18_000 ? 1 : 0,
+        paper: owned && state.buildings.cloth > 0 && state.population >= 22_000 ? 1 : 0,
+        services: owned && state.population >= 3_000 ? Math.ceil(state.population / 12_000) : 0,
       },
     }];
   })),

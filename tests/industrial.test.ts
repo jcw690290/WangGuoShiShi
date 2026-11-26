@@ -29,7 +29,7 @@ test("工商业按真实员工、库存和已落实资金生产并结算，预�
   assert.equal(forecast.industries.iron.output, 80);
   assert.equal(forecast.industries.coal.output, 100);
   assert.equal(forecast.industries.tools.output, 80);
-  assert.deepEqual(forecast.industrial!.used, { wood: 20, iron: 30, coal: 5, tools: 8 });
+  assert.deepEqual(forecast.industrial!.used, { wood: 20, iron: 30, coal: 5, tools: 8, paper: 0, services: 0 });
   assert.equal(forecast.industries.tools.wages, 11_600);
   const shortage = structuredClone(initial);
   shortage.stateEconomies[stateId].industrial!.stocks.iron = 15;
@@ -73,4 +73,33 @@ test("新工具厂的周转金来自项目费用，旧档保留既有产量和�
   } });
   assert.deepEqual(restored, legacy);
   assert.ok(Object.values(createGame(world).stateEconomies).some((local) => local.buildings.tools > 0));
+});
+
+test("造纸和服务使用实际原料与共享技术劳动力，服务在本州成交", () => {
+  const withServices: typeof borderScenario = {
+    ...scenario,
+    states: { ...scenario.states, [stateId]: {
+      ...scenario.states[stateId],
+      capacity: { ...scenario.states[stateId].capacity, paper: 2, services: 2 },
+      buildings: { ...scenario.states[stateId].buildings, paper: 1, services: 1 },
+    } },
+  };
+  const id = "61807366-1ff3-4587-aeca-a09187e16fe5";
+  const initial = dispatch(withServices, createGame(withServices, 1820, "standard", { id, endYear: 1936, tutorialEnabled: false }),
+    { type: "selectCountry", countryId });
+  const report = projectEconomy(initial);
+  const local = report.states[stateId];
+  assert.equal(local.industries.paper.output, 100);
+  assert.equal(local.industries.services.output, 100);
+  assert.equal(local.industries.services.wages, 12_500);
+  assert.equal(local.industrial?.skilledWages, 14_700);
+  assert.deepEqual(local.industrial?.used, { wood: 60, iron: 30, coal: 15, tools: 10, paper: 2, services: 0 });
+  assert.equal(local.householdConsumption?.services, 100);
+  assert.equal(report.states.Guangxi.householdConsumption?.services, 0);
+  assert.throws(() => dispatch(withServices, initial, { type: "openTradeRoute", countryId,
+    from: "Tonkin", to: "Yunnan", good: "services", limit: 100 }), /只能在本州成交/);
+  const settled = dispatch(withServices, initial, { type: "advanceWeek" });
+  assert.ok(settled.campaign?.outcome?.metrics.BASIC_CONSUMPTION !== undefined);
+  assert.ok(settled.campaign.outcome.metrics.BASIC_CONSUMPTION <= 100 / 440);
+  assert.deepEqual(parseSave(withServices, { version: saveVersion, scenarioId: withServices.id, state: settled }), settled);
 });

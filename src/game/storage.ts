@@ -234,6 +234,7 @@ const siteReport = z.object({
   populationChange: cash.optional(),
   foodFulfillment: fraction.optional(),
   householdConsumption: goodsNumbers.optional(),
+  householdBasicOrders: goodsNumbers.optional(),
   constructionGoods: goodsNumbers.optional(),
   industrial: industrialReportSchema.optional(),
   consumptionIndex: z.number().nonnegative().optional(),
@@ -372,13 +373,13 @@ export function parseSave(scenario: Scenario, save: unknown): GameState {
     for (const route of state.tradeRoutes) {
       const key = tradeRouteKey(route);
       const capacity = routeTransport(scenario, route.from, route.to, route.mode);
-      if (keys.has(key) || !capacity || route.importer === route.exporter ||
+      if (keys.has(key) || !capacity || route.good === "services" || route.importer === route.exporter ||
           route.fromCapacity !== capacity.fromCapacity || route.toCapacity !== capacity.toCapacity || route.cargoCost !== capacity.cargoCost ||
           !Object.hasOwn(state.ownerByStateId, route.from) || !Object.hasOwn(state.ownerByStateId, route.to)) invalid();
       keys.add(key);
     }
   }
-  if (state.lastEconomy?.trade?.some(({ from, to, mode }) => !routeTransport(scenario, from, to, mode) ||
+  if (state.lastEconomy?.trade?.some(({ from, to, mode, good }) => good === "services" || !routeTransport(scenario, from, to, mode) ||
       !Object.hasOwn(state.ownerByStateId, from) || !Object.hasOwn(state.ownerByStateId, to))) invalid();
   for (const [id, n] of Object.entries(state.nations)) {
     const fiscal = state.countryEconomies[id].fiscal;

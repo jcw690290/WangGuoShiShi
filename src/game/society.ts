@@ -282,12 +282,12 @@ export function evolvePops(
   id: string,
   nation: Nation,
   week: {
-    grainPrice: number; grainWages: number; clothWages: number; specialistWages: number;
+    grainPrice: number; grainWages: number; laborWages: number; specialistWages: number;
     dividends: number; textileJobs: number; standardTarget: number;
   },
   tuning: RuleTuning,
 ) {
-  const { grainPrice, grainWages, clothWages, specialistWages, dividends, textileJobs, standardTarget } = week;
+  const { grainPrice, grainWages, laborWages, specialistWages, dividends, textileJobs, standardTarget } = week;
   const totals = Object.fromEntries(
     occupations.map((o) => [o, site.pops.reduce((s, p) => s + (p.occupation === o ? p.people : 0), 0)]),
   ) as Record<Occupation, number>;
@@ -297,7 +297,7 @@ export function evolvePops(
       p.occupation === "农民"
         ? grainWages
         : p.occupation === "劳工"
-          ? clothWages
+          ? laborWages
           : socialTags[p.occupation][0] === "上层"
             ? dividends / 2
             : totals[p.occupation] * 4 + (p.occupation === "工程师" ? specialistWages : 0);

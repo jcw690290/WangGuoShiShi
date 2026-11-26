@@ -104,7 +104,8 @@ function StateIndustry({
         </div>
         {snapshot.householdConsumption && <div>
           <dt>家庭到货</dt>
-          <dd>粮食 {count(snapshot.householdConsumption.grain)} · 布匹 {count(snapshot.householdConsumption.cloth)} · 木材 {count(snapshot.householdConsumption.wood)}</dd>
+          <dd>粮食 {count(snapshot.householdConsumption.grain)} · 布匹 {count(snapshot.householdConsumption.cloth)} ·
+            木材 {count(snapshot.householdConsumption.wood)} · 服务 {count(snapshot.householdConsumption.services)}</dd>
           <small>粮食满足 {Math.round(snapshot.foodFulfillment! * 100)}%</small>
         </div>}
         <div>
