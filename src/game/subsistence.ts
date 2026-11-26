@@ -3,7 +3,7 @@ import { industries } from "./industry.ts";
 import type { Good, ScenarioLevels } from "./industry.ts";
 import type { Nation } from "./society.ts";
 
-const cropGoods = ["grain", "food", "fiber"] as const;
+const cropGoods = ["grain", "food", "fiber", "rubber"] as const;
 export const croplandPerLegacyFarm = 200;
 export function isCrop(good: string): good is typeof cropGoods[number] {
   return (cropGoods as readonly string[]).includes(good);

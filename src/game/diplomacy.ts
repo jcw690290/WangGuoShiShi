@@ -141,10 +141,12 @@ function treaty(state: GameState, d: BorderDispute, victory: boolean, withdrawal
           sum + (ownerByStateId[p.stateId] === b ? 0 : projectOpeningCapital(p)), 0),
         queue: countryEconomies[b].queue.filter((p) => ownerByStateId[p.stateId] === b),
       };
+      const fleet = nations[b].fleet;
+      const motorizationPort = fleet.motorizationPort;
       nations[b] = {
         ...nations[b],
-        fleet: { ...nations[b].fleet, order: nations[b].fleet.order &&
-          ownerByStateId[nations[b].fleet.order.stateId] === b ? nations[b].fleet.order : null },
+        fleet: { ...fleet, order: fleet.order && ownerByStateId[fleet.order.stateId] === b ? fleet.order : null,
+          motorizationPort: motorizationPort !== null && ownerByStateId[motorizationPort] === b ? motorizationPort : null },
         investment: nations[b].investment + nations[b].privateQueue.reduce((sum, p) =>
           sum + (ownerByStateId[p.stateId] === b ? 0 : projectOpeningCapital(p)), 0),
         privateQueue: nations[b].privateQueue.filter((p) => ownerByStateId[p.stateId] === b),

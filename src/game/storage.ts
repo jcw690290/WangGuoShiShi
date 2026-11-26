@@ -24,8 +24,7 @@ import { fiscalAccountSchema } from "./fiscal.ts";
 import { syncOccupation } from "./occupation.ts";
 import { diplomaticTieSchema } from "./diplomatic-ties.ts";
 import { routeTransport, tradeDeliverySchema, tradeRouteKey, tradeRouteSchema } from "./trade.ts";
-import { convoyCargoCapacity } from "./transport.ts";
-import { fleetReportSchema } from "./fleet.ts";
+import { fleetReportSchema, fleetSpending, maximumConvoyCapacity } from "./fleet.ts";
 import { achievementKey, achievementRecordSchema } from "./achievements.ts";
 import type { AchievementRecord } from "./achievements.ts";
 const storeName = "saves";
@@ -243,7 +242,7 @@ const countryReport = z.object({
 }).refine((country) => (country.officeUpkeep ?? 0) + militaryProcurementCost(country.military.procurement) +
   (country.construction === undefined ? 0 : constructionSpending(country.construction.public)) +
   (country.constructionMaintenance === undefined ? 0 : constructionSpending(country.constructionMaintenance)) +
-  (country.fleet?.spending ?? 0) <= country.upkeep);
+  (country.fleet === undefined ? 0 : fleetSpending(country.fleet)) <= country.upkeep);
 const siteReport = z.object({
   industries: z.object({ grain: industry, cloth: industry, ...byIndustrialGood(() =>
     industry.default({ employed: 0, output: 0, wages: 0 })) }),
@@ -481,11 +480,14 @@ export function parseSave(scenario: Scenario, save: unknown): GameState {
     }
     const order = n.fleet.order;
     if (order && (state.ownerByStateId[order.stateId] !== id || !scenario.states[order.stateId]?.coastal)) invalid();
+    const motorizationPort = n.fleet.motorizationPort;
+    if (n.fleet.motorized > n.convoys || (motorizationPort !== null &&
+        (state.ownerByStateId[motorizationPort] !== id || !scenario.states[motorizationPort]?.coastal))) invalid();
     if (state.lastEconomy) {
       const { military: m, tradeSeaCargo, fleet } = state.lastEconomy.countries[id];
       if (fleet?.port && !scenario.states[fleet.port]?.coastal) invalid();
       if (m.grainDrawn > Math.min(m.grainDemand, m.grainTransport)) invalid();
-      if ((m.seaCargoUsed ?? 0) + (tradeSeaCargo ?? 0) > n.convoys * convoyCargoCapacity) invalid();
+      if ((m.seaCargoUsed ?? 0) + (tradeSeaCargo ?? 0) > maximumConvoyCapacity(n)) invalid();
     }
   }
   for (const [id, local] of Object.entries(state.stateEconomies)) {
