@@ -21,6 +21,7 @@ import { militaryHealthSchema } from "./military-health.ts";
 import { initialNavy, navySchema } from "./navy.ts";
 import { isOpiumLaw, opiumBurdenSchema, opiumLaws } from "./opium.ts";
 import { isMilitaryServiceLaw, militaryServiceLaws } from "./military-service.ts";
+import { productionProjects, productionTiers } from "./production-methods.ts";
 
 export const occupations = ["农民", "劳工", "工程师", "军官", "教士", "店主", "资本家", "贵族"] as const;
 export type Occupation = (typeof occupations)[number];
@@ -91,6 +92,7 @@ export const siteSocialSchema = z.object({
   mechanizeTools: z.int().min(0).max(1).default(0),
   alloySteel: z.int().min(0).max(1).default(0),
   administrativeArchive: z.int().min(0).max(1).default(0),
+  productionMethods: z.partialRecord(z.enum(goods), z.enum(productionTiers)).optional(),
   university: z.int().nonnegative(),
   bureaucracy: z.int().nonnegative().default(0),
   healthcare: institutionLevelSchema.default(0),
@@ -216,7 +218,7 @@ export const facilityNames = {
   barracks: "兵营",
   conscription: "征兵中心",
 };
-export const projectTypes = [...goods, ...facilityTypes] as const;
+export const projectTypes = [...goods, ...facilityTypes, ...productionProjects] as const;
 export const subjectTypes = ["protectorate", "puppet", "vassal"] as const;
 export const tributeRate = { protectorate: 0.1, puppet: 0.15, vassal: 0.2 };
 export const nationSchema = z.object({

@@ -6,7 +6,7 @@ import { createGame, DAY_MS, elapsedTicks, getGameDate, isPopulationMonth, TICKS
 import type { GameState } from "./engine.ts";
 import { byIndustrialGood, commercialLevels, goods, industries, isGood, isIndustrialGood, isLocalGood } from "./industry.ts";
 import { initialIndustrialAccount, industrialAccountSchema, industrialReportSchema,
-  industrialRetrofits, industrySubsidyLimit, industrySubsidyReportSchema, isIndustrialRetrofit } from "./industrial.ts";
+  industrialRetrofits, industrySubsidyLimit, industrySubsidyReportSchema, isIndustrialRetrofit, productionTierAt } from "./industrial.ts";
 import { officeReportSchema } from "./administration.ts";
 import { byInstitution, institutionLawDetails, institutionLawKinds, institutionLawOptions,
   institutionReportSchema, welfareReliefSchema } from "./institutions.ts";
@@ -24,7 +24,8 @@ import { barracksCapacity, battalionSize, battalionTrainingDays, equipmentDetail
 import { injuredPersonnel, replacementTrainingDays } from "./military-health.ts";
 import { settlementAt, territorialClaim, territorialClaimSchema, territorialSettlementSchema } from "./territory.ts";
 import { seaVoyageCargoCost } from "./transport.ts";
-import { buildingCapacity, militaryProcurementCost, projects, unusedPrepaidConstruction } from "./economy.ts";
+import { buildingCapacity, militaryProcurementCost, productionUpgradeFor, projects, unusedPrepaidConstruction } from "./economy.ts";
+import { isProductionProject, productionProjectDefinitions, productionTiers } from "./production-methods.ts";
 import { constructionMaintenanceSchema, constructionReportSchema, constructionStockSchema, constructionSpending, constructionWage } from "./construction.ts";
 import { nationSchema, siteSocialSchema, projectTypes, reformConsultationDays, reformStage } from "./society.ts";
 import { importRegionalSave } from "./legacySave.ts";
@@ -221,6 +222,7 @@ const market = z.object({
   .refine((good) => good.traded === undefined || good.traded <= Math.min(good.supply, good.demand));
 const industry = z.object({ employed: uint, output: uint, wages: uint, sold: uint.optional(), bought: uint.optional(),
   buyers: z.object({ households: uint, construction: uint, industry: uint, publicServices: uint }).optional(),
+  method: z.enum(productionTiers).optional(),
   electric: z.literal(true).optional() })
   .refine((good) => good.sold === undefined || good.sold <= good.output)
   .refine(({ buyers, bought }) => !buyers ||
@@ -655,9 +657,17 @@ export function parseSave(baseScenario: Scenario, save: unknown): GameState {
       if (isIndustrialRetrofit(p.good)) {
         const key = JSON.stringify([p.stateId, p.good]);
         const { good, technology } = industrialRetrofits[p.good];
-        if (retrofits.has(key) || state.societies[p.stateId][p.good] !== 0 ||
+        if (retrofits.has(key) ||
             state.stateEconomies[p.stateId].buildings[good] === 0 || n.knowledge[technology] !== 100) invalid();
         retrofits.add(key);
+      }
+      if (isProductionProject(p.good)) {
+        const { good, technology, tier } = productionProjectDefinitions[p.good], local = state.stateEconomies[p.stateId];
+        if (local.buildings[good] === 0 || (technology && n.knowledge[technology] !== 100) ||
+            productionTierAt(good, state.societies[p.stateId]) === tier ||
+            (tier === "advanced" && good !== "electricity" && local.buildings.electricity === 0) ||
+            queued.some((other) => other !== p && other.stateId === p.stateId && productionUpgradeFor(other.good)?.good === good))
+          invalid();
       }
     }
     const archives = state.countryEconomies[id].queue.filter((p) => p.good === "administrativeArchive");

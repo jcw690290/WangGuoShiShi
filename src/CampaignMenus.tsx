@@ -12,9 +12,7 @@ import type { AchievementRecord } from "./game/achievements.ts";
 import { endingCatalog, endingStory, endingTitle } from "./scenario/endings.ts";
 import type { Scenario } from "./scenario/scenario.ts";
 import type { GameState } from "./game/engine.ts";
-import { remainingProjectPoints } from "./game/economy.ts";
-import { industries, isGood } from "./game/industry.ts";
-import { facilityNames } from "./game/society.ts";
+import { projectName, remainingProjectPoints } from "./game/economy.ts";
 
 export function StartMenu({ saveCount, busy, hasCurrent, newGame, resume, gallery, returnToGame, notice,
   preferences, updatePreferences, previewSound }: {
@@ -169,7 +167,7 @@ export function TutorialConstructionReview({ scenario, game, countryId, onReview
   const spending = project?.privateBuild ? construction.private : construction.public;
   return <section className="panel control-block" aria-label="教程施工复盘">
     <h3>施工复盘</h3>
-    {project && <p>{scenario.states[project.stateId].name} · {isGood(project.good) ? industries[project.good].name : facilityNames[project.good]}
+    {project && <p>{scenario.states[project.stateId].name} · {projectName(project.good)}
       {" · "}{pending ? `队列剩余 ${remainingProjectPoints(pending).toFixed(2)} 点` : "已离开队列，可查看该州设施"}。</p>}
     <p>{project?.privateBuild ? "私人" : "政府"}施工最近周投入 {spending.points.toFixed(2)} 点 ·
       实付工资 {silver(spending.wages)} · 材料 {silver(spending.materials)}。</p>

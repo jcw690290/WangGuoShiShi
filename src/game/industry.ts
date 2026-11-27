@@ -65,8 +65,8 @@ export const industries = {
     basePrice: 300, cost: 260_000, weeks: 4 },
   rubber: { goodName: "橡胶", name: "橡胶园", jobs: 100, output: 100, demandPerPerson: 0,
     basePrice: 250, cost: 150_000, weeks: 3 },
-  opium: { goodName: "鸦片", name: "鸦片产业", jobs: 100, output: 40, demandPerPerson: 0,
-    basePrice: 600, cost: 170_000, weeks: 3 },
+  opium: { goodName: "鸦片", name: "鸦片产业", jobs: 100, output: 50, demandPerPerson: 0,
+    basePrice: 400, cost: 170_000, weeks: 3 },
 } satisfies ByGood<{
   goodName: string;
   name: string;
