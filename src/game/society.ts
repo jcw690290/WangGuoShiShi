@@ -8,6 +8,8 @@ import { emptyStability, stabilitySchema } from "./unrest.ts";
 import { goods } from "./industry.ts";
 import { initialFleet, merchantFleetSchema } from "./fleet.ts";
 import { institutionLawDetails, institutionLawKinds, institutionLawOptions, institutionLevelSchema } from "./institutions.ts";
+import { bondedRuralShare, laborLawCategory, laborLaws, laborProtection, neutralLaborLaws,
+  participationTarget, startingLaborLaws, workForce } from "./labor.ts";
 
 export const occupations = ["农民", "劳工", "工程师", "军官", "教士", "店主", "资本家", "贵族"] as const;
 export type Occupation = (typeof occupations)[number];
@@ -68,6 +70,7 @@ export const siteSocialSchema = z.object({
   policing: institutionLevelSchema.default(0),
   welfare: institutionLevelSchema.default(0),
   education: institutionLevelSchema.default(0),
+  laborParticipation: z.number().min(0.30).max(0.60).default(0.40),
   construction: z.int().positive(),
   barracks: z.int().nonnegative(),
   conscription: z.int().nonnegative(),
@@ -84,10 +87,11 @@ export const laws = [
   "地主租佃",
   "小农自耕",
   ...institutionLawKinds.flatMap((kind) => [...institutionLawOptions[kind]]),
+  ...laborLaws,
 ] as const;
 export type Law = (typeof laws)[number];
 export const techs = ["纺织工艺", "野战后勤", "公共教育", "机械织造", "运输调度", "高等教育", "蒸汽动力", "铁路",
-  "规模化钢铁", "电气化", "内燃机", "公共卫生", "劳工保障", "社会保障"] as const;
+  "规模化钢铁", "电气化", "内燃机", "公共卫生", "劳工保障", "社会保障", "大众政治"] as const;
 export type Tech = (typeof techs)[number];
 export const emptyKnowledge = (): Record<Tech, number> => ({
   纺织工艺: 0,
@@ -104,6 +108,7 @@ export const emptyKnowledge = (): Record<Tech, number> => ({
   公共卫生: 0,
   劳工保障: 0,
   社会保障: 0,
+  大众政治: 0,
 });
 const knowledgeSchema = z.object({
   纺织工艺: percent, 野战后勤: percent, 公共教育: percent, 机械织造: percent, 运输调度: percent, 高等教育: percent,
@@ -112,6 +117,7 @@ const knowledgeSchema = z.object({
   公共卫生: percent.default(0),
   劳工保障: percent.default(0),
   社会保障: percent.default(0),
+  大众政治: percent.default(0),
 });
 export const privateProject = z.object({
   stateId: z.string(),
@@ -150,7 +156,10 @@ export const nationSchema = z.object({
   government: z.array(z.enum(groups)).min(1),
   startingRepresentation: z.literal("limited").optional(),
   laws: z.array(z.enum(laws)).refine((enacted) => institutionLawKinds.every((kind) =>
-    enacted.filter((law) => institutionLawDetails(law)?.kind === kind).length <= 1)),
+    enacted.filter((law) => institutionLawDetails(law)?.kind === kind).length <= 1)).refine((enacted) => {
+    const categories = enacted.map(laborLawCategory).filter((category) => category !== undefined);
+    return new Set(categories).size === categories.length;
+  }),
   reform: z.enum(laws).nullable(),
   reformProgress: z.number().nonnegative(),
   research: z.enum(techs).nullable(),
@@ -209,6 +218,7 @@ export function initSiteSociety(site: Scenario["states"][string]): SiteSocial {
     policing: 0,
     welfare: 0,
     education: 0,
+    laborParticipation: 0.40,
     construction: 1,
     barracks: 1,
     conscription: 1,
@@ -223,7 +233,7 @@ export function initSociety(scenario: Scenario) {
     nations[id] = {
       ...(limitedVoteCountries.has(id) ? { startingRepresentation: "limited" as const } : {}),
       government: ["地主", "乡民"],
-      laws: institutionLawKinds.map((kind) => institutionLawOptions[kind][0]),
+      laws: [...institutionLawKinds.map((kind) => institutionLawOptions[kind][0]), ...startingLaborLaws(id)],
       reform: null,
       reformProgress: 0,
       research: null,
@@ -266,12 +276,16 @@ export function powerDistribution(nation: Nation): keyof typeof votingWeights {
 export function influence(locals: SiteSocial[], id: string, nation: Nation) {
   const points = Object.fromEntries(groups.map((g) => [g, 0])) as Record<Group, number>;
   const weights = votingWeights[powerDistribution(nation)];
+  const civicRights = nation.laws.includes("妇女平等权") ? { 下层: 1.15, 中层: 1.10, 上层: 1 } :
+    { 下层: 1, 中层: 1, 上层: 1 };
+  const ruralFreedom = 1 - bondedRuralShare(nation.laws);
   let sum = 0;
   for (const { pops } of locals)
     for (const pop of pops) {
+      const stratum = socialTags[pop.occupation][0];
       const weight =
         pop.people *
-        weights[socialTags[pop.occupation][0]] *
+        weights[stratum] * civicRights[stratum] * (pop.occupation === "农民" ? ruralFreedom : 1) *
         (accepted(pop, id, nation) ? 1 : 0.05);
       for (const [group, support] of occupationSupport[pop.occupation]) points[group] += weight * support;
       sum += weight;
@@ -298,11 +312,22 @@ export const supporters: Record<Law, Group[]> = {
   地方救济: ["教会", "地主"],
   公共救济: ["乡民", "工会", "教会"],
   社会保险: ["工会", "乡民", "小市民"],
+  自由劳动: ["乡民", "知识分子", "工会", "实业家"],
+  奴隶制: ["地主"],
+  农奴制: ["地主", "教会"],
+  身份劳役: ["地主", "武装部队"],
+  普通雇佣: ["实业家", "地主"],
+  工时与工伤保障: ["工会", "乡民", "小市民"],
+  集体劳动保障: ["工会", "知识分子", "乡民"],
+  传统性别分工: ["教会", "地主"],
+  妇女就业权: ["实业家", "小市民", "乡民"],
+  妇女平等权: ["知识分子", "工会", "乡民"],
 };
 export function approval(nation: Nation, g: Group) {
   return (
     (nation.government.includes(g) ? 8 : 0) +
-    nation.laws.reduce((n, l) => institutionLawDetails(l)?.level === 1 ? n : n + (supporters[l].includes(g) ? 4 : -1), 0)
+    nation.laws.reduce((n, l) => institutionLawDetails(l)?.level === 1 || neutralLaborLaws.has(l) ?
+      n : n + (supporters[l].includes(g) ? 4 : -1), 0)
   );
 }
 export const reformWork = 2;
@@ -349,6 +374,9 @@ export function evolvePops(
   const totals = Object.fromEntries(
     occupations.map((o) => [o, site.pops.reduce((s, p) => s + (p.occupation === o ? p.people : 0), 0)]),
   ) as Record<Occupation, number>;
+  const boundShare = bondedRuralShare(nation.laws);
+  const protection = laborProtection(nation.laws).relief *
+    Math.min(1, businessJobs / Math.max(1, workForce(totals.劳工, site.laborParticipation)));
   const pops = site.pops.map((p) => {
     const isAccepted = accepted(p, id, nation);
     const income =
@@ -371,6 +399,7 @@ export function evolvePops(
         100,
         p.radicals +
           (suffering ? 0.25 * tuning.radicalGrowth : -0.18 * tuning.radicalRelief) +
+          (p.occupation === "农民" ? 0.08 * boundShare : p.occupation === "劳工" ? -protection : 0) +
           (isAccepted ? 0 : 0.12 * tuning.radicalGrowth),
       ),
     );
@@ -378,11 +407,11 @@ export function evolvePops(
     return { ...p, wealth, radicals, livingStandard };
   });
   // Fill commercial vacancies from rural households of the same identity.
-  const targetLabourers = Math.ceil(businessJobs / 0.4);
+  const targetLabourers = Math.ceil(businessJobs / site.laborParticipation);
   let vacancies = Math.max(0, targetLabourers - totals["劳工"]);
   for (const rural of pops.filter((p) => p.occupation === "农民")) {
     const labour = pops.find((p) => p.occupation === "劳工" && p.culture === rural.culture)!;
-    const hired = Math.min(rural.people, vacancies, Math.ceil(rural.people * 0.02));
+    const hired = Math.min(rural.people, vacancies, Math.ceil(rural.people * 0.02 * (1 - boundShare)));
     rural.people -= hired;
     labour.people += hired;
     vacancies -= hired;
@@ -403,5 +432,6 @@ export function evolvePops(
     p.people -= promoted;
     engineers.people += promoted;
   }
-  return { ...site, pops };
+  const laborParticipation = site.laborParticipation + 0.1 * (participationTarget(nation.laws) - site.laborParticipation);
+  return { ...site, pops, laborParticipation };
 }

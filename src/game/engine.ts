@@ -10,7 +10,7 @@ import type { Building, CountryEconomy, EconomyReport, StateEconomy } from "./ec
 import { advancePolitics, applyPolitics, availableTech, politicsError } from "./politics.ts";
 import type { PoliticsCommand } from "./politics.ts";
 import { initSociety, techs, hash, literacyOf } from "./society.ts";
-import type { Nation, SiteSocial } from "./society.ts";
+import type { Law, Nation, SiteSocial } from "./society.ts";
 import { applyClaim } from "./territory.ts";
 import { settlePopulationMonth } from "./demographics.ts";
 import type { PopulationMonth } from "./demographics.ts";
@@ -32,6 +32,7 @@ import { effectiveConvoyCapacity, maxConvoyOrder, shipGoodsPerConvoy } from "./f
 import { institutionCommands, institutionLawKinds, institutionLawLimit, institutionLawOptions, institutionLevelError,
   institutionLevelSchema, institutionNames, institutionStaffNeed, institutions } from "./institutions.ts";
 import type { Institution } from "./institutions.ts";
+import { laborStatus } from "./labor.ts";
 export { DAY_MS, elapsedTicks, TICKS_PER_DAY } from "./time.ts";
 
 export interface GameState {
@@ -181,6 +182,18 @@ function chooseInstitutionLaw(state: GameState, report: EconomyReport, countryId
   }
 }
 
+function chooseLaborLaw(state: GameState, countryId: string): PoliticsCommand | undefined {
+  const laws = state.nations[countryId].laws;
+  const proposals: Law[] = [];
+  if (laborStatus(laws) !== "自由劳动") proposals.push("自由劳动");
+  if (!laws.includes("妇女平等权")) proposals.push(laws.includes("妇女就业权") ? "妇女平等权" : "妇女就业权");
+  if (!laws.includes("集体劳动保障")) proposals.push(laws.includes("工时与工伤保障") ? "集体劳动保障" : "工时与工伤保障");
+  for (const law of proposals) {
+    const proposal = { type: "proposeLaw", countryId, law } as const;
+    if (!politicsError(state, proposal)) return proposal;
+  }
+}
+
 export function advanceTick(
   scenario: Scenario,
   state: GameState,
@@ -248,8 +261,10 @@ export function advanceTick(
           tech: pending[(result.rng + hash(id)) % pending.length],
         });
       if (!n.reform) {
-        const institutionLaw = result.elapsedDays % 28 === 0 ? chooseInstitutionLaw(result, settled.lastEconomy, id) : undefined;
-        if (institutionLaw) result = applyCommand(scenario, result, institutionLaw);
+        const proposal = result.elapsedDays % 28 === 0
+          ? chooseLaborLaw(result, id) ?? chooseInstitutionLaw(result, settled.lastEconomy, id)
+          : undefined;
+        if (proposal) result = applyCommand(scenario, result, proposal);
         else if (!n.laws.includes("普选制")) {
           const cmd = { type: "proposeLaw", countryId: id, law: "普选制" } as const;
           if (!politicsError(result, cmd)) result = applyCommand(scenario, result, cmd);

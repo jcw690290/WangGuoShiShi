@@ -2,6 +2,7 @@ import { GameRuleError } from "./rules.ts";
 import type { GameState } from "./engine.ts";
 import type { EconomyReport } from "./economy.ts";
 import { institutionLawDetails, institutionRequiredTech } from "./institutions.ts";
+import { laborLawCategory, laborLawTechnology } from "./labor.ts";
 import { groups, influence, literacyOf, reformConditions, reformWork, techs, unrestOf } from "./society.ts";
 import type { Group, Law, Nation, SiteSocial, Tech } from "./society.ts";
 
@@ -21,6 +22,7 @@ export const researchCategory = {
   公共卫生: "社会",
   劳工保障: "社会",
   社会保障: "社会",
+  大众政治: "社会",
 } as const;
 const categories = ["生产", "军事", "社会"] as const;
 const prerequisite: Partial<Record<Tech, Tech>> = {
@@ -35,6 +37,7 @@ const prerequisite: Partial<Record<Tech, Tech>> = {
   公共卫生: "高等教育",
   劳工保障: "高等教育",
   社会保障: "劳工保障",
+  大众政治: "劳工保障",
 };
 export function availableTech(n: Nation, t: Tech) {
   const prior = prerequisite[t];
@@ -42,7 +45,7 @@ export function availableTech(n: Nation, t: Tech) {
 }
 export function researchCost(tech: Tech, year: number) {
   const advanced = prerequisite[tech] !== undefined;
-  const late = tech === "规模化钢铁" || tech === "电气化" || tech === "公共卫生" || tech === "劳工保障";
+  const late = tech === "规模化钢铁" || tech === "电气化" || tech === "公共卫生" || tech === "劳工保障" || tech === "大众政治";
   const modern = tech === "内燃机" || tech === "社会保障";
   const referenceYear = modern ? 1910 : late ? 1880 : advanced ? 1850 : 1820;
   const base = modern ? 45_000 : late ? 22_000 : advanced ? 10_000 : 4_000;
@@ -66,6 +69,7 @@ export const techEffect: Record<Tech, string> = {
   公共卫生: "解锁《公共诊疗》和《普及医疗》",
   劳工保障: "解锁《公共救济》",
   社会保障: "解锁《社会保险》",
+  大众政治: "解锁《妇女平等权》",
 };
 export const lawEffect: Record<Law, string> = {
   工资税改革: "工资税从 10% 提高至 14%",
@@ -86,7 +90,23 @@ export const lawEffect: Record<Law, string> = {
   地方救济: "允许各州设置最高 1 级福利机构",
   公共救济: "允许各州设置最高 2 级福利机构",
   社会保险: "允许各州设置最高 3 级福利机构",
+  自由劳动: "解除农村劳力的转职与征用限制",
+  奴隶制: "限制 22% 农村人口对应劳力的职业流动，降低其政治参与",
+  农奴制: "限制 45% 农村人口对应劳力的职业流动，降低其政治参与",
+  身份劳役: "限制 25% 农村人口对应劳力的职业流动，降低其政治参与",
+  普通雇佣: "产业普通岗位周薪为 100 银",
+  工时与工伤保障: "产业普通岗位周薪为 115 银，减轻有工作的劳工不满",
+  集体劳动保障: "产业普通岗位周薪为 125 银，进一步减轻有工作的劳工不满",
+  传统性别分工: "州劳动力参与率逐步趋向 40%",
+  妇女就业权: "州劳动力参与率逐步趋向 46%",
+  妇女平等权: "州劳动力参与率逐步趋向 52%，提高中下层政治参与权重",
 };
+
+function exclusiveLawCategory(law: Law) {
+  return institutionLawDetails(law)?.kind ?? laborLawCategory(law) ??
+    (law === "自由放任" || law === "干预主义" ? "economy" :
+      law === "小农自耕" || law === "地主租佃" ? "land" : undefined);
+}
 export type PoliticsCommand =
   | { type: "setGovernment"; countryId: string; government: Group[] }
   | { type: "proposeLaw"; countryId: string; law: Law }
@@ -113,10 +133,8 @@ export function politicsError(state: GameState, command: PoliticsCommand) {
   } else {
     if (nation.reform !== null || nation.laws.includes(command.law)) return "已有议案或该法已生效";
     const institution = institutionLawDetails(command.law);
-    if (institution) {
-      const technology = institutionRequiredTech(institution.kind, institution.level);
-      if (technology && nation.knowledge[technology] !== 100) return `立项需要掌握${technology}技术`;
-    }
+    const technology = institution ? institutionRequiredTech(institution.kind, institution.level) : laborLawTechnology[command.law];
+    if (technology && nation.knowledge[technology] !== 100) return `立项需要掌握${technology}技术`;
     const sites = ownedSocieties(state, id);
     const power = influence(sites, id, nation);
     if (!reformConditions(nation, power, command.law, unrestOf(sites.flatMap((site) => site.pops))).speed)
@@ -177,13 +195,9 @@ export function advancePolitics(state: GameState, report: EconomyReport, year: n
         nation.reformProgress += reformConditions(nation, influence(sites, id, nation), nation.reform, unrestOf(people)).speed;
         if (nation.reformProgress >= reformWork - 1e-9) {
           const reform = nation.reform;
-          const institution = institutionLawDetails(reform);
-          const retained = nation.laws.filter(
-            (l) =>
-              !(institution && institutionLawDetails(l)?.kind === institution.kind) &&
-              !(reform === "自由放任" && l === "干预主义") && !(reform === "干预主义" && l === "自由放任") &&
-              !(reform === "小农自耕" && l === "地主租佃") && !(reform === "地主租佃" && l === "小农自耕"),
-          );
+          const category = exclusiveLawCategory(reform);
+          const retained = category === undefined ? nation.laws :
+            nation.laws.filter((law) => exclusiveLawCategory(law) !== category);
           nation.laws = [...retained, reform];
           nation.reform = null;
           nation.reformProgress = 0;

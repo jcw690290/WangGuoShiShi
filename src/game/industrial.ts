@@ -1,6 +1,7 @@
 import { z } from "zod";
 import { byGood, byIndustrialGood, goods, industrialGoods, industries } from "./industry.ts";
 import type { ByIndustrialGood, Good, ScenarioLevels } from "./industry.ts";
+import { baseOrdinaryWage } from "./labor.ts";
 
 export const inputs = {
   grain: { tools: 1 },
@@ -42,7 +43,6 @@ export function emptyIndustrialAccount(): IndustrialAccount {
   return { capital: 0, stocks: byIndustrialGood(() => 0) };
 }
 
-const regularWage = 100;
 const skilledPositions = {
   grain: [0, 0], cloth: [10, 180],
   wood: [0, 0], iron: [0, 0], coal: [0, 0], tools: [20, 180], paper: [20, 180], services: [50, 150],
@@ -70,11 +70,11 @@ export function industryMethod(good: Good, electric = false): Method {
 
 export const electricityUse = (method: Method, workers: number) => Math.ceil(workers * method.power / method.jobs);
 
-export function industrialPayroll(good: Good, employed: number, method = industryMethod(good)) {
+export function industrialPayroll(good: Good, employed: number, method = industryMethod(good), ordinaryWage = baseOrdinaryWage) {
   const [perHundred, wage] = method.skill;
   const skilled = Math.ceil(employed * perHundred / 100);
   const skilledWages = skilled * wage;
-  return { skilled, skilledWages, total: (employed - skilled) * regularWage + skilledWages };
+  return { skilled, skilledWages, total: (employed - skilled) * ordinaryWage + skilledWages };
 }
 
 export function trainedLabourCapacity(good: Good, trained: number, method = industryMethod(good)) {
@@ -82,31 +82,33 @@ export function trainedLabourCapacity(good: Good, trained: number, method = indu
   return perHundred > 0 ? Math.floor(trained * 100 / perHundred) : Infinity;
 }
 
-export function affordableIndustryWorkers(good: Good, capital: number, method = industryMethod(good), powerPrice = 0) {
+export function affordableIndustryWorkers(good: Good, capital: number, method = industryMethod(good),
+  powerPrice = 0, ordinaryWage = baseOrdinaryWage,
+) {
   if (powerPrice > 0 && method.power > 0) {
-    let low = 0, high = Math.floor(capital / regularWage);
+    let low = 0, high = Math.floor(capital / ordinaryWage);
     while (low < high) {
       const count = Math.ceil((low + high) / 2);
-      if (industrialPayroll(good, count, method).total + electricityUse(method, count) * powerPrice <= capital) low = count;
+      if (industrialPayroll(good, count, method, ordinaryWage).total + electricityUse(method, count) * powerPrice <= capital) low = count;
       else high = count - 1;
     }
     return low;
   }
-  const wage = industrialPayroll(good, 100, method).total / 100;
+  const wage = industrialPayroll(good, 100, method, ordinaryWage).total / 100;
   const estimated = Math.floor(capital / wage);
-  return industrialPayroll(good, estimated, method).total <= capital ? estimated : estimated - 1;
+  return industrialPayroll(good, estimated, method, ordinaryWage).total <= capital ? estimated : estimated - 1;
 }
 
-export function workingCapitalPerLevel(good: Good, method = industryMethod(good)) {
+export function workingCapitalPerLevel(good: Good, method = industryMethod(good), ordinaryWage = baseOrdinaryWage) {
   const { recipe } = method;
   const materialCost = industrialGoods.reduce((sum, material) =>
     sum + (recipe[material] ?? 0) * industries[material].basePrice, 0);
-  return Math.ceil(4 * (materialCost + industrialPayroll(good, method.jobs, method).total +
+  return Math.ceil(4 * (materialCost + industrialPayroll(good, method.jobs, method, ordinaryWage).total +
     method.power * industries.electricity.basePrice));
 }
 
-export function workingCapitalTarget(levels: ScenarioLevels, methods = normalMethods) {
-  return goods.reduce((sum, good) => sum + (levels[good] ?? 0) * workingCapitalPerLevel(good, methods[good]), 0);
+export function workingCapitalTarget(levels: ScenarioLevels, methods = normalMethods, ordinaryWage = baseOrdinaryWage) {
+  return goods.reduce((sum, good) => sum + (levels[good] ?? 0) * workingCapitalPerLevel(good, methods[good], ordinaryWage), 0);
 }
 
 export function initialIndustrialAccount(levels: ScenarioLevels): IndustrialAccount | undefined {
