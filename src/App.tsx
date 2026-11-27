@@ -1,6 +1,6 @@
 import { useEffect, useMemo, useRef, useState } from "react";
 import { defaultMaxTickRate, DeveloperPanel } from "./DeveloperPanel.tsx";
-import { EndingsGallery, StartMenu, TutorialGuide } from "./CampaignMenus.tsx";
+import { EndingsGallery, StartMenu, TutorialConstructionReview, TutorialGuide } from "./CampaignMenus.tsx";
 import { DiplomacyPanel } from "./DiplomacyPanel.tsx";
 import { EconomyPanel } from "./EconomyPanel.tsx";
 import { PoliticsPanel } from "./PoliticsPanel.tsx";
@@ -13,7 +13,7 @@ import { archiveAchievements, archiveEnding, autoSaveSlot, autoSaveSlots, listGa
 import type { SaveSlot, SaveSummary } from "./game/storage.ts";
 import { difficultyLevels, difficultyNames, difficultySchema } from "./game/settings.ts";
 import type { Difficulty } from "./game/settings.ts";
-import { canSettleVictory, completeGuideStep, defaultEndYear, endYearSchema } from "./game/campaign.ts";
+import { canSettleVictory, completeGuideStep, defaultEndYear, endYearSchema, noteTutorialProject, tutorialReviewReady } from "./game/campaign.ts";
 import { CLAIM_COST, claimError, settlementAt, settlementContested, territorialClaimError, territoryType } from "./game/territory.ts";
 import { StateMap } from "./map/StateMap.tsx";
 import { capitals } from "./map/capitals.ts";
@@ -158,7 +158,6 @@ export function App({ scenario: baseScenario, geometry, initialSaves, initialSav
   function openGovernment(nextTab = tab) {
     setTab(nextTab);
     setGovernmentOpen(true);
-    if (nextTab === "economy") markGuide(1);
   }
   function launch(tutorial: boolean) {
     setNotice("");
@@ -209,7 +208,9 @@ export function App({ scenario: baseScenario, geometry, initialSaves, initialSav
     }
     setGame((previous) => {
       const next = dispatch(baseScenario, previous, cmd);
-      return cmd.type === "queueConstruction" ? completeGuideStep(completeGuideStep(next, 3), 7) : next;
+      return cmd.type === "queueConstruction" ? noteTutorialProject(next, {
+        stateId: cmd.stateId, good: cmd.good, privateBuild: cmd.privateBuild ?? false,
+      }) : next;
     });
   }
   const commandResult = view?.room.results.find((result) => result.id === commandId);
@@ -261,19 +262,16 @@ export function App({ scenario: baseScenario, geometry, initialSaves, initialSav
     if (!connection && screen === "play" && achievements?.length)
       void archiveAchievements(achievements).catch((error: unknown) => setNotice("成就归档失败 · " + String(error)));
   }, [connection, achievements, screen]);
-  const guideWeek = soloGame.campaign?.guideWeek;
   const guideStep = soloGame.campaign?.tutorialEnabled && !soloGame.campaign.guideSkipped ? soloGame.campaign.guideStep : null;
-  const currentWeek = Math.floor(soloGame.elapsedDays / 7);
+  const reviewReady = !connection && tutorialReviewReady(soloGame, player);
   const hasAdvanced = elapsedTicks(soloGame) > 0;
   useEffect(() => {
     if (!connection && screen === "play" && guideStep === 0 && !running && hasAdvanced)
       setGame((state) => completeGuideStep(state, 0));
   }, [connection, screen, guideStep, running, hasAdvanced]);
   useEffect(() => {
-    if (connection || screen !== "play" || guideStep !== 4 || guideWeek == null || currentWeek <= guideWeek) return;
-    setUntil(null);
-    setGame((state) => completeGuideStep(state, 4));
-  }, [connection, screen, guideStep, guideWeek, currentWeek]);
+    if (screen === "play" && reviewReady) setUntil(null);
+  }, [screen, reviewReady]);
   const populationDay = soloGame.lastPopulation?.day ?? 0;
   useEffect(() => {
     if (connection || !soloGame.playerCountryId || populationDay <= savedMonth.current) return;
@@ -409,7 +407,7 @@ export function App({ scenario: baseScenario, geometry, initialSaves, initialSav
           cells={layerCells}
           selectedId={player ? selected : null} preview={picker ? choice : null} onSelect={setSelected} />
         {player && (!connection || onlinePlaying) && <>
-          <TreasuryStatus game={game} countryId={player} />
+          <TreasuryStatus game={game} countryId={player} onInspect={() => markGuide(1)} />
           <MapGovernmentMenu open={openGovernment} />
         </>}
         {player && <div className="map-layers">
@@ -464,7 +462,7 @@ export function App({ scenario: baseScenario, geometry, initialSaves, initialSav
           {layerCells && <small>{layerCells[selected].text}</small>}
         </button>}
         {!connection && screen === "play" && game.campaign?.tutorialEnabled
-          && !finished && <TutorialGuide campaign={game.campaign} skip={() => setGame((state) => ({
+          && !finished && <TutorialGuide campaign={game.campaign} reviewReady={reviewReady} skip={() => setGame((state) => ({
             ...state, campaign: { ...state.campaign!, guideSkipped: true },
           }))} />}
       </main>
@@ -579,6 +577,8 @@ export function App({ scenario: baseScenario, geometry, initialSaves, initialSav
                 <dt>政府集团</dt><dd>{game.nations[player].government.join("、")}</dd>
               </dl>
             </section>}
+            {tab === "economy" && reviewReady &&
+              <TutorialConstructionReview scenario={scenario} game={game} countryId={player} onReview={() => markGuide(guideStep!)} />}
             {tab === "economy" && <EconomyPanel
               scenario={scenario}
               game={game}
@@ -587,11 +587,9 @@ export function App({ scenario: baseScenario, geometry, initialSaves, initialSav
               report={report}
               busy={locked || finished}
               send={send}
-              onPopulationOpen={() => markGuide(5)}
+              onPopulationOpen={() => { if (owner === player) markGuide(5); }}
+              onCommodityOpen={() => markGuide(6)}
             />}
-            {tab === "economy" && !connection && guideStep === 6 && game.lastEconomy && <button className="menu-button" onClick={() => markGuide(6)}>
-              已核对市场缺口
-            </button>}
             {tab === "politics" && <PoliticsPanel scenario={scenario} game={game} playerId={player} year={date.getUTCFullYear()} busy={locked || finished} send={send} />}
             {(tab === "diplomacy" || tab === "military") && <DiplomacyPanel
               view={tab}

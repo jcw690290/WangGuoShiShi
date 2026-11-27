@@ -2,7 +2,7 @@ import assert from "node:assert/strict";
 import { test } from "node:test";
 import "fake-indexeddb/auto";
 import { openDB } from "idb";
-import { completeGuideStep, defaultEndYear, guideSteps } from "../src/game/campaign.ts";
+import { completeGuideStep, defaultEndYear, guideSteps, noteTutorialProject } from "../src/game/campaign.ts";
 import { advanceDay, campaignEndDate, createGame, dispatch, isScenarioFinished } from "../src/game/engine.ts";
 import { archiveAchievements, archiveEnding, listAchievements, listEndings, parseSave, saveVersion } from "../src/game/storage.ts";
 import { endingCatalog } from "../src/scenario/endings.ts";
@@ -72,7 +72,17 @@ test("52 条专属结局覆盖可选国家，教程按本局实际顺序推进�
     id, endYear: defaultEndYear, tutorialEnabled: true,
   }), { type: "selectCountry", countryId });
   assert.strictEqual(completeGuideStep(game, 1), game);
-  for (let step = 0; step < guideSteps.length; step++) game = completeGuideStep(game, step);
+  for (const step of [0, 1, 2]) game = completeGuideStep(game, step);
+  const project = { stateId: "Yunnan", good: "infrastructure", privateBuild: false } as const;
+  const command = { type: "queueConstruction", countryId, ...project } as const;
+  game = noteTutorialProject(dispatch(borderScenario, game, command), project);
+  assert.strictEqual(completeGuideStep(game, 4), game);
+  game = parseSave(borderScenario, { version: saveVersion, scenarioId: borderScenario.id, state: game });
+  game = dispatch(borderScenario, game, { type: "advanceWeek" });
+  for (const step of [4, 5, 6]) game = completeGuideStep(game, step);
+  game = noteTutorialProject(dispatch(borderScenario, game, command), project);
+  assert.strictEqual(completeGuideStep(game, 7), game);
+  game = completeGuideStep(dispatch(borderScenario, game, { type: "advanceWeek" }), 7);
   assert.equal(game.campaign!.guideStep, guideSteps.length);
   assert.deepEqual(parseSave(borderScenario, { version: saveVersion, scenarioId: borderScenario.id, state: game }), game);
 });

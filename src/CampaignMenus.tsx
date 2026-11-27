@@ -8,6 +8,10 @@ import { achievementCatalog, achievementKey } from "./game/achievements.ts";
 import type { AchievementRecord } from "./game/achievements.ts";
 import { endingCatalog, endingStory, endingTitle } from "./scenario/endings.ts";
 import type { Scenario } from "./scenario/scenario.ts";
+import type { GameState } from "./game/engine.ts";
+import { remainingProjectPoints } from "./game/economy.ts";
+import { industries, isGood } from "./game/industry.ts";
+import { facilityNames } from "./game/society.ts";
 
 export function StartMenu({ saveCount, busy, hasCurrent, newGame, resume, gallery, returnToGame, notice }: {
   saveCount: number | null;
@@ -108,11 +112,13 @@ export function EndingsGallery({ scenario, close }: { scenario: Scenario; close:
   </dialog>;
 }
 
-export function TutorialGuide({ campaign, skip }: { campaign: Campaign; skip: () => void }) {
+export function TutorialGuide({ campaign, reviewReady, skip }: { campaign: Campaign; reviewReady: boolean; skip: () => void }) {
   const current = guideSteps[campaign.guideStep];
+  const hint = reviewReady ? "本周已结算。打开经济与人口复盘施工。" :
+    campaign.guideStep === 7 && campaign.guideProject ? "短期工程已安排。继续推进至下一次周结。" : current?.[1];
   return <aside className="tutorial-guide" aria-label="新手教程">
     {!campaign.guideSkipped && current && <>
-      <p><strong>{campaign.guideStep + 1}/{guideSteps.length} {current[0]}</strong> {current[1]}</p>
+      <p><strong>{campaign.guideStep + 1}/{guideSteps.length} {current[0]}</strong> {hint}</p>
       <button className="menu-button" onClick={skip}>跳过教程</button>
     </>}
     <details>
@@ -120,4 +126,22 @@ export function TutorialGuide({ campaign, skip }: { campaign: Campaign; skip: ()
       <ol>{guideSteps.map(([title, text]) => <li key={title}><strong>{title}</strong> {text}</li>)}</ol>
     </details>
   </aside>;
+}
+
+export function TutorialConstructionReview({ scenario, game, countryId, onReview }: {
+  scenario: Scenario; game: GameState; countryId: string; onReview: () => void;
+}) {
+  const project = game.campaign!.guideProject;
+  const construction = game.lastEconomy!.countries[countryId].construction!;
+  const queue = project?.privateBuild ? game.nations[countryId].privateQueue : game.countryEconomies[countryId].queue;
+  const pending = project && queue.find(({ stateId, good }) => stateId === project.stateId && good === project.good);
+  const spending = project?.privateBuild ? construction.private : construction.public;
+  return <section className="panel control-block" aria-label="教程施工复盘">
+    <h3>施工复盘</h3>
+    {project && <p>{scenario.states[project.stateId].name} · {isGood(project.good) ? industries[project.good].name : facilityNames[project.good]}
+      {" · "}{pending ? `队列剩余 ${remainingProjectPoints(pending).toFixed(2)} 点` : "已离开队列，可查看该州设施"}。</p>}
+    <p>{project?.privateBuild ? "私人" : "政府"}施工最近周投入 {spending.points.toFixed(2)} 点 ·
+      实付工资 {silver(spending.wages)} · 材料 {silver(spending.materials)}。</p>
+    <button type="button" className="menu-button" onClick={onReview}>已核对本周施工</button>
+  </section>;
 }
