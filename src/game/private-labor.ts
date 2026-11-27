@@ -1,12 +1,12 @@
 import { z } from "zod";
-import { goods } from "./industry.ts";
+import { productiveBuildings } from "./industry.ts";
 
 const headcount = z.int().nonnegative();
 export const staffingSchema = z.object({ ordinary: headcount, skilled: headcount })
   .refine(({ ordinary, skilled }) => ordinary + skilled > 0);
 export const industryLaborSchema = z.object({
   wage: z.int().positive(),
-  staffing: z.partialRecord(z.enum(goods), staffingSchema),
+  staffing: z.partialRecord(z.enum(productiveBuildings), staffingSchema),
 });
 export type IndustryLabor = z.infer<typeof industryLaborSchema>;
 type Staffing = z.infer<typeof staffingSchema>;

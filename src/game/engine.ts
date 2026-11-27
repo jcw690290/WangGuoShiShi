@@ -28,7 +28,7 @@ import type { TradeCommand, TradeRoute } from "./trade.ts";
 import { advanceAchievements } from "./achievements.ts";
 import { chooseLocalNegotiation, negotiateLocalUnrest } from "./unrest.ts";
 import type { LocalUnrestCommand } from "./unrest.ts";
-import { industries, isGood } from "./industry.ts";
+import { industries, isProductiveBuilding } from "./industry.ts";
 import { effectiveConvoyCapacity, maxConvoyOrder, shipGoodsPerConvoy } from "./fleet.ts";
 import { institutionCommands, institutionLawKinds, institutionLawLimit, institutionLawOptions, institutionLevelError,
   institutionLevelSchema, institutionNames, institutionStaffNeed, institutions, recordInstitutionDuty } from "./institutions.ts";
@@ -575,8 +575,8 @@ function applyCommand(
       if (error) throw new GameRuleError(error);
       const cost = projectDeposit(good), { weeks } = projects[good],
         job = { stateId, good, weeksLeft: weeks,
-          ...(isGood(good) ? { ownership: projectOwnership(good, state.nations[id].laws, privateBuild === true) } : {}) };
-      if (privateBuild && isGood(good)) {
+          ...(isProductiveBuilding(good) ? { ownership: projectOwnership(good, state.nations[id].laws, privateBuild === true) } : {}) };
+      if (privateBuild && isProductiveBuilding(good)) {
         const n = state.nations[id];
         return {
           ...state,

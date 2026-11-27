@@ -4,7 +4,8 @@ import { z } from "zod";
 import { disputeSchema, participants } from "./diplomacy.ts";
 import { createGame, DAY_MS, elapsedTicks, getGameDate, isPopulationMonth, TICKS_PER_DAY } from "./engine.ts";
 import type { GameState } from "./engine.ts";
-import { byIndustrialGood, commercialLevels, goods, industries, isGood, isIndustrialGood, isLocalGood } from "./industry.ts";
+import { byIndustrialGood, commercialLevels, goods, industries, isGood, isIndustrialGood, isLocalGood,
+  isProductiveBuilding, productiveBuildings } from "./industry.ts";
 import { initialIndustrialAccount, industrialAccountSchema, industrialReportSchema,
   industrialRetrofits, industrySubsidyLimit, industrySubsidyReportSchema, isIndustrialRetrofit, productionTierAt } from "./industrial.ts";
 import { officeReportSchema } from "./administration.ts";
@@ -292,6 +293,7 @@ const siteReport = z.object({
   industrialWage: uint.positive().optional(),
   industries: z.object({ grain: industry, cloth: industry, ...byIndustrialGood(() =>
     industry.default({ employed: 0, output: 0, wages: 0 })) }),
+  cashCrops: industry.optional(),
   populationChange: cash.optional(),
   foodFulfillment: fraction.optional(),
   householdConsumption: goodsNumbers.optional(),
@@ -331,6 +333,9 @@ const siteReport = z.object({
   ownershipIncome: ownershipAmountsSchema.optional(),
   investment: uint,
 }).refine((site) => (site.deployedConscripts ?? 0) <= site.conscripts
+).refine(({ cashCrops, industries: { luxury } }) => cashCrops === undefined ||
+  (cashCrops.output <= luxury.output && cashCrops.employed <= luxury.employed && cashCrops.wages <= luxury.wages &&
+    (cashCrops.sold ?? 0) <= Math.min(cashCrops.output, luxury.sold ?? 0))
 ).refine((site) => site.power === undefined ||
   site.power.delivered <= Math.min(site.industries.electricity.output, site.power.requested)
 ).refine((site) => {
@@ -370,7 +375,8 @@ export function parseSave(baseScenario: Scenario, save: unknown): GameState {
     moves: z.array(z.object({ from: activeSite, to: activeSite, people: uint.positive() })
       .refine(({ from, to }) => from !== to)).optional(),
   }).nullable();
-  const stateEconomy = z.object({ population: z.int().positive(), buildings: goodsNumbers, localQuotes: quotes.optional(),
+  const stateEconomy = z.object({ population: z.int().positive(),
+    buildings: goodsNumbers.extend({ cashCrops: uint.default(0) }), localQuotes: quotes.optional(),
     industryLabor: industryLaborSchema.optional(),
     industrial: industrialAccountSchema.optional(), basicBudget: uint, discretionaryBudget: uint.optional(), cropland: uint.optional(),
     constructionStock: constructionStockSchema.optional(), localTreasury: uint.optional(),
@@ -498,7 +504,7 @@ export function parseSave(baseScenario: Scenario, save: unknown): GameState {
   if (data.version >= 9 && owned.some((id) => state.stateEconomies[id].commercialRecipes !== true)) invalid();
   for (const id of owned) {
     const { ownership, buildings } = state.stateEconomies[id];
-    if (ownership && goods.some((good) => {
+    if (ownership && productiveBuildings.some((good) => {
       const levels = ownership[good];
       return levels && ownershipKinds.reduce((total, kind) => total + levels[kind], 0) !== buildings[good];
     })) invalid();
@@ -662,7 +668,7 @@ export function parseSave(baseScenario: Scenario, save: unknown): GameState {
     const retrofits = new Set<string>();
     for (const p of queued) {
       if (state.ownerByStateId[p.stateId] !== id || p.weeksLeft > projects[p.good].weeks ||
-        (p.ownership !== undefined && !isGood(p.good)) ||
+        (p.ownership !== undefined && !isProductiveBuilding(p.good)) ||
         ((p.good === "port" || p.good === "shipGoods") && !scenario.states[p.stateId].coastal) ||
         (p.levels !== undefined && (!isGood(p.good) || isIndustrialGood(p.good) || p.levels !== commercialLevels[p.good]))) invalid();
       if (isIndustrialRetrofit(p.good)) {
@@ -733,7 +739,7 @@ export function parseSave(baseScenario: Scenario, save: unknown): GameState {
         (stability.lastResolved && Object.entries(stability.lastResolved).some(([cause, day]) =>
           day > state.elapsedDays || !(cause in stability.lastIncident))) ||
         (stability.incident?.calmSince !== undefined && stability.incident.calmSince > state.elapsedDays))) invalid();
-    if (!local.industrial && goods.some((good) => local.buildings[good] > 0)) invalid();
+    if (!local.industrial && productiveBuildings.some((good) => local.buildings[good] > 0)) invalid();
     if (local.industrial && local.industrial.stocks.electricity !== 0) invalid();
     if (local.buildings.shipGoods > 0 && !scenario.states[id].coastal) invalid();
     if (pops.reduce((sum, p) => sum + p.people, 0) !== local.population) invalid();
@@ -753,7 +759,7 @@ export function parseSave(baseScenario: Scenario, save: unknown): GameState {
       if (local.cropland !== undefined && reserved > local.cropland) invalid();
       if (local.cropland === undefined) local.cropland = Math.max(openingCropland!, reserved);
     }
-    for (const g of goods)
+    for (const g of productiveBuildings)
       if (
         local.buildings[g] + queue.reduce((count, p) => count + (p.stateId === id && p.good === g ? p.levels ?? 1 : 0), 0) >
         buildingCapacity(scenario.states[id], local, g)

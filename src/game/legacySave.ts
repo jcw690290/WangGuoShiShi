@@ -170,7 +170,7 @@ export function importRegionalSave(region: Scenario, world: Scenario, save: unkn
         ...(industrial === undefined ? {} : { industrial }),
         population: local.population,
         basicBudget: openingBasicBudget(local.population),
-        buildings: { ...byGood((good) => isIndustrialGood(good) ? 0 : local.buildings[good]), steel, arms, ammo },
+        buildings: { ...byGood((good) => isIndustrialGood(good) ? 0 : local.buildings[good]), steel, arms, ammo, cashCrops: 0 },
       };
       const site = base.societies[id],
         sum = site.pops.reduce((a, p) => a + p.people, 0);

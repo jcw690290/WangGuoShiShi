@@ -1,15 +1,18 @@
 export const originalGoods = ["grain", "cloth"] as const;
 export const industrialGoods = ["wood", "iron", "coal", "tools", "paper", "services", "food", "fiber", "dailyGoods", "luxury", "steel", "arms", "ammo", "shipGoods", "electricity", "oil", "rubber", "opium"] as const;
 export const goods = [...originalGoods, ...industrialGoods] as const;
+export const productiveBuildings = [...goods, "cashCrops"] as const;
 export function isLocalGood(good: Good) {
   return good === "services" || good === "electricity";
 }
 export const tradableGoods = goods.filter((good) => !isLocalGood(good));
 export type Good = typeof goods[number];
+export type ProductiveBuilding = typeof productiveBuildings[number];
 export type IndustrialGood = typeof industrialGoods[number];
 export type ByGood<T> = Record<Good, T>;
+export type ByProductiveBuilding<T> = Record<ProductiveBuilding, T>;
 export type ByIndustrialGood<T> = Record<IndustrialGood, T>;
-export type ScenarioLevels = Record<typeof originalGoods[number], number> & Partial<ByIndustrialGood<number>>;
+export type ScenarioLevels = Record<typeof originalGoods[number], number> & Partial<Record<Exclude<ProductiveBuilding, typeof originalGoods[number]>, number>>;
 
 export const commercialLevels = { grain: 12, cloth: 4 } as const;
 export const legacyCommercialCost = { grain: 240_000, cloth: 360_000 } as const;
@@ -21,8 +24,12 @@ export function isGood(value: string): value is Good {
   return (goods as readonly string[]).includes(value);
 }
 
+export function isProductiveBuilding(value: string): value is ProductiveBuilding {
+  return value === "cashCrops" || isGood(value);
+}
+
 export function isIndustrialGood(value: Good): value is IndustrialGood {
-  return (industrialGoods as readonly Good[]).includes(value);
+  return (industrialGoods as readonly string[]).includes(value);
 }
 
 // Quantities are weekly. Game price units are worth ten hundredths of a tael.
@@ -80,6 +87,14 @@ export const industries = {
 
 export function byGood<T>(make: (good: Good) => T): ByGood<T> {
   return { grain: make("grain"), cloth: make("cloth"), ...byIndustrialGood(make) };
+}
+
+export const cashCropFarm = { name: "经济作物种植", jobs: 100, output: 20, cost: 130_000, weeks: 3 };
+export const productiveDefinitions = { ...industries, cashCrops: cashCropFarm };
+export const outputGood = (building: ProductiveBuilding): Good => building === "cashCrops" ? "luxury" : building;
+
+export function byProductiveBuilding<T>(make: (building: ProductiveBuilding) => T): ByProductiveBuilding<T> {
+  return { ...byGood(make), cashCrops: make("cashCrops") };
 }
 
 export function byIndustrialGood<T>(make: (good: IndustrialGood) => T): ByIndustrialGood<T> {

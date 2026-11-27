@@ -6,7 +6,7 @@ import { initialCulturalAffinity } from "./culture.ts";
 import { governanceLaws, isGovernanceLaw, localGovernanceSchema } from "./governance.ts";
 import { emptyStability, stabilitySchema } from "./unrest.ts";
 import type { LocalStability } from "./unrest.ts";
-import { goods } from "./industry.ts";
+import { productiveBuildings } from "./industry.ts";
 import { initialFleet, merchantFleetSchema } from "./fleet.ts";
 import { institutionDutySchema, institutionLawDetails, institutionLawKinds, institutionLawOptions, institutionLevelSchema } from "./institutions.ts";
 import { bondedRuralShare, laborLawCategory, laborLaws, laborProtection, neutralLaborLaws,
@@ -98,7 +98,7 @@ export const siteSocialSchema = z.object({
   mechanizeTools: z.int().min(0).max(1).default(0),
   alloySteel: z.int().min(0).max(1).default(0),
   administrativeArchive: z.int().min(0).max(1).default(0),
-  productionMethods: z.partialRecord(z.enum(goods), z.enum(productionTiers)).optional(),
+  productionMethods: z.partialRecord(z.enum(productiveBuildings), z.enum(productionTiers)).optional(),
   university: z.int().nonnegative(),
   bureaucracy: z.int().nonnegative().default(0),
   healthcare: institutionLevelSchema.default(0),
@@ -188,7 +188,7 @@ const knowledgeSchema = z.object({
 });
 export const privateProject = z.object({
   stateId: z.string(),
-  good: z.enum(goods),
+  good: z.enum(productiveBuildings),
   weeksLeft: z.number().positive(),
   levels: z.int().positive().optional(),
   ownership: ownershipSchema.optional(),
@@ -225,7 +225,7 @@ export const facilityNames = {
   barracks: "兵营",
   conscription: "征兵中心",
 };
-export const projectTypes = [...goods, ...facilityTypes, ...productionProjects] as const;
+export const projectTypes = [...productiveBuildings, ...facilityTypes, ...productionProjects] as const;
 export const subjectTypes = ["protectorate", "puppet", "vassal"] as const;
 export const tributeRate = { protectorate: 0.1, puppet: 0.15, vassal: 0.2 };
 export const nationSchema = z.object({
