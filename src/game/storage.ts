@@ -14,6 +14,7 @@ import { reservedCropland, subsistenceReportSchema } from "./subsistence.ts";
 import { migrateCommercialProduction } from "./commercialMigration.ts";
 import { openingMetrics } from "./campaignMetrics.ts";
 import { laborLawCategory, startingLaborLaws } from "./labor.ts";
+import { isTaxLaw, taxLaws, taxReceiptSchema } from "./taxation.ts";
 import { buildingCapacity, militaryProcurementCost, projects, unusedPrepaidConstruction } from "./economy.ts";
 import { constructionMaintenanceSchema, constructionReportSchema, constructionStockSchema, constructionSpending, constructionWage } from "./construction.ts";
 import { nationSchema, siteSocialSchema, projectTypes } from "./society.ts";
@@ -226,6 +227,7 @@ const countryReport = z.object({
   tax: uint,
   wageTaxRate: z.literal([10, 14]),
   wageTaxGain: uint,
+  taxReceipts: taxReceiptSchema.optional(),
   clothOutputBonus: z.literal([0, 25, 40]),
   clothOutputGain: uint,
   military,
@@ -246,7 +248,9 @@ const countryReport = z.object({
   tradeTariff: uint.optional(),
   tradeSeaCargo: uint.optional(),
   fleet: fleetReportSchema.optional(),
-}).refine((country) => (country.officeUpkeep ?? 0) + (country.healthcareUpkeep ?? 0) + (country.policingUpkeep ?? 0) +
+}).refine((country) => country.taxReceipts === undefined ||
+  country.taxReceipts.income + country.taxReceipts.excise + (country.tradeTariff ?? 0) === country.tax
+).refine((country) => (country.officeUpkeep ?? 0) + (country.healthcareUpkeep ?? 0) + (country.policingUpkeep ?? 0) +
   (country.welfareUpkeep ?? 0) + (country.educationUpkeep ?? 0) + militaryProcurementCost(country.military.procurement) +
   (country.construction === undefined ? 0 : constructionSpending(country.construction.public)) +
   (country.constructionMaintenance === undefined ? 0 : constructionSpending(country.constructionMaintenance)) +
@@ -475,6 +479,7 @@ export function parseSave(scenario: Scenario, save: unknown): GameState {
     for (const kind of institutionLawKinds) levels[kind] = Math.max(levels[kind], state.societies[stateId][kind]);
   }
   for (const [id, n] of Object.entries(state.nations)) {
+    if (!n.laws.some(isTaxLaw)) n.laws.push(taxLaws[0]);
     for (const law of startingLaborLaws(id)) {
       if (!n.laws.some((current) => laborLawCategory(current) === laborLawCategory(law))) n.laws.push(law);
     }

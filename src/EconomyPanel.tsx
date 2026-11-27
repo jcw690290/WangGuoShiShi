@@ -18,6 +18,7 @@ import { basicEquivalentSupply, extraGoods } from "./game/households.ts";
 import { institutionCommands, institutionGoods, institutionLawLimit, institutionLevelError,
   institutionNames, institutions } from "./game/institutions.ts";
 import { bondedRuralWorkers, ruralPopulation } from "./game/labor.ts";
+import { exciseGoods, taxBandNames, taxBands, taxPolicy } from "./game/taxation.ts";
 
 function cultureName(scenario: Scenario, id: string) {
   const separator = id.indexOf("-");
@@ -402,6 +403,7 @@ export function EconomyPanel({ scenario, game, playerId, selectedId, report, bus
   const countryReport = report.countries[marketId];
   const { market, tax, wageTaxRate, upkeep, tribute, officeUpkeep, military, fleet, tradeSeaCargo } = countryReport;
   const nation = game.nations[marketId];
+  const policy = taxPolicy(nation);
   const { tributeReceived, balance } = weeklyBudgets(game.nations, report)[marketId];
   const countryLiving = useMemo(() => livingStandardOf(Object.entries(game.societies)
     .filter(([stateId]) => game.ownerByStateId[stateId] === marketId).flatMap(([, site]) => site.pops)),
@@ -487,10 +489,32 @@ export function EconomyPanel({ scenario, game, playerId, selectedId, report, bus
               <dd>{countryLiving > 0 ? countryLiving.toFixed(1) : "—"}</dd>
             </div>
             <div>
-              <dt>周税收（工资税 {wageTaxRate}%）</dt>
+              <dt>周税收</dt>
               <dd>{silver(tax)}</dd>
+              {countryReport.taxReceipts ? <small>
+                {countryReport.taxReceipts.system} · {taxBandNames[countryReport.taxReceipts.band]}档 · 所得税 {silver(countryReport.taxReceipts.income)} ·
+                消费税 {silver(countryReport.taxReceipts.excise)} · 关税 {silver(countryReport.tradeTariff ?? 0)}
+              </small> : <small>工资税 {wageTaxRate}%</small>}
             </div>
           </dl>
+          {marketId === playerId && <details className="control-block">
+            <summary>税收设置 · {policy.system} · {taxBandNames[nation.taxBand]}档</summary>
+            <label>税率档位{" "}
+              <select value={nation.taxBand} disabled={busy}
+                onChange={(event) => send({ type: "setTaxBand", countryId: playerId, band: event.target.value as typeof nation.taxBand })}>
+                {taxBands.map((band) => <option key={band} value={band}>{taxBandNames[band]}</option>)}
+              </select>
+            </label>
+            {policy.system === "消费税制" && <fieldset>
+              <legend>征收消费税的商品 · 名义税率 {Math.round(policy.exciseRate * 100)}%</legend>
+              {exciseGoods.map((good) => <label key={good}>
+                <input type="checkbox" checked={nation.exciseGoods.includes(good)} disabled={busy}
+                  onChange={(event) => send({ type: "setExciseGoods", countryId: playerId, goods: event.target.checked
+                    ? [...nation.exciseGoods, good] : nation.exciseGoods.filter((selected) => selected !== good) })} />
+                {industries[good].goodName}
+              </label>)}
+            </fieldset>}
+          </details>}
           {fiscal && <details className="control-block">
             <summary>财政信用 · {riskNames[fiscal.week.risk]} · 债务 {silver(fiscal.debt)}</summary>
             <p>信用上限 {silver(fiscal.week.creditLimit)} · 年利率 {(fiscal.week.annualRate * 100).toFixed(2)}%</p>

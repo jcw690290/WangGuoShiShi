@@ -33,6 +33,7 @@ import { institutionCommands, institutionLawKinds, institutionLawLimit, institut
   institutionLevelSchema, institutionNames, institutionStaffNeed, institutions } from "./institutions.ts";
 import type { Institution } from "./institutions.ts";
 import { laborStatus } from "./labor.ts";
+import { exciseGoodsSchema, taxBands, taxBandSchema, taxPolicy } from "./taxation.ts";
 export { DAY_MS, elapsedTicks, TICKS_PER_DAY } from "./time.ts";
 
 export interface GameState {
@@ -68,6 +69,8 @@ export type GameCommand =
   | { type: "setConvoyOrder"; countryId: string; stateId: string; operation: "add" | "move" | "cancel" }
   | { type: "setFleetMotorization"; countryId: string; stateId: string; enabled: boolean }
   | { type: (typeof institutionCommands)[Institution]; countryId: string; stateId: string; level: number }
+  | { type: "setTaxBand"; countryId: string; band: Nation["taxBand"] }
+  | { type: "setExciseGoods"; countryId: string; goods: Nation["exciseGoods"] }
   | { type: "advanceTick" | "advanceWeek" | "advanceDay" | "advanceHalfYear" }
   | PoliticsCommand
   | GovernanceCommand
@@ -223,6 +226,11 @@ export function advanceTick(
         choosePort(scenario, result, id, settled.lastEconomy) ?? chooseElectrification(scenario, result, id) ??
         chooseConstruction(scenario, result, id, market);
       if (result.elapsedDays % 28 === 0) {
+        const fiscal = result.countryEconomies[id].fiscal!;
+        const band = taxBands.indexOf(result.nations[id].taxBand);
+        if ((fiscal.week.risk === "restricted" || fiscal.week.risk === "defaulted") && band < taxBands.length - 1) {
+          result = applyCommand(scenario, result, { type: "setTaxBand", countryId: id, band: taxBands[band + 1] });
+        }
         const integration = chooseIntegration(result, id);
         if (integration) result = applyGovernanceCommand(result, integration);
         const agreement = chooseLocalNegotiation(result, id);
@@ -333,6 +341,19 @@ function applyCommand(
     }
     case "setRuleTuning":
       return { ...state, settings: { ...state.settings, tuning: cmd.tuning } };
+    case "setTaxBand":
+    case "setExciseGoods": {
+      const nation = state.nations[cmd.countryId];
+      if (!nation) throw new GameRuleError("无法设置陌生国家的税收");
+      if (cmd.type === "setTaxBand") {
+        if (!taxBandSchema.safeParse(cmd.band).success) throw new GameRuleError("税率档位无效");
+        return { ...state, nations: { ...state.nations, [cmd.countryId]: { ...nation, taxBand: cmd.band } } };
+      }
+      if (taxPolicy(nation).system !== "消费税制") throw new GameRuleError("需先施行消费税制");
+      const selected = exciseGoodsSchema.safeParse(cmd.goods);
+      if (!selected.success) throw new GameRuleError("消费税商品无效或重复");
+      return { ...state, nations: { ...state.nations, [cmd.countryId]: { ...nation, exciseGoods: selected.data } } };
+    }
     case "claimState":
       return applyClaim(scenario, state, cmd.stateId);
     case "setLocalGovernance":

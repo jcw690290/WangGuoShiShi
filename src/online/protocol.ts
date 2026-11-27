@@ -7,6 +7,7 @@ import { groups, laws, projectTypes, techs } from "../game/society.ts";
 import { governanceModes } from "../game/governance.ts";
 import { goods } from "../game/industry.ts";
 import { institutionCommands, institutionLevelSchema } from "../game/institutions.ts";
+import { exciseGoodsSchema, taxBandSchema } from "../game/taxation.ts";
 import { tradeLimit, tradeModes } from "../game/trade.ts";
 import { parseSave } from "../game/storage.ts";
 import type { Scenario } from "../scenario/scenario.ts";
@@ -32,6 +33,8 @@ const commandSchema = z.discriminatedUnion("type", [
   z.strictObject({ type: z.literal("setConvoyOrder"), countryId: id, stateId: id, operation: z.enum(["add", "move", "cancel"]) }),
   z.strictObject({ type: z.literal("setFleetMotorization"), countryId: id, stateId: id, enabled: z.boolean() }),
   z.strictObject({ type: z.enum(institutionCommands), countryId: id, stateId: id, level: institutionLevelSchema }),
+  z.strictObject({ type: z.literal("setTaxBand"), countryId: id, band: taxBandSchema }),
+  z.strictObject({ type: z.literal("setExciseGoods"), countryId: id, goods: exciseGoodsSchema }),
   z.strictObject({ type: z.literal("setGovernment"), countryId: id, government: z.array(z.enum(groups)).max(groups.length) }),
   z.strictObject({ type: z.literal("proposeLaw"), countryId: id, law: z.enum(laws) }),
   z.strictObject({ type: z.literal("startResearch"), countryId: id, tech: z.enum(techs) }),
