@@ -1,6 +1,7 @@
 import { GameRuleError } from "./rules.ts";
 import type { GameState } from "./engine.ts";
 import type { EconomyReport } from "./economy.ts";
+import { institutionLawDetails, institutionRequiredTech } from "./institutions.ts";
 import { groups, influence, literacyOf, reformConditions, reformWork, techs, unrestOf } from "./society.ts";
 import type { Group, Law, Nation, SiteSocial, Tech } from "./society.ts";
 
@@ -55,16 +56,16 @@ export const techEffect: Record<Tech, string> = {
   机械织造: "布匹产出再增加 15%",
   野战后勤: "有效战力 +25%",
   运输调度: "前线运输容量 +30%",
-  公共教育: "允许将学校提升到 2 级，实付大学教学也可提升识字率",
-  高等教育: "允许将学校提升到 3 级，提高大学教学的识字增益",
+  公共教育: "解锁《公共学校》，实付大学教学也可提升识字率",
+  高等教育: "解锁《普及教育》，提高大学教学的识字增益",
   蒸汽动力: "研究铁路的前置技术",
   铁路: "允许建设铁路，改善市场接入和陆运",
   规模化钢铁: "研究电气化的前置技术",
   电气化: "允许发电设施及工具厂、钢铁厂的电动改造",
   内燃机: "允许开采石油，商船装设辅助内燃机",
-  公共卫生: "允许将医疗机构提升到 2–3 级",
-  劳工保障: "允许将福利机构提升到 2 级",
-  社会保障: "允许将福利机构提升到 3 级",
+  公共卫生: "解锁《公共诊疗》和《普及医疗》",
+  劳工保障: "解锁《公共救济》",
+  社会保障: "解锁《社会保险》",
 };
 export const lawEffect: Record<Law, string> = {
   工资税改革: "工资税从 10% 提高至 14%",
@@ -76,6 +77,15 @@ export const lawEffect: Record<Law, string> = {
   出版自由: "解除科技扩散的审查折减",
   地主租佃: "自给农业出售余粮和木材所得的 20% 归土地所有者",
   小农自耕: "自给农业出售余粮和木材所得全部归农户",
+  地方教育: "允许各州设置最高 1 级学校",
+  公共学校: "允许各州设置最高 2 级学校",
+  普及教育: "允许各州设置最高 3 级学校",
+  地方诊疗: "允许各州设置最高 1 级医疗机构",
+  公共诊疗: "允许各州设置最高 2 级医疗机构",
+  普及医疗: "允许各州设置最高 3 级医疗机构",
+  地方救济: "允许各州设置最高 1 级福利机构",
+  公共救济: "允许各州设置最高 2 级福利机构",
+  社会保险: "允许各州设置最高 3 级福利机构",
 };
 export type PoliticsCommand =
   | { type: "setGovernment"; countryId: string; government: Group[] }
@@ -102,6 +112,11 @@ export function politicsError(state: GameState, command: PoliticsCommand) {
       return "已有研究、缺少前置技术或已经掌握该技术";
   } else {
     if (nation.reform !== null || nation.laws.includes(command.law)) return "已有议案或该法已生效";
+    const institution = institutionLawDetails(command.law);
+    if (institution) {
+      const technology = institutionRequiredTech(institution.kind, institution.level);
+      if (technology && nation.knowledge[technology] !== 100) return `立项需要掌握${technology}技术`;
+    }
     const sites = ownedSocieties(state, id);
     const power = influence(sites, id, nation);
     if (!reformConditions(nation, power, command.law, unrestOf(sites.flatMap((site) => site.pops))).speed)
@@ -162,8 +177,10 @@ export function advancePolitics(state: GameState, report: EconomyReport, year: n
         nation.reformProgress += reformConditions(nation, influence(sites, id, nation), nation.reform, unrestOf(people)).speed;
         if (nation.reformProgress >= reformWork - 1e-9) {
           const reform = nation.reform;
+          const institution = institutionLawDetails(reform);
           const retained = nation.laws.filter(
             (l) =>
+              !(institution && institutionLawDetails(l)?.kind === institution.kind) &&
               !(reform === "自由放任" && l === "干预主义") && !(reform === "干预主义" && l === "自由放任") &&
               !(reform === "小农自耕" && l === "地主租佃") && !(reform === "地主租佃" && l === "小农自耕"),
           );

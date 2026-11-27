@@ -7,7 +7,7 @@ import { localGovernanceSchema } from "./governance.ts";
 import { emptyStability, stabilitySchema } from "./unrest.ts";
 import { goods } from "./industry.ts";
 import { initialFleet, merchantFleetSchema } from "./fleet.ts";
-import { institutionLevelSchema } from "./institutions.ts";
+import { institutionLawDetails, institutionLawKinds, institutionLawOptions, institutionLevelSchema } from "./institutions.ts";
 
 export const occupations = ["农民", "劳工", "工程师", "军官", "教士", "店主", "资本家", "贵族"] as const;
 export type Occupation = (typeof occupations)[number];
@@ -83,6 +83,7 @@ export const laws = [
   "出版自由",
   "地主租佃",
   "小农自耕",
+  ...institutionLawKinds.flatMap((kind) => [...institutionLawOptions[kind]]),
 ] as const;
 export type Law = (typeof laws)[number];
 export const techs = ["纺织工艺", "野战后勤", "公共教育", "机械织造", "运输调度", "高等教育", "蒸汽动力", "铁路",
@@ -148,7 +149,8 @@ export const tributeRate = { protectorate: 0.1, puppet: 0.15, vassal: 0.2 };
 export const nationSchema = z.object({
   government: z.array(z.enum(groups)).min(1),
   startingRepresentation: z.literal("limited").optional(),
-  laws: z.array(z.enum(laws)),
+  laws: z.array(z.enum(laws)).refine((enacted) => institutionLawKinds.every((kind) =>
+    enacted.filter((law) => institutionLawDetails(law)?.kind === kind).length <= 1)),
   reform: z.enum(laws).nullable(),
   reformProgress: z.number().nonnegative(),
   research: z.enum(techs).nullable(),
@@ -221,7 +223,7 @@ export function initSociety(scenario: Scenario) {
     nations[id] = {
       ...(limitedVoteCountries.has(id) ? { startingRepresentation: "limited" as const } : {}),
       government: ["地主", "乡民"],
-      laws: [],
+      laws: institutionLawKinds.map((kind) => institutionLawOptions[kind][0]),
       reform: null,
       reformProgress: 0,
       research: null,
@@ -287,11 +289,20 @@ export const supporters: Record<Law, Group[]> = {
   出版自由: ["知识分子", "实业家"],
   地主租佃: ["地主"],
   小农自耕: ["乡民", "小市民"],
+  地方教育: ["教会", "地主"],
+  公共学校: ["知识分子", "乡民"],
+  普及教育: ["知识分子", "工会", "小市民"],
+  地方诊疗: ["地主", "教会"],
+  公共诊疗: ["小市民", "知识分子", "乡民"],
+  普及医疗: ["知识分子", "工会", "乡民"],
+  地方救济: ["教会", "地主"],
+  公共救济: ["乡民", "工会", "教会"],
+  社会保险: ["工会", "乡民", "小市民"],
 };
 export function approval(nation: Nation, g: Group) {
   return (
     (nation.government.includes(g) ? 8 : 0) +
-    nation.laws.reduce((n, l) => n + (supporters[l].includes(g) ? 4 : -1), 0)
+    nation.laws.reduce((n, l) => institutionLawDetails(l)?.level === 1 ? n : n + (supporters[l].includes(g) ? 4 : -1), 0)
   );
 }
 export const reformWork = 2;

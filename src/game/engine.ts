@@ -29,8 +29,8 @@ import { chooseLocalNegotiation, negotiateLocalUnrest } from "./unrest.ts";
 import type { LocalUnrestCommand } from "./unrest.ts";
 import { industries, isGood } from "./industry.ts";
 import { effectiveConvoyCapacity, maxConvoyOrder, shipGoodsPerConvoy } from "./fleet.ts";
-import { institutionCommands, institutionLevelSchema, institutionNames,
-  institutionRequiredTech, institutionStaffNeed, institutions } from "./institutions.ts";
+import { institutionCommands, institutionLawKinds, institutionLawLimit, institutionLawOptions, institutionLevelError,
+  institutionLevelSchema, institutionNames, institutionStaffNeed, institutions } from "./institutions.ts";
 import type { Institution } from "./institutions.ts";
 export { DAY_MS, elapsedTicks, TICKS_PER_DAY } from "./time.ts";
 
@@ -145,14 +145,14 @@ export function advanceDay(
 }
 
 function chooseInstitutionUpgrade(state: GameState, report: EconomyReport, countryId: string, kind: Institution) {
-  if (kind === "healthcare" && state.nations[countryId].knowledge["公共卫生"] < 100) return;
+  const nation = state.nations[countryId];
+  if (kind === "healthcare" && nation.knowledge["公共卫生"] < 100) return;
   const treasury = state.countryEconomies[countryId].treasury;
   const market = report.countries[countryId].market;
   return Object.entries(state.societies).flatMap(([stateId, site]) => {
     if (state.ownerByStateId[stateId] !== countryId || state.occupation?.stateId === stateId || site[kind] === 3) return [];
     const level = site[kind] + 1;
-    const technology = institutionRequiredTech(kind, level);
-    if (technology && state.nations[countryId].knowledge[technology] < 100) return [];
+    if (institutionLevelError(kind, level, nation.laws, nation.knowledge)) return [];
     const local = report.states[stateId];
     const unrest = site.stability?.unrest ?? 0;
     const foodGap = 1 - local.foodFulfillment!;
@@ -167,6 +167,18 @@ function chooseInstitutionUpgrade(state: GameState, report: EconomyReport, count
     return coverage >= 0.7 * site[kind] / 3 && treasury >= weeklyReserve * 26
       ? [{ stateId, level, population, priority }] : [];
   }).sort((a, b) => b.priority - a.priority || a.level - b.level || b.population - a.population)[0];
+}
+
+function chooseInstitutionLaw(state: GameState, report: EconomyReport, countryId: string): PoliticsCommand | undefined {
+  const nation = state.nations[countryId];
+  const owned = Object.keys(state.ownerByStateId).filter((id) => state.ownerByStateId[id] === countryId);
+  for (const kind of institutionLawKinds) {
+    const level = institutionLawLimit(nation.laws, kind);
+    if (level === 3 || !owned.some((id) => state.societies[id][kind] >= level &&
+        (report.states[id][kind]?.coverage ?? 0) >= 0.7 * level / 3)) continue;
+    const proposal = { type: "proposeLaw", countryId, law: institutionLawOptions[kind][level] } as const;
+    if (!politicsError(state, proposal)) return proposal;
+  }
 }
 
 export function advanceTick(
@@ -235,9 +247,13 @@ export function advanceTick(
           countryId: id,
           tech: pending[(result.rng + hash(id)) % pending.length],
         });
-      if (!n.reform && !n.laws.includes("普选制")) {
-        const cmd = { type: "proposeLaw", countryId: id, law: "普选制" } as const;
-        if (!politicsError(result, cmd)) result = applyCommand(scenario, result, cmd);
+      if (!n.reform) {
+        const institutionLaw = result.elapsedDays % 28 === 0 ? chooseInstitutionLaw(result, settled.lastEconomy, id) : undefined;
+        if (institutionLaw) result = applyCommand(scenario, result, institutionLaw);
+        else if (!n.laws.includes("普选制")) {
+          const cmd = { type: "proposeLaw", countryId: id, law: "普选制" } as const;
+          if (!politicsError(result, cmd)) result = applyCommand(scenario, result, cmd);
+        }
       }
     }
     const job = chooseConstruction(scenario, result, id, market, true);
@@ -403,9 +419,9 @@ function applyCommand(
       if (level === site[kind]) return state;
       if (level > site[kind]) {
         if (state.occupation?.stateId === stateId) throw new GameRuleError("该州处于军事占领中");
-        const technology = institutionRequiredTech(kind, level);
-        if (technology && state.nations[countryId].knowledge[technology] !== 100)
-          throw new GameRuleError(`需要掌握${technology}技术才能提升至 ${level} 级`);
+        const nation = state.nations[countryId];
+        const error = institutionLevelError(kind, level, nation.laws, nation.knowledge);
+        if (error) throw new GameRuleError(error);
       }
       return { ...state, societies: { ...state.societies, [stateId]: { ...site, [kind]: level } } };
     }

@@ -27,7 +27,7 @@ import type { IndustrialAccount, IndustrialReport } from "./industrial.ts";
 import { deliverOffice, officeNeed, planOffice } from "./administration.ts";
 import type { OfficeReport } from "./administration.ts";
 import { byInstitution, byInstitutionGood, deliverInstitution, deliverInstitutionOrders,
-  deliverWelfareRelief, institutionGoods, institutions, isInstitutionGood, planInstitution, planWelfareRelief } from "./institutions.ts";
+  deliverWelfareRelief, institutionGoods, institutionLawLimit, institutions, isInstitutionGood, planInstitution, planWelfareRelief } from "./institutions.ts";
 import type { Institution, InstitutionReport, WelfareRelief } from "./institutions.ts";
 import { harvestGood, isCrop, rentRateOf, reservedCropland, subsistenceHarvest } from "./subsistence.ts";
 import type { SubsistenceReport } from "./subsistence.ts";
@@ -553,7 +553,7 @@ function projectSettlement(state: GameState, war?: WarPlan, closingTick?: number
     const universityStaff = Math.min(labour, workForce(engineers), site.university * universityJobs);
     const unassignedAfterUniversity = Math.min(labour - universityStaff, workForce(engineers) - universityStaff);
     const offices = state.occupation?.stateId === id ? 0 : site.bureaucracy;
-    const office = planOffice(officeNeed(local.population, site, state.settings.difficulty),
+    const office = planOffice(officeNeed(local.population, site, state.settings.difficulty, nation.laws),
       offices, unassignedAfterUniversity, cashToCommit[owner]);
     officePlans.set(id, office);
     cashToCommit[owner] -= office.reserved;
@@ -569,7 +569,8 @@ function projectSettlement(state: GameState, war?: WarPlan, closingTick?: number
     let institutionStaff = 0;
     const institutionCapacity = state.occupation?.stateId === id ? 0 : unassignedAfterUniversity - office.staff - administrators;
     const services = byInstitution((kind) => {
-      const plan = planInstitution(kind, local.population, site[kind], institutionCapacity - institutionStaff,
+      const level = Math.min(site[kind], institutionLawLimit(nation.laws, kind));
+      const plan = planInstitution(kind, local.population, level, institutionCapacity - institutionStaff,
         cashToCommit[owner], ceilings);
       institutionStaff += plan.staff;
       cashToCommit[owner] -= plan.reserved;

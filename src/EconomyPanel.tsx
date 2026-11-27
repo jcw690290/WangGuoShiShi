@@ -15,7 +15,8 @@ import { portCapacity } from "./game/transport.ts";
 import { effectiveConvoyCapacity, maxConvoyOrder, rubberPerMotor, shipGoodsPerConvoy, shipGoodsPerMotor } from "./game/fleet.ts";
 import { incidentNames, unrestEffects } from "./game/unrest.ts";
 import { basicEquivalentSupply, extraGoods } from "./game/households.ts";
-import { institutionCommands, institutionGoods, institutionNames, institutionRequiredTech, institutions } from "./game/institutions.ts";
+import { institutionCommands, institutionGoods, institutionLawLimit, institutionLevelError,
+  institutionNames, institutions } from "./game/institutions.ts";
 
 function cultureName(scenario: Scenario, id: string) {
   const separator = id.indexOf("-");
@@ -185,15 +186,15 @@ function StateIndustry({
       <div className="control-block">
         {institutions.filter((kind) => isOwnState || society[kind] > 0 || snapshot[kind]).map((kind) => {
           const name = institutionNames[kind], level = society[kind], service = snapshot[kind];
-          const technology = institutionRequiredTech(kind, level + 1);
-          const locked = technology !== undefined && nation.knowledge[technology] < 100;
+          const limit = institutionLawLimit(nation.laws, kind);
+          const locked = level < 3 ? institutionLevelError(kind, level + 1, nation.laws, nation.knowledge) : undefined;
           const relief = kind === "welfare" ? snapshot.welfareRelief : undefined;
           const updateLevel = (newLevel: number) =>
             send({ type: institutionCommands[kind], countryId: playerId, stateId, level: newLevel });
           return <details key={kind}>
-            <summary>{name} · {level} 级</summary>
+            <summary>{name} · {level} 级{level > limit ? ` · 法律上限 ${limit} 级` : ""}</summary>
             {service && <>
-              <p>周结覆盖 {Math.round(service.coverage * 100)}% · 实付岗位 {count(service.staff)} / {count(service.needed)} 人</p>
+              <p>周结 {service.level} 级 · 覆盖 {Math.round(service.coverage * 100)}% · 实付岗位 {count(service.staff)} / {count(service.needed)} 人</p>
               <p>工资 {silver(service.wages)} · 采购 {silver(service.spending)} · 到货{" "}
                 {institutionGoods.map((good) =>
                   `${industries[good].goodName} ${count(service.delivered[good])} / ${count(service.orders[good])}`).join(" · ")}</p>
@@ -206,9 +207,9 @@ function StateIndustry({
               <button className="build" disabled={busy || level === 0} onClick={() => updateLevel(level - 1)}>
                 降低{name}等级
               </button>
-              <button className="build" disabled={busy || occupied || level === 3 || locked} onClick={() => updateLevel(level + 1)}>
+              <button className="build" disabled={busy || occupied || level === 3 || locked !== undefined} onClick={() => updateLevel(level + 1)}>
                 提升{name}等级
-                {locked && <small>需要{technology}技术</small>}
+                {locked && <small>{locked}</small>}
               </button>
             </div>}
           </details>;

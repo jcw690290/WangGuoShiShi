@@ -20,6 +20,33 @@ const institutionTechnologies: Record<Institution, Partial<Record<number, Tech>>
   education: { 2: "公共教育", 3: "高等教育" },
 };
 export const institutionRequiredTech = (kind: Institution, level: number) => institutionTechnologies[kind][level];
+
+export const institutionLawKinds = ["education", "healthcare", "welfare"] as const;
+type InstitutionLawKind = typeof institutionLawKinds[number];
+export const institutionLawOptions = {
+  education: ["地方教育", "公共学校", "普及教育"],
+  healthcare: ["地方诊疗", "公共诊疗", "普及医疗"],
+  welfare: ["地方救济", "公共救济", "社会保险"],
+} as const;
+export const institutionLawFamilies = { education: "教育法", healthcare: "医疗法", welfare: "福利法" };
+const institutionLawIndex = new Map<string, { kind: InstitutionLawKind; level: number }>(
+  institutionLawKinds.flatMap((kind) => institutionLawOptions[kind].map((law, index) => [law, { kind, level: index + 1 }] as const)),
+);
+export const institutionLawDetails = (law: string) => institutionLawIndex.get(law);
+
+export function institutionLawLimit(laws: readonly string[], kind: Institution) {
+  if (kind === "policing") return 3;
+  const options = institutionLawOptions[kind];
+  return (options.findIndex((law) => laws.includes(law)) + 1) || 1;
+}
+
+export function institutionLevelError(kind: Institution, level: number, laws: readonly string[], knowledge: Record<Tech, number>) {
+  const technology = institutionRequiredTech(kind, level);
+  if (technology && knowledge[technology] !== 100) return `需要掌握${technology}技术`;
+  const limit = institutionLawLimit(laws, kind);
+  if (kind !== "policing" && level > limit)
+    return `《${institutionLawOptions[kind][limit - 1]}》允许最高 ${limit} 级`;
+}
 const count = z.int().nonnegative();
 export const institutionGoods = ["paper", "tools", "services"] as const;
 type InstitutionGood = typeof institutionGoods[number];
