@@ -32,9 +32,10 @@ import { countryDisplayName } from "./game/constitution.ts";
 import { constitutionalCrisisWarning } from "./game/constitutional-crises.ts";
 import { civilSides, controlledCivilCountry, mustChooseCivilSide, oppositionId, scenarioWithCivilWar } from "./game/civil-war.ts";
 import { garrisonHeadcount } from "./game/military.ts";
+import { loadLauncherPreferences, playbackSpeedSchema, playInterfaceCue, saveLauncherPreferences, tickRates } from "./launcher-preferences.ts";
+import type { LauncherPreferences } from "./launcher-preferences.ts";
 
 const dateFormat = new Intl.DateTimeFormat("zh-CN", { dateStyle: "long", timeZone: "UTC" });
-const tickRates = [1, 2, 4, 8];
 const periods = ["00:00", "06:00", "12:00", "18:00"];
 function DifficultyOptions() {
   return difficultyLevels.map((level) => <option key={level} value={level}>{difficultyNames[level]}</option>);
@@ -53,9 +54,12 @@ export function App({ scenario: baseScenario, geometry, initialSaves, initialSav
   const [mapLayer, setMapLayer] = useState<MapLayer>("owner");
   const [governmentOpen, setGovernmentOpen] = useState(false);
   const [drawerExpanded, setDrawerExpanded] = useState(false);
+  const [loadedSettings] = useState(loadLauncherPreferences);
+  const [preferences, setPreferences] = useState(loadedSettings.preferences);
+  const audio = useRef<AudioContext | null>(null);
   const [endYear, setEndYear] = useState(String(defaultEndYear));
   const [busy, setBusy] = useState(false),
-    [notice, setNotice] = useState(initialSaveNotice);
+    [notice, setNotice] = useState(initialSaveNotice || loadedSettings.message);
   const [saves, setSaves] = useState<SaveSummary[] | null>(initialSaves);
   const [activeSlot, setActiveSlot] = useState<SaveSlot>("local");
   const savedMonth = useRef(0);
@@ -65,7 +69,7 @@ export function App({ scenario: baseScenario, geometry, initialSaves, initialSav
   const [openingDifficulty, setOpeningDifficulty] = useState<Difficulty>("relaxed");
   const [span, setSpan] = useState<Span | "continuous">("continuous"),
     [until, setUntil] = useState<number | null>(null);
-  const [speed, setSpeed] = useState(2);
+  const [speed, setSpeed] = useState(preferences.speed);
   const [maxTickRate, setMaxTickRate] = useState(defaultMaxTickRate);
   const [developerOpen, setDeveloperOpen] = useState(false);
   const logoClicks = useRef({ count: 0, time: -Infinity });
@@ -150,18 +154,42 @@ export function App({ scenario: baseScenario, geometry, initialSaves, initialSav
   const ending = game.campaign?.ending;
   const achievements = game.campaign?.achievements?.records;
   const deadline = campaignEndDate(scenario, game);
+  function updatePreferences(value: LauncherPreferences) {
+    setPreferences(value);
+    try {
+      saveLauncherPreferences(value);
+    } catch {
+      setNotice("无法保存本机设置，本次打开游戏期间仍可使用。");
+    }
+  }
+  async function interfaceCue() {
+    if (preferences.volume === 0) return;
+    try {
+      audio.current ??= new AudioContext();
+      await playInterfaceCue(audio.current, preferences.volume);
+    } catch {
+      setNotice("无法播放提示音。");
+    }
+  }
+  useEffect(() => () => {
+    if (audio.current) void audio.current.close();
+    audio.current = null;
+  }, []);
   const constitutionalWarning = player && constitutionalCrisisWarning(game, player);
   const picker = !connection && (screen === "new" || screen === "tutorial");
   function markGuide(step: number) {
     if (!connection) setGame((state) => completeGuideStep(state, step));
   }
   function openGovernment(nextTab = tab) {
+    if (!governmentOpen) void interfaceCue();
     setTab(nextTab);
     setGovernmentOpen(true);
   }
   function launch(tutorial: boolean) {
     setNotice("");
-    setOpeningDifficulty("relaxed");
+    void interfaceCue();
+    setOpeningDifficulty(tutorial ? "relaxed" : preferences.difficulty);
+    setSpeed(preferences.speed);
     setEndYear(String(defaultEndYear));
     if (tutorial && Object.hasOwn(scenario.countries, "country_12")) setChoice("country_12");
     setScreen(tutorial ? "tutorial" : "new");
@@ -361,7 +389,7 @@ export function App({ scenario: baseScenario, geometry, initialSaves, initialSav
             <span className="paused">{running ? "推进中" : "已暂停"}</span>
             <time dateTime={dateISO + "T" + periods[game.tickInDay]}>{dateFormat.format(date)} {periods[game.tickInDay]}</time>
             <select aria-label="单机推进速度" value={speed} disabled={finished}
-              onChange={(event) => setSpeed(Number(event.target.value))}>
+              onChange={(event) => setSpeed(playbackSpeedSchema.parse(Number(event.target.value)))}>
               {tickRates.map((rate) => <option key={rate} value={rate}>{rate} tick／秒</option>)}
               <option value={5}>{maxTickRate} tick／秒</option>
             </select>
@@ -427,7 +455,8 @@ export function App({ scenario: baseScenario, geometry, initialSaves, initialSav
         </div>}
         {!connection && screen === "menu" && <StartMenu saveCount={saves?.length ?? null} busy={busy}
           hasCurrent={soloGame.playerCountryId !== null} newGame={launch} resume={() => void slot("recent")}
-          gallery={() => setGalleryOpen(true)} returnToGame={() => setScreen("play")} notice={notice} />}
+          gallery={() => { void interfaceCue(); setGalleryOpen(true); }} returnToGame={() => setScreen("play")} notice={notice}
+          preferences={preferences} updatePreferences={updatePreferences} previewSound={() => void interfaceCue()} />}
         {picker && <aside className="country-picker">
           <h1>选择国家</h1>
           {screen === "tutorial" && <p className="country-tip">推荐从瑞士或巴伐利亚开始。</p>}
