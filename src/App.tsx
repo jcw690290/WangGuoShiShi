@@ -20,6 +20,8 @@ import { capitals } from "./map/capitals.ts";
 import { countryColor } from "./map/cartography.ts";
 import { mapLayerCells, mapLayerLegends, mapLayerNames } from "./map/layers.ts";
 import type { MapLayer } from "./map/layers.ts";
+import { DrawerGrip, governmentEntries, MapGovernmentMenu, TreasuryStatus } from "./MapGovernment.tsx";
+import type { GovernmentTab } from "./MapGovernment.tsx";
 import type { StateGeometry } from "./map/geometry.ts";
 import { RoomDialog, useOnlineRoom } from "./online/RoomDialog.tsx";
 import type { Speed } from "./online/protocol.ts";
@@ -50,6 +52,7 @@ export function App({ scenario: baseScenario, geometry, initialSaves, initialSav
   const [galleryOpen, setGalleryOpen] = useState(false);
   const [mapLayer, setMapLayer] = useState<MapLayer>("owner");
   const [governmentOpen, setGovernmentOpen] = useState(false);
+  const [drawerExpanded, setDrawerExpanded] = useState(false);
   const [endYear, setEndYear] = useState(String(defaultEndYear));
   const [busy, setBusy] = useState(false),
     [notice, setNotice] = useState(initialSaveNotice);
@@ -84,8 +87,7 @@ export function App({ scenario: baseScenario, geometry, initialSaves, initialSav
   const scenario = useMemo(() => scenarioWithCivilWar(baseScenario, game.civilWar), [baseScenario, game.civilWar]);
   const onlinePlaying = view?.room.status === "playing";
   const canDrive = onlinePlaying && view.room.hostOnline && view.leased && !view.error;
-  const tabs = ["经济与人口", "政治与科技", "外交与战争"] as const;
-  const [tab, setTab] = useState<number>(0);
+  const [tab, setTab] = useState<GovernmentTab>("economy");
   const [search, setSearch] = useState("");
   const seat = connection ? onlineCountry ?? null : screen === "play" ? game.playerCountryId : null;
   const player = seat ? controlledCivilCountry(game, seat) : null;
@@ -156,7 +158,7 @@ export function App({ scenario: baseScenario, geometry, initialSaves, initialSav
   function openGovernment(nextTab = tab) {
     setTab(nextTab);
     setGovernmentOpen(true);
-    if (nextTab === 0) markGuide(1);
+    if (nextTab === "economy") markGuide(1);
   }
   function launch(tutorial: boolean) {
     setNotice("");
@@ -235,7 +237,7 @@ export function App({ scenario: baseScenario, geometry, initialSaves, initialSav
   useEffect(() => {
     if (!choosingSide) return;
     setUntil(null);
-    setTab(2);
+    setTab("military");
     setGovernmentOpen(true);
   }, [choosingSide]);
   useEffect(() => {
@@ -391,14 +393,13 @@ export function App({ scenario: baseScenario, geometry, initialSaves, initialSav
             </>}
           </div>}
           <div className="header-menus">
-            {choosingSide && <button className="menu-entry" aria-haspopup="dialog" onClick={() => openGovernment(2)}>
+            {choosingSide && <button className="menu-entry" aria-haspopup="dialog" onClick={() => openGovernment("military")}>
               选择内战阵营
             </button>}
-            {constitutionalWarning && <button className="menu-entry" aria-haspopup="dialog" onClick={() => openGovernment(1)}>
+            {constitutionalWarning && <button className="menu-entry" aria-haspopup="dialog" onClick={() => openGovernment("politics")}>
               政体冲突预警
             </button>}
             <button className="menu-entry" aria-haspopup="dialog" onClick={() => roomDialog.current!.showModal()}>联机</button>
-            {(connection || player) && <button className="menu-entry" aria-haspopup="dialog" onClick={() => openGovernment()}>政务菜单</button>}
           </div>
         </div>
       </header>
@@ -407,6 +408,10 @@ export function App({ scenario: baseScenario, geometry, initialSaves, initialSav
           owners={connection || player ? mapOwners : opening.ownerByStateId}
           cells={layerCells}
           selectedId={player ? selected : null} preview={picker ? choice : null} onSelect={setSelected} />
+        {player && (!connection || onlinePlaying) && <>
+          <TreasuryStatus game={game} countryId={player} />
+          <MapGovernmentMenu open={openGovernment} />
+        </>}
         {player && <div className="map-layers">
           <label className="sr-only" htmlFor="map-layer">地图图层</label>
           <select id="map-layer" value={mapLayer} onChange={(event) => setMapLayer(event.target.value as MapLayer)}>
@@ -453,7 +458,7 @@ export function App({ scenario: baseScenario, geometry, initialSaves, initialSav
         </aside>}
         {player && (!connection || onlinePlaying) && selected && <button className="site-chip" onClick={() => {
           if (owner === player) markGuide(2);
-          openGovernment(0);
+          openGovernment("economy");
         }}>{atlas[selected].name} · {owner ? countryNames[owner] : unownedLabels[selectedTerritory!]}
           {actualController && `（${countryNames[actualController]}控制）`} ›
           {layerCells && <small>{layerCells[selected].text}</small>}
@@ -469,11 +474,15 @@ export function App({ scenario: baseScenario, geometry, initialSaves, initialSav
         setMaxTickRate={setMaxTickRate} setTuning={(tuning) => send({ type: "setRuleTuning", tuning })}
         onClose={() => setDeveloperOpen(false)} />}
       <RoomDialog scenario={baseScenario} online={online} dialog={roomDialog} />
-      <dialog className="government" ref={menu} aria-label="政务菜单" onClose={() => setGovernmentOpen(false)}>
+      <dialog className="government" ref={menu} aria-label="政务菜单" data-expanded={drawerExpanded} onClose={() => {
+        setGovernmentOpen(false);
+        setDrawerExpanded(false);
+      }}>
         {governmentOpen && <>
+        <DrawerGrip expanded={drawerExpanded} setExpanded={setDrawerExpanded} />
         <header className="menu-tabs">
-          {tabs.map((title, i) => <button key={title} aria-pressed={tab === i}
-            onClick={() => openGovernment(i)}>{title}</button>)}
+          {governmentEntries.map(([entry, title]) => <button key={entry} aria-pressed={tab === entry}
+            onClick={() => openGovernment(entry)}>{title}</button>)}
           {!connection && <div className="slot-actions" role="group" aria-label="本地存档">
             <select aria-label="存档槽" value={activeSlot} disabled={locked || saves === null}
               onChange={(event) => setActiveSlot(saveSlotSchema.parse(event.target.value))}>
@@ -487,6 +496,7 @@ export function App({ scenario: baseScenario, geometry, initialSaves, initialSav
           </div>}
           <button className="close-menu" aria-label="关闭菜单" onClick={() => menu.current!.close()}>×</button>
         </header>
+        <div className="menu-body" key={tab}>
         <p role="status" className="save-notice">{online.error || notice}</p>
         {choosingSide && civilWar && (
           <section className="panel control-block" aria-label="选择内战阵营">
@@ -509,7 +519,6 @@ export function App({ scenario: baseScenario, geometry, initialSaves, initialSav
         {game.lastCivilWar?.countryId === seat && <p className="save-notice">
           上次内战由{game.lastCivilWar.winner === "government" ? "政府" : "反对派"}赢得，双方辖区已统一。
         </p>}
-        <div className="menu-body">
         {!connection && player && <div className="difficulty-control">
           <label>游戏难度
             <select aria-label="游戏难度" value={game.settings.difficulty} disabled={locked || finished}
@@ -560,7 +569,17 @@ export function App({ scenario: baseScenario, geometry, initialSaves, initialSav
           </section>
         )}
           {player && report && (!connection || onlinePlaying) ? <>
-            {tab === 0 && <EconomyPanel
+            {tab === "country" && <section className="panel">
+              <header className="panel-header"><h2>{countryNames[player]}</h2></header>
+              <dl className="control-block country-overview">
+                <dt>辖州</dt><dd>{count(Object.values(game.ownerByStateId).filter((country) => country === player).length)}</dd>
+                <dt>人口</dt><dd>{count(Object.entries(game.stateEconomies).reduce((sum, [id, local]) =>
+                  sum + (game.ownerByStateId[id] === player ? local.population : 0), 0))}</dd>
+                <dt>现有国库</dt><dd>{silver(game.countryEconomies[player].treasury)}</dd>
+                <dt>政府集团</dt><dd>{game.nations[player].government.join("、")}</dd>
+              </dl>
+            </section>}
+            {tab === "economy" && <EconomyPanel
               scenario={scenario}
               game={game}
               playerId={player}
@@ -570,11 +589,12 @@ export function App({ scenario: baseScenario, geometry, initialSaves, initialSav
               send={send}
               onPopulationOpen={() => markGuide(5)}
             />}
-            {tab === 0 && !connection && guideStep === 6 && game.lastEconomy && <button className="menu-button" onClick={() => markGuide(6)}>
+            {tab === "economy" && !connection && guideStep === 6 && game.lastEconomy && <button className="menu-button" onClick={() => markGuide(6)}>
               已核对市场缺口
             </button>}
-            {tab === 1 && <PoliticsPanel scenario={scenario} game={game} playerId={player} year={date.getUTCFullYear()} busy={locked || finished} send={send} />}
-            {tab === 2 && <DiplomacyPanel
+            {tab === "politics" && <PoliticsPanel scenario={scenario} game={game} playerId={player} year={date.getUTCFullYear()} busy={locked || finished} send={send} />}
+            {(tab === "diplomacy" || tab === "military") && <DiplomacyPanel
+              view={tab}
               scenario={scenario}
               game={game}
               playerId={player}

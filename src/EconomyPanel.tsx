@@ -3,6 +3,7 @@ import { facilityNames, facilityTypes, livingStandardOf, socialTags } from "./ga
 import { civicPolicy, civicStanding, nationalIdentity } from "./game/civic-policy.ts";
 import { privateShareOf, projectDeposit, projectPoints, remainingProjectPoints, weeklyBudgets } from "./game/economy.ts";
 import { count, silver } from "./format.ts";
+import { fiscalRiskNames } from "./game/fiscal.ts";
 import { buildingCapacity, constructionError, workForce } from "./game/economy.ts";
 import type { EconomyReport } from "./game/economy.ts";
 import type { GameCommand, GameState } from "./game/engine.ts";
@@ -449,7 +450,6 @@ export function EconomyPanel({ scenario, game, playerId, selectedId, report, bus
     .filter(([stateId]) => game.ownerByStateId[stateId] === marketId).flatMap(([, site]) => site.pops)),
   [game.societies, game.ownerByStateId, marketId]);
   const fiscal = game.countryEconomies[marketId].fiscal;
-  const riskNames = { stable: "稳定", warning: "信用预警", restricted: "限制新工程", defaulted: "违约" };
 
   return (
     <section className="economy" aria-labelledby="economy-title">
@@ -564,7 +564,7 @@ export function EconomyPanel({ scenario, game, playerId, selectedId, report, bus
             </fieldset>}
           </details>}
           {fiscal && <details className="control-block">
-            <summary>财政信用 · {riskNames[fiscal.week.risk]} · 债务 {silver(fiscal.debt)}</summary>
+            <summary>财政信用 · {fiscalRiskNames[fiscal.week.risk]} · 债务 {silver(fiscal.debt)}</summary>
             <p>信用上限 {silver(fiscal.week.creditLimit)} · 年利率 {(fiscal.week.annualRate * 100).toFixed(2)}%</p>
             <p>本周借款 {silver(fiscal.week.borrowed)} · 偿还本金 {silver(fiscal.week.repaid)}</p>
             <p>支付利息 {silver(fiscal.week.interestPaid)} · 未付利息 {silver(fiscal.arrears)}</p>
