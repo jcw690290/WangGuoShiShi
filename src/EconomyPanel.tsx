@@ -54,6 +54,10 @@ function StateIndustry({
   const local = game.stateEconomies[stateId];
   const { industries: activity, populationChange, conscripts } = report.states[stateId];
   const monthlyChange = game.lastPopulation?.changes[stateId];
+  const movements = game.lastPopulation?.moves?.reduce((totals, { from, to, people }) => ({
+    entered: totals.entered + (to === stateId ? people : 0),
+    left: totals.left + (from === stateId ? people : 0),
+  }), { entered: 0, left: 0 });
   const employed = goods.reduce((sum, good) => sum + activity[good].employed, report.states[stateId].subsistence?.employed ?? 0);
   const society = game.societies[stateId];
   const workforce =
@@ -101,6 +105,8 @@ function StateIndustry({
             {monthlyChange !== undefined && (
               <small>（上次月结 {monthlyChange > 0 ? "+" : ""}{count(monthlyChange)}）</small>
             )}
+            {movements && (movements.entered > 0 || movements.left > 0) &&
+              <small>上次月结迁入 {count(movements.entered)} · 迁出 {count(movements.left)}</small>}
             {monthlyChange === undefined && populationChange !== undefined && populationChange !== 0 && (
               <small>
                 （{populationChange > 0 ? "+" : ""}

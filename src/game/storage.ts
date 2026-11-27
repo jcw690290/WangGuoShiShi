@@ -355,7 +355,11 @@ export function parseSave(baseScenario: Scenario, save: unknown): GameState {
   const activeCountry = z.string().refine((id) => Object.hasOwn(scenario.countries, id));
   const project = z.object({ stateId: sites, good: z.enum(projectTypes), weeksLeft: z.number().positive(),
     levels: uint.positive().optional(), ownership: ownershipSchema.optional() });
-  const lastPopulation = z.object({ day: uint.positive(), changes: z.record(activeSite, cash) }).nullable();
+  const lastPopulation = z.object({
+    day: uint.positive(), changes: z.record(activeSite, cash),
+    moves: z.array(z.object({ from: activeSite, to: activeSite, people: uint.positive() })
+      .refine(({ from, to }) => from !== to)).optional(),
+  }).nullable();
   const stateEconomy = z.object({ population: z.int().positive(), buildings: goodsNumbers, localQuotes: quotes.optional(),
     industrial: industrialAccountSchema.optional(), basicBudget: uint, discretionaryBudget: uint.optional(), cropland: uint.optional(),
     constructionStock: constructionStockSchema.optional(), localTreasury: uint.optional(),
@@ -469,7 +473,8 @@ export function parseSave(baseScenario: Scenario, save: unknown): GameState {
   if (population && (
     population.day > state.elapsedDays ||
     !isPopulationMonth(scenario, { ...state, elapsedDays: population.day, tickInDay: 0 }) ||
-    Object.keys(population.changes).some((id) => !Object.hasOwn(state.ownerByStateId, id))
+    Object.keys(population.changes).some((id) => !Object.hasOwn(state.ownerByStateId, id)) ||
+    population.moves?.some(({ from, to }) => !Object.hasOwn(population.changes, from) || !Object.hasOwn(population.changes, to))
   )) invalid();
   const sameSites = (record: object) =>
     Object.keys(record).length === owned.length && owned.every((id) => Object.hasOwn(record, id));
