@@ -2,9 +2,10 @@ import { z } from "zod";
 import type { Scenario } from "../scenario/scenario.ts";
 import { culturalAffinityOf, cultureShares } from "./culture.ts";
 import { attacking, participants } from "./diplomacy.ts";
+import type { EconomyReport } from "./economy.ts";
 import type { GameState } from "./engine.ts";
-import { byGood, goods, industries, isLocalGood } from "./industry.ts";
-import type { ByGood } from "./industry.ts";
+import { byGood, goods, industries, isLocalGood, tradableGoods } from "./industry.ts";
+import type { ByGood, Good } from "./industry.ts";
 import type { MarketFill } from "./market.ts";
 import { marketOf } from "./market.ts";
 import { GameRuleError } from "./rules.ts";
@@ -16,7 +17,8 @@ import { opiumCommerceAllowed, opiumLaw } from "./opium.ts";
 import type { OpiumSmuggling } from "./opium.ts";
 
 const units = z.int().nonnegative();
-export const tradeLimit = z.int().positive().max(100_000);
+const maxTradeLimit = 100_000;
+export const tradeLimit = z.int().positive().max(maxTradeLimit);
 export const tradeModes = ["land", "sea"] as const;
 export type TradeMode = (typeof tradeModes)[number];
 const tradeEndpoint = {
@@ -176,6 +178,120 @@ export function expectedTrade(state: GameState) {
 
 type Orders = Record<string, ByGood<number>>;
 type NavalTradeRestrictions = { portAccess: ReadonlyMap<string, number>; blockadedPorts: ReadonlySet<string> };
+
+function tradeAmounts(state: GameState, route: TradeRoute, quantity: number, ask: number, bid: number) {
+  const affinity = culturalAffinityOf(state.societies[route.to]);
+  let familiarity = 0;
+  for (const [culture, share] of cultureShares(state.societies[route.from].pops))
+    if (Object.hasOwn(affinity, culture)) familiarity += affinity[culture] * share;
+  const purchase = ask * quantity, sales = bid * quantity;
+  const standardFreight = Math.ceil(purchase * 0.05 * route.cargoCost);
+  const freight = standardFreight - Math.floor(standardFreight * familiarity / 1000);
+  const tariff = Math.floor(purchase * tariffRate(state.nations[route.importer]) / 100);
+  return { purchase, sales, freight, tariff, profit: sales - purchase - freight - tariff };
+}
+
+export function chooseAITradeRoutes(scenario: Scenario, state: GameState, report: EconomyReport,
+  humanCountries: ReadonlySet<string | null>, naval?: NavalTradeRestrictions) {
+  const owned = Object.keys(state.ownerByStateId);
+  const coastal = owned.filter((id) => scenario.states[id].coastal && !naval?.blockadedPorts.has(id));
+  const portsByGood = byGood((good) => coastal.filter((id) => report.states[id].industries[good].unsold)
+    .sort((a, b) => report.states[a].localPrices[good] - report.states[b].localPrices[good]));
+  const existing = new Map((state.tradeRoutes ?? []).map((route) => [tradeRouteKey(route), route]));
+  const landUse = new Map<string, number>();
+  const existingRoom = new Set<string>();
+  for (const row of report.trade ?? []) {
+    if (row.status !== "shipped") continue;
+    const route = existing.get(tradeRouteKey(row));
+    if (!route || tradeRouteBlock(state, route)) continue;
+    if (row.quantity < route.limit) existingRoom.add(JSON.stringify([route.importer, row.good]));
+    if (row.mode === "land") {
+      for (const site of [row.from, row.to]) landUse.set(site, (landUse.get(site) ?? 0) + row.quantity);
+    }
+  }
+
+  const reserved = new Map<string, number>();
+  const reservedPorts = new Map<string, number>();
+  const commands: TradeCommand[] = [];
+  for (const importer of new Set(Object.values(state.ownerByStateId))) {
+    if (humanCountries.has(importer)) continue;
+    const market = marketOf(state, importer);
+    const country = report.countries[importer];
+    const convoyCapacity = effectiveConvoyCapacity(state.nations[importer]);
+    const occupiedConvoys = (country.military.seaCargoUsed ?? 0) + (country.tradeSeaCargo ?? 0);
+    const seaTargets = new Map<Good, { id: string; value: number; demand: number }>();
+    let best: { route: TradeRoute; profit: number } | undefined;
+
+    function consider(from: string, to: string, good: Good, mode: TradeMode, demand: number, bestProfit: number) {
+      const exporter = state.ownerByStateId[from];
+      if (!exporter || marketOf(state, exporter) === market || foreignTradeStatus(state, exporter, importer, good) ||
+          state.occupation?.stateId === from || state.occupation?.stateId === to) return;
+      const source = report.states[from], destination = report.states[to];
+      const supply = source.industries[good].unsold ?? 0;
+      const sourceKey = JSON.stringify([from, good]);
+      const spare = supply - (reserved.get(sourceKey) ?? 0);
+      const ask = source.localPrices[good], bid = destination.localPrices[good];
+      if (spare <= 0 || ask >= bid) return;
+      const previous = existing.get(tradeRouteKey({ from, to, good, mode }));
+      if (previous?.exporter === exporter && previous.importer === importer) return;
+      const path = routeTransport(scenario, from, to, mode);
+      if (!path) return;
+      const fromSite = state.societies[from], toSite = state.societies[to];
+      const sourceEffect = unrestEffects(fromSite.stability).transport, destinationEffect = unrestEffects(toSite.stability).transport;
+      let transport: number;
+      if (mode === "land") {
+        const rail = connectedRailway(fromSite.railway, toSite.railway);
+        const road = Math.min(Math.floor(path.fromCapacity * fromSite.infrastructure * sourceEffect),
+          Math.floor(path.toCapacity * toSite.infrastructure * destinationEffect));
+        const railway = Math.min(Math.floor(path.fromCapacity * rail * sourceEffect),
+          Math.floor(path.toCapacity * rail * destinationEffect));
+        transport = road + railway - Math.max(landUse.get(from) ?? 0, landUse.get(to) ?? 0);
+      } else {
+        const fromAccess = naval?.portAccess.get(from) ?? 1, toAccess = naval?.portAccess.get(to) ?? 1;
+        const spareConvoys = Math.floor(convoyCapacity * Math.min(fromAccess, toAccess)) - occupiedConvoys;
+        transport = Math.min(Math.floor(portCapacity(path.fromCapacity, fromSite) * fromAccess) -
+          (source.portMilitaryCargo ?? 0) - (source.portTradeCargo ?? 0) - (reservedPorts.get(from) ?? 0),
+          Math.floor(portCapacity(path.toCapacity, toSite) * toAccess) -
+          (destination.portMilitaryCargo ?? 0) - (destination.portTradeCargo ?? 0) - (reservedPorts.get(to) ?? 0),
+          Math.floor(spareConvoys / path.cargoCost));
+      }
+      const limit = Math.min(spare, demand, transport, maxTradeLimit);
+      if (limit <= 0 || (bid - ask) * limit <= bestProfit) return;
+      const route = { from, to, good, mode, exporter, importer, limit, paused: false, ...path };
+      const { profit } = tradeAmounts(state, route, limit, ask, bid);
+      if (profit > bestProfit) return { route, profit };
+    }
+
+    for (const to of owned) {
+      if (state.ownerByStateId[to] !== importer || state.occupation?.stateId === to) continue;
+      const destination = report.states[to], site = scenario.states[to];
+      for (const good of tradableGoods) {
+        const demand = destination.industries[good].unfilled ?? 0;
+        if (demand === 0 || existingRoom.has(JSON.stringify([importer, good]))) continue;
+        for (const from of site.neighbors) best = consider(from, to, good, "land", demand, best?.profit ?? 0) ?? best;
+        if (!site.coastal || convoyCapacity <= occupiedConvoys || naval?.blockadedPorts.has(to)) continue;
+        const value = demand * destination.localPrices[good];
+        if (value > (seaTargets.get(good)?.value ?? 0)) seaTargets.set(good, { id: to, value, demand });
+      }
+    }
+    for (const [good, { id: to, demand }] of seaTargets) {
+      const destination = report.states[to];
+      for (const from of portsByGood[good]) {
+        if (report.states[from].localPrices[good] >= destination.localPrices[good]) break;
+        best = consider(from, to, good, "sea", demand, best?.profit ?? 0) ?? best;
+      }
+    }
+    if (!best) continue;
+    const { from, to, good, mode, limit } = best.route;
+    const sourceKey = JSON.stringify([from, good]);
+    reserved.set(sourceKey, (reserved.get(sourceKey) ?? 0) + limit);
+    const capacityUse = mode === "land" ? landUse : reservedPorts;
+    for (const site of [from, to]) capacityUse.set(site, (capacityUse.get(site) ?? 0) + limit);
+    commands.push({ type: "openTradeRoute", countryId: importer, from, to, good, mode, limit });
+  }
+  return commands;
+}
+
 export function settleTrade(
   state: GameState,
   supplies: Orders,
@@ -263,16 +379,8 @@ export function settleTrade(
       demands[to][good] - fills[good][to].local - fills[good][to].poolBought - target.received[good],
     );
     if (quantity <= 0) return { ...empty, status: "noVolume" };
-    const ask = sites[from].localPrices[good], bid = sites[to].localPrices[good];
-    const affinity = culturalAffinityOf(state.societies[to]);
-    let familiarity = 0;
-    for (const [culture, share] of cultureShares(state.societies[from].pops))
-      if (Object.hasOwn(affinity, culture)) familiarity += affinity[culture] * share;
-    const purchase = ask * quantity, sales = bid * quantity;
-    const standardFreight = Math.ceil(purchase * 0.05 * cargoCost);
-    const freight = standardFreight - Math.floor(standardFreight * familiarity / 1000);
-    const tariff = Math.floor(purchase * tariffRate(state.nations[importer]) / 100);
-    const profit = sales - purchase - freight - tariff;
+    const amounts = tradeAmounts(state, route, quantity, sites[from].localPrices[good], sites[to].localPrices[good]);
+    const { purchase, freight, tariff, profit } = amounts;
     if (profit <= 0) return { ...empty, status: "unprofitable" };
     book(quantity);
     source.sent[good] += quantity;
@@ -281,7 +389,7 @@ export function settleTrade(
     target.freight += freight;
     target.profit += profit;
     target.tariff += tariff;
-    return { from, to, good, mode, quantity, status: "shipped", purchase, freight, tariff, sales, profit };
+    return { from, to, good, mode, quantity, status: "shipped", ...amounts };
   });
   const smuggling: OpiumSmuggling[] = [];
   const illicitImports = new Map<string, { attempted: number; seized: number; delivered: number; spending: number }>();

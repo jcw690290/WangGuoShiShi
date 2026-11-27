@@ -23,7 +23,7 @@ import type { DiplomaticTie } from "./diplomatic-ties.ts";
 import { applyGovernanceCommand, chooseIntegration } from "./governance.ts";
 import type { GovernanceCommand } from "./governance.ts";
 import { DAY_MS, elapsedTicks, TICKS_PER_DAY, TICKS_PER_WEEK } from "./time.ts";
-import { applyTradeCommand } from "./trade.ts";
+import { applyTradeCommand, chooseAITradeRoutes } from "./trade.ts";
 import type { TradeCommand, TradeRoute } from "./trade.ts";
 import { advanceAchievements } from "./achievements.ts";
 import { chooseLocalNegotiation, negotiateLocalUnrest } from "./unrest.ts";
@@ -332,10 +332,15 @@ export function advanceTick(
       monthly || result.borderDispute !== state.borderDispute || result.ownerByStateId !== state.ownerByStateId);
   }
   const yearFraction = fiscalWeekFraction(date);
-  const weekly = settleEconomy(next, planWar(scenario, next), yearFraction, scenario);
+  const warPlan = planWar(scenario, next);
+  const weekly = settleEconomy(next, warPlan, yearFraction, scenario);
   const settled = monthly ? settlePopulationMonth(scenario, weekly, date) : weekly;
   const battle = advanceFront(scenario, settled, settled.lastEconomy);
-  const recovered = recoverMilitaryInjuries(battle, settled.lastEconomy);
+  let recovered = recoverMilitaryInjuries(battle, settled.lastEconomy);
+  if (recovered.elapsedDays % 28 === 0) {
+    const routes = chooseAITradeRoutes(scenario, recovered, settled.lastEconomy, humanCountries, warPlan?.naval);
+    for (const route of routes) recovered = applyTradeCommand(scenario, recovered, route);
+  }
   let result = advanceConstitutionalCrises(
     advancePolitics(recovered, settled.lastEconomy, date.getUTCFullYear(), yearFraction),
   );

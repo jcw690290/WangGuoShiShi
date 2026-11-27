@@ -68,7 +68,10 @@ export function advanceConstitutionalCrises(state: GameState): GameState {
       alternatives.sort((a, b) => b.support - a.support)[0];
     if (choice) crises[id] = pending && choice.demand === pending.demand ? pending : { demand: choice.demand, since: state.elapsedDays };
   }
-  return { ...state, constitutionalCrises: Object.keys(crises).length ? crises : undefined };
+  if (Object.keys(crises).length > 0) return { ...state, constitutionalCrises: crises };
+  if (!Object.hasOwn(state, "constitutionalCrises")) return state;
+  const { constitutionalCrises: _resolved, ...current } = state;
+  return current;
 }
 
 export function constitutionalCompromiseError(state: GameState, countryId: string) {

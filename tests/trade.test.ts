@@ -9,6 +9,7 @@ import { applyPlayerCommand, decodeSnapshot, encodeSnapshot } from "../src/onlin
 import { borderScenario, scenario as world } from "../src/scenario/scenario.ts";
 import { effectiveConvoyCapacity } from "../src/game/fleet.ts";
 import { seaVoyageCargoCost } from "../src/game/transport.ts";
+import { chooseAITradeRoutes } from "../src/game/trade.ts";
 
 const qing = "country_01", vietnam = "country_26", to = "Tonkin", from = "Yunnan";
 const scenario = {
@@ -38,11 +39,25 @@ test("陆路贸易按实际发货结算供需、实收关税、运费、投资�
   assert.throws(() => dispatch(scenario, routed, order), /线路已存在/);
   assert.strictEqual(routed.countryEconomies, initial.countryEconomies);
   const before = projectEconomy(initial);
+  const orders = chooseAITradeRoutes(scenario, initial, before, new Set([qing]));
+  assert.equal(orders.length, 1);
+  assert.equal(orders[0].countryId, vietnam);
+  assert.equal(orders[0].good, "grain");
+  const automated = dispatch(scenario, initial, orders[0]);
+  assert.equal(projectEconomy(automated).trade![0].status, "shipped");
+  assert.ok(chooseAITradeRoutes(scenario, initial, before, new Set([vietnam]))
+    .every((proposal) => proposal.countryId !== vietnam));
+  const reviewed = advanceDay(scenario, { ...initial, playerCountryId: qing, elapsedDays: 27 });
+  assert.ok(reviewed.tradeRoutes?.some((route) => route.importer === vietnam && route.good === "grain"));
   const report = projectEconomy(routed);
   const [delivery] = report.trade!;
   assert.equal(delivery.status, "shipped");
   assert.equal(delivery.quantity, 100);
   assert.equal(report.states[from].industries.grain.sold! - before.states[from].industries.grain.sold!, delivery.quantity);
+  assert.equal(before.states[from].industries.grain.unsold! -
+    (report.states[from].industries.grain.unsold ?? 0), delivery.quantity);
+  assert.equal(before.states[to].industries.grain.unfilled! -
+    (report.states[to].industries.grain.unfilled ?? 0), delivery.quantity);
   assert.equal(report.states[to].householdConsumption!.grain - before.states[to].householdConsumption!.grain, delivery.quantity);
   assert.equal(delivery.sales, delivery.purchase + delivery.tariff + delivery.freight + delivery.profit);
   assert.equal(report.countries[vietnam].tradeTariff, delivery.tariff);
