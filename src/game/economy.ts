@@ -23,7 +23,7 @@ import { unrestEffects } from "./unrest.ts";
 import { affordableIndustryWorkers, electricityUse, electricIndustries, electricRetrofits, emptyIndustrialAccount,
   fundedRestock, initialIndustrialAccount, industrialPayroll, industryMethod, materialWorkers, operateIndustry,
   trainedLabourCapacity, workingCapitalPerLevel, workingCapitalTarget } from "./industrial.ts";
-import type { IndustrialAccount, IndustrialReport } from "./industrial.ts";
+import type { IndustrialAccount, IndustrialReport, IndustrySubsidyReport } from "./industrial.ts";
 import { deliverOffice, officeNeed, planOffice } from "./administration.ts";
 import type { OfficeReport } from "./administration.ts";
 import { byInstitution, byInstitutionGood, deliverInstitution, deliverInstitutionOrders,
@@ -126,6 +126,7 @@ export interface CountryEconomy {
   queue: Project[];
   referenceQuotes?: ByGood<number>;
   fiscal?: FiscalAccount;
+  industrySubsidies?: Record<string, number>;
 }
 export interface Market {
   demand: number;
@@ -174,6 +175,7 @@ export interface SiteReport {
   construction?: ConstructionReport;
   constructionMaintenance?: ConstructionMaintenance;
   industrial?: IndustrialReport;
+  industrySubsidy?: IndustrySubsidyReport;
   office?: OfficeReport;
   localFiscal?: { balance: number; retainedTax: number; publicSpending: number };
   healthcare?: InstitutionReport;
@@ -207,6 +209,7 @@ export interface CountryReport {
   tribute: number;
   upkeep: number;
   publicIndustryIncome?: number;
+  industrySubsidiesPaid?: number;
   interestPaid?: number;
   universityWages?: number;
   administrationWages?: number;
@@ -228,7 +231,7 @@ export interface EconomyReport {
 export function weeklyBudgets(nations: GameState["nations"], report: EconomyReport) {
   const budgets = Object.fromEntries(Object.entries(report.countries).map(([id, country]) => [
     id, { tributeReceived: 0, balance: country.tax + (country.publicIndustryIncome ?? 0) -
-      country.upkeep - country.tribute - (country.interestPaid ?? 0) },
+      country.upkeep - country.tribute - (country.interestPaid ?? 0) - (country.industrySubsidiesPaid ?? 0) },
   ]));
   for (const [id, nation] of Object.entries(nations)) {
     if (nation.overlord === null) continue;
@@ -545,6 +548,7 @@ function projectSettlement(state: GameState, war?: WarPlan, closingTick?: number
       tribute: 0,
       upkeep: 0,
       publicIndustryIncome: 0,
+      industrySubsidiesPaid: 0,
       universityWages: 0,
       administrationWages: 0,
       officeUpkeep: 0,
@@ -1018,8 +1022,12 @@ function projectSettlement(state: GameState, war?: WarPlan, closingTick?: number
         const available = account.capital + industrialIncome - inputCost;
         if (available < 0) throw new Error("工商业采购超过已落实的周转资金");
         const methods = byGood((g) => industryMethod(g, s.industries[g].electric === true));
-        const capital = Math.min(available, workingCapitalTarget(local.buildings, methods, ordinaryWage));
+        const targetCapital = workingCapitalTarget(local.buildings, methods, ordinaryWage);
+        const capital = Math.min(available, targetCapital);
         const surplus = available - capital;
+        const subsidyLimit = state.countryEconomies[owner].industrySubsidies?.[id];
+        if (subsidyLimit && state.occupation?.stateId !== id)
+          s.industrySubsidy = { limit: subsidyLimit, shortfall: targetCapital - capital, paid: 0 };
         if (surplus > 0) {
           const totalPower = s.power?.delivered ?? 0;
           const paidPerPower = totalPower > 0 ? fillsByUse.electricity.materialCost / totalPower : 0;
@@ -1312,6 +1320,20 @@ export function settleEconomy(state: GameState, war?: WarPlan, fractionOfYear = 
       fractionOfYear, difficulty: state.settings.difficulty,
     });
     const { week } = closing.fiscal;
+    // Discretionary grants follow essential spending and debt service, using only cash held above the reserve.
+    let subsidyBudget = week.risk === "stable" && week.borrowed === 0 ? Math.max(0, closing.treasury - 2 * week.upkeepDue) : 0;
+    for (const siteId of Object.keys(country.industrySubsidies ?? {}).sort()) {
+      const site = production.states[siteId];
+      const subsidy = site.industrySubsidy;
+      if (!subsidy || subsidyBudget === 0) continue;
+      const paid = Math.min(subsidy.limit, subsidy.shortfall, subsidyBudget);
+      subsidy.paid = paid;
+      subsidyBudget -= paid;
+      closing.treasury -= paid;
+      c.industrySubsidiesPaid! += paid;
+      industrialClosing[siteId].capital += paid;
+      site.industrial!.capital += paid;
+    }
     const universityDue = c.universityWages!;
     const administrationDue = c.administrationWages!;
     const civilianDue = universityDue + administrationDue;

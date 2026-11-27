@@ -135,11 +135,14 @@ function treaty(state: GameState, d: BorderDispute, victory: boolean, withdrawal
           ownerByStateId[id] = a;
           societies[id] = { ...societies[id], governance: { ...newFrontier } };
         }
+      const subsidies = countryEconomies[b].industrySubsidies;
       countryEconomies[b] = {
         ...countryEconomies[b],
         treasury: countryEconomies[b].treasury + countryEconomies[b].queue.reduce((sum, p) =>
           sum + (ownerByStateId[p.stateId] === b ? 0 : projectOpeningCapital(p)), 0),
         queue: countryEconomies[b].queue.filter((p) => ownerByStateId[p.stateId] === b),
+        ...(subsidies ? { industrySubsidies: Object.fromEntries(Object.entries(subsidies)
+          .filter(([stateId]) => ownerByStateId[stateId] === b)) } : {}),
       };
       const fleet = nations[b].fleet;
       const motorizationPort = fleet.motorizationPort;
