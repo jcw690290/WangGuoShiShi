@@ -20,7 +20,7 @@ import type { GovernanceMode } from "./game/governance.ts";
 import { TradePanel } from "./TradePanel.tsx";
 import { portCapacity } from "./game/transport.ts";
 import { effectiveConvoyCapacity, maxConvoyOrder, rubberPerMotor, shipGoodsPerConvoy, shipGoodsPerMotor } from "./game/fleet.ts";
-import { incidentNames, unrestEffects } from "./game/unrest.ts";
+import { incidentNames, localIncidentMonths, unrestEffects } from "./game/unrest.ts";
 import { basicEquivalentSupply, extraGoods } from "./game/households.ts";
 import { institutionCommands, institutionGoods, institutionLawLimit, institutionLevelError,
   institutionNames, institutions } from "./game/institutions.ts";
@@ -413,7 +413,8 @@ function StateIndustry({
           </>}
           {stability && <p>地方动乱 {stability.unrest.toFixed(1)} / 100</p>}
           {incident && <>
-            <p>{incidentNames[incident.cause]} · 已持续 {count(game.elapsedDays - incident.since)} 天{incident.negotiated && " · 已达成减税协议"}</p>
+            <p>{incidentNames[incident.cause]} · 已持续 {count(game.elapsedDays - incident.since)} 天 · 最长 {localIncidentMonths} 个月
+              {incident.calmSince !== undefined && " · 诱因正在缓解"}{incident.negotiated && " · 已达成减税协议"}</p>
             <p>当地产出 {Math.round(localEffects.output * 100)}% · 中央征收效率 {Math.round(localEffects.collection * 100)}% · 运力 {Math.round(localEffects.transport * 100)}%</p>
             {isOwnState && !incident.negotiated && <button className="build" disabled={busy || occupied || negotiationAuthority < localNegotiationAuthority}
               onClick={() => send({ type: "negotiateLocalUnrest", countryId: playerId, stateId })}>
