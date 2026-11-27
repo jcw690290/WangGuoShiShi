@@ -11,9 +11,11 @@ import {
   infamyLevel,
   interested,
   participants,
+  peaceTermsError,
   swayCost,
+  warWillingness,
 } from "./game/diplomacy.ts";
-import type { Goal } from "./game/diplomacy.ts";
+import type { BorderDispute, Goal } from "./game/diplomacy.ts";
 import type { EconomyReport } from "./game/economy.ts";
 import type { GameCommand, GameState } from "./game/engine.ts";
 import type { Scenario } from "./scenario/scenario.ts";
@@ -34,10 +36,59 @@ interface Props {
 const phases = {
   escalation: "提出要求",
   bargaining: "外交博弈",
-  countdown: "开战倒计时",
+  countdown: "最后谈判",
   war: "战争",
   resolved: "已结束",
 };
+
+function peaceSummary(goals: Goal[], commercial: boolean) {
+  const terms = goals.map((goal) => goalNames[goal]);
+  if (commercial) terms.push("开放通商");
+  return terms.join("、") || "维持现状";
+}
+
+function PeaceNegotiation({ game, dispute, id, busy, send }: {
+  game: GameState; dispute: BorderDispute; id: string; busy: boolean; send: Props["send"];
+}) {
+  const [selected, setSelected] = useState<Goal[]>([dispute.goals[0]]);
+  const [commercial, setCommercial] = useState(false);
+  const offer = dispute.peaceOffer;
+  const terms = dispute.goals.filter((goal) => selected.includes(goal));
+  const problem = offer ? peaceTermsError(game, dispute, offer.goals, offer.commercial)
+    : peaceTermsError(game, dispute, terms, commercial);
+  return <div className="control-block">
+    <p>继续战争意愿 {warWillingness(game, dispute, id)} / 100</p>
+    {offer ? <>
+      <p>{offer.from === id ? "等待对方答复" : "收到和约方案"} · {peaceSummary(offer.goals, offer.commercial)}</p>
+      {offer.from !== id && <div className="diplomacy-actions">
+        <button className="build" disabled={busy || problem !== undefined}
+          onClick={() => send({ type: "acceptPeace", countryId: id })}>接受和约</button>
+        <button className="build" disabled={busy}
+          onClick={() => send({ type: "rejectPeace", countryId: id })}>拒绝方案</button>
+      </div>}
+    </> : <>
+      <fieldset>
+        <legend>和约条款</legend>
+        {dispute.goals.map((goal, index) => <label key={goal}>
+          <input type="checkbox" checked={selected.includes(goal)} disabled={busy}
+            onChange={(event) => {
+              const checked = event.target.checked;
+              setSelected((current) => checked ? [...current, goal] : current.filter((entry) => entry !== goal));
+            }} />
+          {index === 0 ? "核心" : "追加"} · {goalNames[goal]}
+        </label>)}
+        <label><input type="checkbox" checked={commercial} disabled={busy}
+          onChange={(event) => setCommercial(event.target.checked)} />开放通商</label>
+      </fieldset>
+      <button className="build" disabled={busy || problem !== undefined}
+        onClick={() => send({ type: "proposePeace", countryId: id, goals: terms, commercial })}>
+        {terms.length === 0 && !commercial ? "提出维持现状" : "提出和约"}
+      </button>
+    </>}
+    {problem && <small>{problem}</small>}
+  </div>;
+}
+
 export function DiplomacyPanel({ scenario, game, playerId: id, report, busy, send, selectedId }: Props) {
   const n = game.nations[id],
     d = game.borderDispute,
@@ -125,6 +176,7 @@ export function DiplomacyPanel({ scenario, game, playerId: id, report, busy, sen
                         ? "提出方撤回"
                         : "维持现状")}
                 {d.unacceptedGoals && ` · 未接受 ${d.unacceptedGoals.map((g) => goalNames[g]).join("、")}`}
+                {d.agreedPeace && ` · 双方同意 ${peaceSummary(d.agreedPeace.goals, d.agreedPeace.commercial)}`}
               </p>
             )}
             {(!d || d.phase === "resolved") &&
@@ -249,11 +301,13 @@ export function DiplomacyPanel({ scenario, game, playerId: id, report, busy, sen
                         simple("signTreaty"),
                         d.lastChange === null || d.progress < scenario.borderDispute.cessionProgress,
                       )}
-                    {primary && btn("维持现状停战", simple("armistice"), d.lastChange === null)}
+                    {claimant && btn("撤回战时要求", simple("armistice"), d.lastChange === null)}
                   </div>
                 )}
               </>
             )}
+            {primary && d && (d.phase === "countdown" || d.phase === "war") &&
+              <PeaceNegotiation key={`${d.claimantId}:${d.defenderId}:${d.since}`} game={game} dispute={d} id={id} busy={busy} send={send} />}
           </div>
         </section>
         <section className="panel">

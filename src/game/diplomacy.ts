@@ -12,8 +12,9 @@ import type { EconomyReport } from "./economy.ts";
 import { projectOpeningCapital } from "./economy.ts";
 import { ruleTuning } from "./settings.ts";
 import { syncOccupation } from "./occupation.ts";
-import { adjustForeignRelation, breakOpposedTreaties, diplomaticTrust, expireTreatyOffers, reconcileTreaties,
-  relationBetween, treatyBetween, treatyPartners } from "./foreign-relations.ts";
+import { adjustForeignRelation, breakOpposedTreaties, diplomaticTrust, expireTreatyOffers, influenceBudget, reconcileTreaties,
+  relationBetween, signForeignTreaty, treatyBetween, treatyInfluence, treatyPartners } from "./foreign-relations.ts";
+import { governmentLegitimacy, influence, unrestOf } from "./society.ts";
 
 export const goals = ["cession", "reparations", "puppet", "vassal", "protectorate", "annex"] as const;
 export type Goal = (typeof goals)[number];
@@ -44,6 +45,14 @@ export function canAddGoal(state: GameState, dispute: BorderDispute, goal: Goal)
   );
 }
 
+export const peaceGoalsSchema = z.array(z.enum(goals)).max(goals.length)
+  .refine((terms) => new Set(terms).size === terms.length);
+const peaceOfferSchema = z.object({
+  from: z.string(), goals: peaceGoalsSchema, commercial: z.boolean(), offeredDay: z.int().nonnegative(),
+});
+type PeaceOffer = z.infer<typeof peaceOfferSchema>;
+const peaceOfferDuration = 14;
+
 export const disputeSchema = z.object({
   targetStateId: z.string(),
   claimantId: z.string(),
@@ -52,6 +61,9 @@ export const disputeSchema = z.object({
   since: z.int().nonnegative(),
   goals: z.array(z.enum(goals)).min(1),
   unacceptedGoals: z.array(z.enum(goals)).nonempty().optional(),
+  peaceOffer: peaceOfferSchema.optional(),
+  lastPeaceOfferDay: z.int().nonnegative().optional(),
+  agreedPeace: z.object({ goals: peaceGoalsSchema, commercial: z.boolean() }).optional(),
   maneuvers: z.int().nonnegative(),
   allies: z.array(z.string()),
   promises: z.array(z.string()),
@@ -74,6 +86,8 @@ export type BorderCommand =
   | { type: "demandBorder"; countryId: string; targetStateId: string; goal: Goal }
   | { type: "addGoal"; countryId: string; goal: Goal }
   | { type: "sway"; countryId: string; allyId: string }
+  | { type: "proposePeace"; countryId: string; goals: Goal[]; commercial: boolean }
+  | { type: "acceptPeace" | "rejectPeace"; countryId: string }
   | { type: "endDiplomaticTie"; countryId: string; partnerId: string }
   | {
       type:
@@ -123,7 +137,8 @@ export function participants(d: BorderDispute) {
 export function attacking(d: BorderDispute, id: string) {
   return id === d.claimantId || d.allies.includes(id);
 }
-function treaty(state: GameState, d: BorderDispute, victory: boolean, withdrawal = false): GameState {
+const withoutPeaceOffer = ({ peaceOffer: _offer, ...dispute }: BorderDispute) => dispute;
+function treaty(state: GameState, d: BorderDispute, victory: boolean, withdrawal = false, terms = d.goals): GameState {
   const { occupation: released, ...world } = state;
   let diplomaticState: GameState = world;
   const ownerByStateId = { ...state.ownerByStateId },
@@ -133,9 +148,9 @@ function treaty(state: GameState, d: BorderDispute, victory: boolean, withdrawal
   const a = d.claimantId,
     b = d.defenderId;
   if (victory) {
-    if (d.goals.includes("annex") || d.goals.includes("cession")) {
+    if (terms.includes("annex") || terms.includes("cession")) {
       for (const id of Object.keys(ownerByStateId))
-        if (ownerByStateId[id] === b && (id === d.targetStateId || d.goals.includes("annex"))) {
+        if (ownerByStateId[id] === b && (id === d.targetStateId || terms.includes("annex"))) {
           ownerByStateId[id] = a;
           societies[id] = { ...societies[id], governance: { ...newFrontier } };
         }
@@ -159,12 +174,12 @@ function treaty(state: GameState, d: BorderDispute, victory: boolean, withdrawal
         privateQueue: nations[b].privateQueue.filter((p) => ownerByStateId[p.stateId] === b),
       };
     }
-    if (d.goals.includes("reparations")) {
+    if (terms.includes("reparations")) {
       const amount = Math.floor(Math.max(0, countryEconomies[b].treasury) * 0.15);
       countryEconomies[b] = { ...countryEconomies[b], treasury: countryEconomies[b].treasury - amount };
       countryEconomies[a] = { ...countryEconomies[a], treasury: countryEconomies[a].treasury + amount };
     }
-    const subjectType = d.goals.find(subjectGoal);
+    const subjectType = terms.find(subjectGoal);
     if (subjectType && Object.values(ownerByStateId).includes(b)) {
       for (const [id, n] of Object.entries(nations))
         if (n.marketLeader === b || n.overlord === b) {
@@ -201,12 +216,46 @@ function treaty(state: GameState, d: BorderDispute, victory: boolean, withdrawal
     societies,
     lastEconomy: null,
     borderDispute: {
-      ...d,
+      ...withoutPeaceOffer(d),
       phase: "resolved",
       since: state.elapsedDays,
       outcome: victory ? "victory" : withdrawal ? "withdrawal" : "statusQuo",
     },
   });
+}
+
+export function peaceTermsError(state: GameState, dispute: BorderDispute, terms: Goal[], commercial: boolean) {
+  if (!peaceGoalsSchema.safeParse(terms).success || terms.some((goal) => !dispute.goals.includes(goal)))
+    return "只能选择当前争端中互不重复的条款";
+  if (commercial && (terms.includes("annex") || (terms.includes("cession") &&
+      Object.values(state.ownerByStateId).filter((owner) => owner === dispute.defenderId).length === 1)))
+    return "双边通商协定需要双方在和约后保有领土";
+  if (commercial && !treatyBetween(state, dispute.claimantId, dispute.defenderId, "commercial") &&
+      [dispute.claimantId, dispute.defenderId].some((id) => influenceBudget(state, id).available < treatyInfluence.commercial))
+    return "开放通商需要双方各有 1 点可用外交影响力";
+}
+
+export function warWillingness(state: GameState, d: BorderDispute, countryId: string) {
+  const nation = state.nations[countryId];
+  const sites = Object.entries(state.societies).filter(([id]) => state.ownerByStateId[id] === countryId).map(([, site]) => site);
+  const legitimacy = governmentLegitimacy(nation, influence(sites, countryId, nation));
+  const unrest = unrestOf(sites.flatMap((site) => site.pops));
+  const risk = state.countryEconomies[countryId].fiscal?.week.risk;
+  const budgetPressure = risk === "defaulted" ? 30 : risk === "restricted" ? 20 : risk === "warning" ? 8 : 0;
+  const occupied = state.occupation !== undefined && state.ownerByStateId[state.occupation.stateId] === countryId;
+  const fatigue = d.phase === "war" ? Math.min(30, (state.elapsedDays - d.since) / 7) : 0;
+  const momentum = d.phase === "war" ? (d.progress - 50) * (countryId === d.claimantId ? 0.35 : -0.35) : 0;
+  return Math.round(Math.max(0, Math.min(100, 55 + momentum + (legitimacy - 50) * 0.3 +
+    (nation.morale - 50) * 0.3 - unrest * 0.25 - budgetPressure - fatigue - (occupied ? 15 : 0))));
+}
+
+function acceptsPeace(state: GameState, d: BorderDispute, offer: PeaceOffer, countryId: string) {
+  if (peaceTermsError(state, d, offer.goals, offer.commercial)) return false;
+  const costs: Record<Goal, number> = { cession: 28, reparations: 12, puppet: 42, vassal: 36, protectorate: 28, annex: 100 };
+  const concessions = offer.goals.reduce((sum, goal) => sum + costs[goal], 0);
+  const willingness = warWillingness(state, d, countryId);
+  if (countryId === d.defenderId) return concessions <= 95 - willingness;
+  return offer.goals.includes(d.goals[0]) || concessions + (offer.commercial ? 8 : 0) >= willingness - 20;
 }
 export function applyBorderCommand(scenario: Scenario, state: GameState, cmd: BorderCommand): GameState {
   const id = cmd.countryId,
@@ -302,6 +351,26 @@ export function applyBorderCommand(scenario: Scenario, state: GameState, cmd: Bo
   }
   if (!d || d.phase === "resolved" || !participants(d).includes(id)) throw new GameRuleError("没有本国参与的争端");
   const patch = (fields: Partial<BorderDispute>) => ({ ...state, borderDispute: { ...d, ...fields } });
+  if (cmd.type === "proposePeace" || cmd.type === "acceptPeace" || cmd.type === "rejectPeace") {
+    if ((d.phase !== "countdown" && d.phase !== "war") || (id !== d.claimantId && id !== d.defenderId))
+      throw new GameRuleError("只有争端双方可在最后谈判或战争中协商");
+    const offer = d.peaceOffer;
+    if (cmd.type === "proposePeace") {
+      if (offer) throw new GameRuleError("已有方案等待对方答复");
+      const problem = peaceTermsError(state, d, cmd.goals, cmd.commercial);
+      if (problem) throw new GameRuleError(problem);
+      return patch({ lastPeaceOfferDay: state.elapsedDays, peaceOffer: {
+        from: id, goals: [...cmd.goals], commercial: cmd.commercial, offeredDay: state.elapsedDays,
+      } });
+    }
+    if (!offer || offer.from === id) throw new GameRuleError("没有待本国答复的和约方案");
+    if (cmd.type === "rejectPeace") return { ...state, borderDispute: withoutPeaceOffer(d) };
+    const problem = peaceTermsError(state, d, offer.goals, offer.commercial);
+    if (problem) throw new GameRuleError(problem);
+    const settled = treaty(state, { ...d, agreedPeace: { goals: offer.goals, commercial: offer.commercial } },
+      offer.goals.length > 0, false, offer.goals);
+    return offer.commercial ? signForeignTreaty(settled, d.claimantId, d.defenderId, "commercial") : settled;
+  }
   if (cmd.type === "addGoal" || cmd.type === "sway") {
     if (id !== d.claimantId || d.phase !== "bargaining" || !d.maneuvers) throw new GameRuleError("没有可用博弈点");
     if (cmd.type === "addGoal") {
@@ -343,6 +412,8 @@ export function applyBorderCommand(scenario: Scenario, state: GameState, cmd: Bo
       throw new GameRuleError("尚无法签署和约");
     if (cmd.type === "signTreaty" && d.progress < scenario.borderDispute.cessionProgress)
       throw new GameRuleError("战线进度尚未达到割让条件");
+    if (cmd.type === "armistice" && id !== d.claimantId)
+      throw new GameRuleError("防守方可提出维持现状的和约，等待对方答复");
     return treaty(state, d, cmd.type === "signTreaty");
   }
   if (cmd.type === "mobilize") {
@@ -358,9 +429,22 @@ export function applyBorderCommand(scenario: Scenario, state: GameState, cmd: Bo
     advance: [...d.advance.filter((x) => x !== id), ...(cmd.type === "orderAdvance" ? [id] : [])],
   });
 }
-export function tickDiplomacy(scenario: Scenario, state: GameState): GameState {
+export function tickDiplomacy(scenario: Scenario, state: GameState,
+  humanCountries: ReadonlySet<string | null> = new Set([state.playerCountryId]),
+): GameState {
   state = expireTreatyOffers(state);
-  const d = state.borderDispute;
+  let d = state.borderDispute;
+  if (d?.peaceOffer) {
+    const offer = d.peaceOffer;
+    const respondent = offer.from === d.claimantId ? d.defenderId : d.claimantId;
+    if (state.elapsedDays - offer.offeredDay >= peaceOfferDuration)
+      state = { ...state, borderDispute: withoutPeaceOffer(d) };
+    else if (state.elapsedDays > offer.offeredDay && !humanCountries.has(respondent))
+      state = applyBorderCommand(scenario, state, {
+        type: acceptsPeace(state, d, offer, respondent) ? "acceptPeace" : "rejectPeace", countryId: respondent,
+      });
+    d = state.borderDispute;
+  }
   if (!d || d.phase === "war" || d.phase === "resolved") return state;
   const duration = {
     escalation: 7,
@@ -369,7 +453,7 @@ export function tickDiplomacy(scenario: Scenario, state: GameState): GameState {
   };
   if (state.elapsedDays - d.since < duration[d.phase]) return state;
   const phase = ({ escalation: "bargaining", bargaining: "countdown", countdown: "war" } as const)[d.phase];
-  const next = { ...state, borderDispute: { ...d, phase, since: state.elapsedDays } };
+  const next = { ...state, borderDispute: { ...withoutPeaceOffer(d), phase, since: state.elapsedDays } };
   if (phase !== "war") return next;
   const sides = new Set(participants(d));
   return removeDiplomaticTies(breakOpposedTreaties(next, d.claimantId), ({ senior, partner }) =>
@@ -542,6 +626,7 @@ export function aiDiplomacy(
   }
   if (
     d.phase === "countdown" &&
+    !d.peaceOffer &&
     !humanCountries.has(d.defenderId) &&
     holdings(scenario, state, d.claimantId).length > 2 * holdings(scenario, state, d.defenderId).length
   )
@@ -554,7 +639,8 @@ export function aiDiplomacy(
   }
   if (!humanCountries.has(d.claimantId) && d.progress >= scenario.borderDispute.cessionProgress)
     orders.push({ type: "signTreaty", countryId: d.claimantId });
-  else if (!humanCountries.has(d.claimantId) && state.elapsedDays - d.since >= 84 && d.lastChange !== null)
-    orders.push({ type: "armistice", countryId: d.claimantId });
+  else if (!humanCountries.has(d.claimantId) && state.elapsedDays - d.since >= 84 && d.lastChange !== null &&
+      !d.peaceOffer && (d.lastPeaceOfferDay === undefined || state.elapsedDays - d.lastPeaceOfferDay >= 28))
+    orders.push({ type: "proposePeace", countryId: d.claimantId, goals: [], commercial: false });
   return orders;
 }
