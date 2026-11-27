@@ -18,9 +18,10 @@ import { laborLawCategory, laborLawFamilies } from "./game/labor.ts";
 import { taxLaws } from "./game/taxation.ts";
 import { isTradeLaw, tradeLaws } from "./game/trade-policy.ts";
 import { civicLawCategory, civicLawFamilies, enactedCivicLaws } from "./game/civic-policy.ts";
+import { authorityBudget, constitutionalForms, constitutionLawCategory, representationLaw, representationLaws, stateForm } from "./game/constitution.ts";
 
 const otherLaws = laws.filter((law) => !institutionLawDetails(law) && !laborLawCategory(law) &&
-  !(taxLaws as readonly Law[]).includes(law) && !isTradeLaw(law) && !civicLawCategory(law));
+  !(taxLaws as readonly Law[]).includes(law) && !isTradeLaw(law) && !civicLawCategory(law) && !constitutionLawCategory(law));
 interface Props {
   game: GameState;
   playerId: string;
@@ -46,7 +47,8 @@ export function PoliticsPanel({ game, playerId: id, year, busy, send }: Props) {
   const { innovation, cap } = researchCapacity(universityStaff, literacy);
   const proposal = { type: "proposeLaw", countryId: id, law } as const;
   const reason = politicsError(game, proposal);
-  const effectiveLaws = [...n.laws.filter((law) => !civicLawCategory(law)), ...enactedCivicLaws(n.laws)];
+  const effectiveLaws = n.laws.filter((law) => !civicLawCategory(law) && !constitutionLawCategory(law));
+  const authority = authorityBudget(game, id);
   return (
     <section className="economy">
       <header className="economy-heading">
@@ -57,9 +59,10 @@ export function PoliticsPanel({ game, playerId: id, year, busy, send }: Props) {
         <section className="panel">
           <header className="panel-header">
             <h3>政府与利益集团</h3>
-            <span>{distributionName[powerDistribution(n)]} · 合法性 {conditions.legitimacy} / 100</span>
+            <span>{stateForm(n)} · {distributionName[powerDistribution(n)]} · 合法性 {conditions.legitimacy} / 100</span>
           </header>
           <div className="control-block">
+            <p>权威力可用 {authority.available} · 已占用 {authority.used} / {authority.capacity}</p>
             <p>勾选执政集团。议案需要政府支持，或至少 25% 的运动支持。</p>
             <div className="group-grid">
               {groups.map((g) => (
@@ -82,7 +85,7 @@ export function PoliticsPanel({ game, playerId: id, year, busy, send }: Props) {
                 </label>
               ))}
             </div>
-            <p>生效法律 · {effectiveLaws.join("、")}</p>
+            <p>生效法律 · {[stateForm(n), representationLaw(n), ...effectiveLaws, ...enactedCivicLaws(n.laws)].join("、")}</p>
             <select
               value={law}
               aria-label="改革法律"
@@ -113,6 +116,12 @@ export function PoliticsPanel({ game, playerId: id, year, busy, send }: Props) {
                   {options.map((l) => <option key={l}>{l}</option>)}
                 </optgroup>
               ))}
+              <optgroup label="国家体制">
+                {constitutionalForms.map((l) => <option key={l}>{l}</option>)}
+              </optgroup>
+              <optgroup label="权力分配">
+                {representationLaws.map((l) => <option key={l}>{l}</option>)}
+              </optgroup>
             </select>
             <p>{lawEffect[law]}</p>
             <p>

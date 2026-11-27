@@ -21,6 +21,7 @@ import { institutionCommands, institutionGoods, institutionLawLimit, institution
 import { bondedRuralWorkers, ruralPopulation } from "./game/labor.ts";
 import { exciseGoods, taxBandNames, taxBands, taxPolicy } from "./game/taxation.ts";
 import { tariffBandNames, tariffBands, tariffRate, tariffRates, tradeLaw } from "./game/trade-policy.ts";
+import { authorityBudget, countryDisplayName, localNegotiationAuthority } from "./game/constitution.ts";
 
 function cultureName(scenario: Scenario, id: string) {
   const separator = id.indexOf("-");
@@ -82,6 +83,7 @@ function StateIndustry({
   const integrationActive = governance.integration !== null;
   const stability = society.stability;
   const incident = stability?.incident;
+  const negotiationAuthority = incident && isOwnState ? authorityBudget(game, playerId).available : 0;
   const localEffects = unrestEffects(stability);
   const fuelNeed = snapshot.householdBasicOrders?.wood;
   const basicSupply = snapshot.householdConsumption &&
@@ -354,9 +356,10 @@ function StateIndustry({
           {incident && <>
             <p>{incidentNames[incident.cause]} · 已持续 {count(game.elapsedDays - incident.since)} 天{incident.negotiated && " · 已达成减税协议"}</p>
             <p>当地产出 {Math.round(localEffects.output * 100)}% · 中央征收效率 {Math.round(localEffects.collection * 100)}% · 运力 {Math.round(localEffects.transport * 100)}%</p>
-            {isOwnState && !incident.negotiated && <button className="build" disabled={busy || occupied}
+            {isOwnState && !incident.negotiated && <button className="build" disabled={busy || occupied || negotiationAuthority < localNegotiationAuthority}
               onClick={() => send({ type: "negotiateLocalUnrest", countryId: playerId, stateId })}>
               协商减税以缓解动乱
+              <small>占用 {localNegotiationAuthority} 权威力 · 可用 {negotiationAuthority}</small>
             </button>}
           </>}
           {occupied && <p>军事占领暂停中央征收和行政整合。</p>}
@@ -432,7 +435,7 @@ export function EconomyPanel({ scenario, game, playerId, selectedId, report, bus
       <div className="economy-grid">
         <section className="panel" aria-labelledby="market-title">
           <header className="panel-header">
-            <h3 id="market-title">{country.name}市场</h3>
+            <h3 id="market-title">{countryDisplayName(country, nation)}市场</h3>
           </header>
           <dl className="economy-stats">
             <div>

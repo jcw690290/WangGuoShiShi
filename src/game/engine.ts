@@ -37,6 +37,7 @@ import { exciseGoodsSchema, taxBands, taxBandSchema, taxPolicy } from "./taxatio
 import { applyTradePolicy, tariffBands, tariffRate, tariffRates } from "./trade-policy.ts";
 import type { TradePolicyCommand } from "./trade-policy.ts";
 import { civicLawOf } from "./civic-policy.ts";
+import { powerDistribution } from "./constitution.ts";
 export { DAY_MS, elapsedTicks, TICKS_PER_DAY } from "./time.ts";
 
 export interface GameState {
@@ -311,8 +312,9 @@ export function advanceTick(
           ? chooseLaborLaw(result, id) ?? chooseInstitutionLaw(result, settled.lastEconomy, id) ?? chooseCivicLaw(result, id)
           : undefined;
         if (proposal) result = applyCommand(scenario, result, proposal);
-        else if (!n.laws.includes("普选制")) {
-          const cmd = { type: "proposeLaw", countryId: id, law: "普选制" } as const;
+        else if (powerDistribution(n) !== "universal") {
+          const law = powerDistribution(n) === "autocracy" ? "有限选举" : "普选制";
+          const cmd = { type: "proposeLaw", countryId: id, law } as const;
           if (!politicsError(result, cmd)) result = applyCommand(scenario, result, cmd);
         }
       }

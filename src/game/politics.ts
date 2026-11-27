@@ -6,6 +6,7 @@ import { laborLawCategory, laborLawTechnology } from "./labor.ts";
 import { isTaxLaw } from "./taxation.ts";
 import { isTradeLaw } from "./trade-policy.ts";
 import { civicLawCategory, civicLawOf, civicPolicy } from "./civic-policy.ts";
+import { constitutionLawCategory, representationLaw, stateForm } from "./constitution.ts";
 import { groups, influence, literacyOf, reformConditions, reformWork, techs, unrestOf } from "./society.ts";
 import type { Group, Law, Nation, SiteSocial, Tech } from "./society.ts";
 
@@ -83,7 +84,7 @@ export const lawEffect: Record<Law, string> = {
   自由放任: "私人建造份额 75%，基础再投资比例 40%",
   平等公民权: "接纳所有文化",
   信仰自由: "接纳所有信仰",
-  普选制: "扩大基层参与，上／中／下层权重为 1.5／1.2／1",
+  普选制: "上、中、下层政治权重为 1.5、1.2、1，权威力减少 20",
   出版自由: "科技扩散按 100% 计算，政治运动组织力提高 20%",
   地主租佃: "自给农业出售余粮和木材所得的 20% 归土地所有者",
   小农自耕: "自给农业出售余粮和木材所得全部归农户",
@@ -119,10 +120,15 @@ export const lawEffect: Record<Law, string> = {
   宗教宽容: "国教信徒享有完整待遇，其他信仰享有限待遇",
   出版审查: "科技扩散按 65% 计算，政治运动没有额外组织增益",
   有限出版: "科技扩散按 85% 计算，政治运动组织力提高 10%",
+  君主制: "世袭继承的合法性来自地主、教会和武装部队，基础权威力 100",
+  共和制: "非选举任命的合法性来自小市民、实业家和知识分子，基础权威力 75",
+  教权政体: "非选举继任的合法性来自教会和地主，基础权威力 110",
+  专制统治: "上、中、下层政治权重为 6、2、0.2，权威力增加 20",
+  有限选举: "上、中、下层政治权重为 4、2、0.6，合法性参考选举授权",
 };
 
 function exclusiveLawCategory(law: Law) {
-  return institutionLawDetails(law)?.kind ?? laborLawCategory(law) ?? civicLawCategory(law) ??
+  return institutionLawDetails(law)?.kind ?? laborLawCategory(law) ?? civicLawCategory(law) ?? constitutionLawCategory(law) ??
     (isTaxLaw(law) ? "tax" : isTradeLaw(law) ? "trade" : law === "自由放任" || law === "干预主义" ? "economy" :
       law === "小农自耕" || law === "地主租佃" ? "land" : undefined);
 }
@@ -151,7 +157,11 @@ export function politicsError(state: GameState, command: PoliticsCommand) {
       return "已有研究、缺少前置技术或已经掌握该技术";
   } else {
     const civicCategory = civicLawCategory(command.law);
+    const constitution = constitutionLawCategory(command.law);
+    const currentConstitution = constitution === "stateForm" ? stateForm(nation) :
+      constitution === "representation" ? representationLaw(nation) : undefined;
     if (nation.reform !== null || nation.laws.includes(command.law) ||
+        currentConstitution === command.law ||
         (civicCategory && civicLawOf(nation.laws, civicCategory) === command.law)) return "已有议案或该法已生效";
     const institution = institutionLawDetails(command.law);
     const modernTax = isTaxLaw(command.law) && command.law !== "传统土地身份税" && command.law !== "工资税改革";

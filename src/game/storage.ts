@@ -16,6 +16,7 @@ import { openingMetrics } from "./campaignMetrics.ts";
 import { laborLawCategory, startingLaborLaws } from "./labor.ts";
 import { isTaxLaw, taxLaws, taxReceiptSchema } from "./taxation.ts";
 import { isTradeLaw, tradeLaws } from "./trade-policy.ts";
+import { startingStateForm } from "./constitution.ts";
 import { buildingCapacity, militaryProcurementCost, projects, unusedPrepaidConstruction } from "./economy.ts";
 import { constructionMaintenanceSchema, constructionReportSchema, constructionStockSchema, constructionSpending, constructionWage } from "./construction.ts";
 import { nationSchema, siteSocialSchema, projectTypes } from "./society.ts";
@@ -480,6 +481,7 @@ export function parseSave(scenario: Scenario, save: unknown): GameState {
     for (const kind of institutionLawKinds) levels[kind] = Math.max(levels[kind], state.societies[stateId][kind]);
   }
   for (const [id, n] of Object.entries(state.nations)) {
+    n.startingStateForm ??= startingStateForm(id);
     if (!n.laws.some(isTaxLaw)) n.laws.push(taxLaws[0]);
     if (!n.laws.some(isTradeLaw)) n.laws.push(tradeLaws[0]);
     if (n.tradePartners.some((partner) => partner === id || !Object.hasOwn(state.nations, partner))) invalid();

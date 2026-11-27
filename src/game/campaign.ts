@@ -8,6 +8,7 @@ import { achievementProgressSchema, initialAchievementProgress } from "./achieve
 import { calendarMonthsPassed } from "./time.ts";
 import { campaignBaselineSchema, measureCampaign, openingMetrics } from "./campaignMetrics.ts";
 import { GameRuleError } from "./rules.ts";
+import { constitutionalFormSchema, countryDisplayName, stateForm } from "./constitution.ts";
 
 export const defaultEndYear = 1936;
 export const endYearSchema = z.int().min(1821).max(9999);
@@ -17,6 +18,8 @@ const metricSnapshot = z.partialRecord(z.enum(endingMetrics), z.number());
 export const endingSchema = z.object({
   campaignId: z.uuid(),
   countryId: z.string(),
+  countryName: z.string().min(1).optional(),
+  stateForm: constitutionalFormSchema.optional(),
   kind: endingKind,
   endingId: z.string().optional(),
   metrics: metricSnapshot.optional(),
@@ -63,11 +66,12 @@ export function endingId(countryId: string, kind: EndingKind) {
   return kind === "victory" || kind === "defeat" ? countryId + ":" + kind : kind;
 }
 
-function saveOutcome(state: GameState, date: Date, campaign: Campaign, id: string, kind: EndingKind,
+function saveOutcome(scenario: Scenario, state: GameState, date: Date, campaign: Campaign, id: string, kind: EndingKind,
   metrics: EndingMetrics | undefined = campaign.outcome?.metrics): GameState {
   const held = Object.keys(state.ownerByStateId).filter((site) => state.ownerByStateId[site] === id);
   const ending: EndingRecord = {
     campaignId: campaign.id, countryId: id, kind, endingId: endingId(id, kind),
+    countryName: countryDisplayName(scenario.countries[id], state.nations[id]), stateForm: stateForm(state.nations[id]),
     ...(metrics ? { metrics } : {}),
     date: date.toISOString().slice(0, 10),
     difficulty: state.settings.difficulty, lowestDifficulty: state.settings.lowestDifficulty,
@@ -100,7 +104,8 @@ export function finalizeCampaign(
   }
   const due = date.getUTCFullYear() >= campaign.endYear;
   if ((changed || due) && !Object.values(state.ownerByStateId).includes(id))
-    return saveOutcome(state, date, campaign, id, "extinct", measureCampaign(scenario, state, id, campaign.outcome?.baseline, false));
+    return saveOutcome(scenario, state, date, campaign, id, "extinct",
+      measureCampaign(scenario, state, id, campaign.outcome?.baseline, false));
 
   const previous = campaign.outcome;
   const baseline = previous?.baseline ?? (day === 0 ? openingMetrics(state, id) : undefined);
@@ -121,16 +126,16 @@ export function finalizeCampaign(
     ? { ...campaign, outcome } : campaign;
 
   if (lossSince !== null && calendarMonthsPassed(date, day - lossSince, 24))
-    return saveOutcome(state, date, tracked, id, "defeat");
+    return saveOutcome(scenario, state, date, tracked, id, "defeat");
   if (due) {
     const kind = candidates.victory ? "victory" :
       genericSince !== null && calendarMonthsPassed(date, day - genericSince, 60) ? "genericVictory" : "neutral";
-    return saveOutcome(state, date, tracked, id, kind);
+    return saveOutcome(scenario, state, date, tracked, id, kind);
   }
   if (settleEarly) {
     const kind = earlyVictory(state, date, outcome);
     if (!kind) throw new GameRuleError("胜利需要开局满十年且条件连续满足五年");
-    return saveOutcome(state, date, tracked, id, kind);
+    return saveOutcome(scenario, state, date, tracked, id, kind);
   }
   return tracked === campaign ? state : { ...state, campaign: tracked };
 }
