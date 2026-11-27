@@ -29,6 +29,7 @@ import { chooseLocalNegotiation, negotiateLocalUnrest } from "./unrest.ts";
 import type { LocalUnrestCommand } from "./unrest.ts";
 import { industries, isGood } from "./industry.ts";
 import { effectiveConvoyCapacity, maxConvoyOrder, shipGoodsPerConvoy } from "./fleet.ts";
+import { healthcareLevelSchema, healthcareStaffNeed } from "./healthcare.ts";
 export { DAY_MS, elapsedTicks, TICKS_PER_DAY } from "./time.ts";
 
 export interface GameState {
@@ -63,6 +64,7 @@ export type GameCommand =
   | { type: "cancelConstruction"; countryId: string; index: number; stateId: string; good: Building; privateBuild?: boolean }
   | { type: "setConvoyOrder"; countryId: string; stateId: string; operation: "add" | "move" | "cancel" }
   | { type: "setFleetMotorization"; countryId: string; stateId: string; enabled: boolean }
+  | { type: "setHealthcareLevel"; countryId: string; stateId: string; level: number }
   | { type: "advanceTick" | "advanceWeek" | "advanceDay" | "advanceHalfYear" }
   | PoliticsCommand
   | GovernanceCommand
@@ -173,6 +175,20 @@ export function advanceTick(
         if (integration) result = applyGovernanceCommand(result, integration);
         const agreement = chooseLocalNegotiation(result, id);
         if (agreement) result = negotiateLocalUnrest(result, agreement);
+        if (result.nations[id].knowledge["公共卫生"] === 100) {
+          const treasury = result.countryEconomies[id].treasury;
+          const target = Object.entries(result.societies).flatMap(([stateId, site]) => {
+            if (result.ownerByStateId[stateId] !== id || result.occupation?.stateId === stateId || site.healthcare === 3) return [];
+            const population = result.stateEconomies[stateId].population;
+            const coverage = settled.lastEconomy.states[stateId].healthcare?.coverage ?? 0;
+            const level = site.healthcare + 1;
+            return coverage >= 0.7 * site.healthcare / 3 && treasury >= healthcareStaffNeed(population, level) * 26 * 250
+              ? [{ stateId, level, population }] : [];
+          }).sort((a, b) => a.level - b.level || b.population - a.population)[0];
+          if (target) result = applyCommand(scenario, result, {
+            type: "setHealthcareLevel", countryId: id, stateId: target.stateId, level: target.level,
+          });
+        }
       }
       if (job) result = applyCommand(scenario, result, { type: "queueConstruction", countryId: id, ...job });
       const report = settled.lastEconomy.countries[id];
@@ -355,6 +371,19 @@ function applyCommand(
       } else if (nation.fleet.motorizationPort !== stateId) throw new GameRuleError("该港口没有商船改装计划");
       const fleet = { ...nation.fleet, motorizationPort: enabled ? stateId : null };
       return { ...state, nations: { ...state.nations, [id]: { ...nation, fleet } } };
+    }
+    case "setHealthcareLevel": {
+      const { countryId, stateId, level } = cmd;
+      if (!healthcareLevelSchema.safeParse(level).success) throw new GameRuleError("医疗机构等级须为 0–3");
+      if (state.ownerByStateId[stateId] !== countryId) throw new GameRuleError("只能调整本国州的医疗机构");
+      const site = state.societies[stateId];
+      if (level === site.healthcare) return state;
+      if (level > site.healthcare) {
+        if (state.occupation?.stateId === stateId) throw new GameRuleError("该州处于军事占领中");
+        if (level > 1 && state.nations[countryId].knowledge["公共卫生"] !== 100)
+          throw new GameRuleError("需要掌握公共卫生技术才能提升至 2 级及以上");
+      }
+      return { ...state, societies: { ...state.societies, [stateId]: { ...site, healthcare: level } } };
     }
     case "setGovernment":
     case "proposeLaw":
