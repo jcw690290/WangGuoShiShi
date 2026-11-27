@@ -27,8 +27,8 @@ import type { IndustrialAccount, IndustrialReport } from "./industrial.ts";
 import { deliverOffice, officeNeed, planOffice } from "./administration.ts";
 import type { OfficeReport } from "./administration.ts";
 import { byInstitution, byInstitutionGood, deliverInstitution, deliverInstitutionOrders,
-  institutionGoods, institutions, isInstitutionGood, planInstitution } from "./institutions.ts";
-import type { Institution, InstitutionReport } from "./institutions.ts";
+  deliverWelfareRelief, institutionGoods, institutions, isInstitutionGood, planInstitution, planWelfareRelief } from "./institutions.ts";
+import type { Institution, InstitutionReport, WelfareRelief } from "./institutions.ts";
 import { harvestGood, isCrop, rentRateOf, reservedCropland, subsistenceHarvest } from "./subsistence.ts";
 import type { SubsistenceReport } from "./subsistence.ts";
 import { affordableCrew, constructionJobs, constructionMaterials, constructionPointsPerLevel, constructionSectors,
@@ -166,6 +166,8 @@ export interface SiteReport {
   office?: OfficeReport;
   healthcare?: InstitutionReport;
   policing?: InstitutionReport;
+  welfare?: InstitutionReport;
+  welfareRelief?: WelfareRelief;
   consumptionIndex?: number;
   conscripts: number;
   access: number;
@@ -195,6 +197,7 @@ export interface CountryReport {
   officeUpkeep?: number;
   healthcareUpkeep?: number;
   policingUpkeep?: number;
+  welfareUpkeep?: number;
   tradeTariff?: number;
   tradeSeaCargo?: number;
   fleet?: FleetReport;
@@ -477,6 +480,7 @@ function projectSettlement(state: GameState, war?: WarPlan, closingTick?: number
   }>();
   const officePlans = new Map<string, ReturnType<typeof planOffice>>();
   const institutionPlans = new Map<string, Record<Institution, ReturnType<typeof planInstitution>>>();
+  const welfareReliefPlans = new Map<string, ReturnType<typeof planWelfareRelief>>();
   const cashToCommit = Object.fromEntries(Object.entries(state.countryEconomies)
     .map(([id, account]) => [id, Math.max(0, account.treasury)]));
   const industrialClosing: Record<string, IndustrialAccount> = {};
@@ -507,6 +511,7 @@ function projectSettlement(state: GameState, war?: WarPlan, closingTick?: number
       officeUpkeep: 0,
       healthcareUpkeep: 0,
       policingUpkeep: 0,
+      welfareUpkeep: 0,
       tradeTariff: 0,
       tradeSeaCargo: 0,
       military: {
@@ -568,6 +573,11 @@ function projectSettlement(state: GameState, war?: WarPlan, closingTick?: number
       return plan;
     });
     institutionPlans.set(id, services);
+    if (site.welfare > 0) {
+      const relief = planWelfareRelief(site.pops, services.welfare, cashToCommit[owner]);
+      welfareReliefPlans.set(id, relief);
+      cashToCommit[owner] -= relief.reserved;
+    }
     let workers = labour - universityStaff - administrators - office.staff - institutionStaff,
       conscripts = 0;
     const jobs = state.occupation?.stateId === id ? 0 : Math.min(workers, site.construction * constructionJobs);
@@ -920,6 +930,13 @@ function projectSettlement(state: GameState, war?: WarPlan, closingTick?: number
         c[`${kind}Upkeep`]! += paid;
         c.upkeep += paid;
       }
+      if (s.welfare) {
+        const relief = deliverWelfareRelief(welfareReliefPlans.get(id)!, s.welfare.coverage);
+        s.welfareRelief = relief;
+        const paid = relief.paid.农民 + relief.paid.劳工;
+        c.welfareUpkeep! += paid;
+        c.upkeep += paid;
+      }
       if (s.power) s.power.spending = fillsByUse.electricity.materialCost;
       const fleet = fleets[owner];
       if (fleet.port === id) for (const good of fleetGoods) {
@@ -1180,7 +1197,8 @@ export function settleEconomy(state: GameState, war?: WarPlan, fractionOfYear = 
   for (const [id, c] of Object.entries(production.countries)) {
     const country = countryEconomies[id];
     const construction = c.construction!;
-    const prepaidUpkeep = c.officeUpkeep! + c.healthcareUpkeep! + c.policingUpkeep! + militaryProcurementCost(c.military.procurement) +
+    const prepaidUpkeep = c.officeUpkeep! + institutions.reduce((sum, kind) => sum + c[`${kind}Upkeep`]!, 0) +
+      militaryProcurementCost(c.military.procurement) +
       constructionSpending(construction.public) + constructionSpending(c.constructionMaintenance!) + fleetSpending(c.fleet!);
     const closing = settleFiscal({
       day: state.elapsedDays, treasury: country.treasury, fiscal: country.fiscal,
@@ -1247,10 +1265,12 @@ export function settleEconomy(state: GameState, war?: WarPlan, fractionOfYear = 
     const retainedValue = subsistence ? subsistence.retained.grain * s.localPrices.grain + subsistence.retained.wood * s.localPrices.wood : 0;
     const ruralIncome = (subsistence?.householdIncome ?? 0) * (1 - 0.05 * taxShare);
     const rentIncome = (subsistence?.landRent ?? 0) * (1 - 0.05 * taxShare);
+    const relief = s.welfareRelief?.paid;
     const basicCost = goods.reduce((sum, good) => sum + industries[good].demandPerPerson * s.localPrices[good], 0) +
       substitutedBasketCost(s.localPrices, s.householdSubstituteOrders!) / stateEconomies[id].population;
     const income = allocateHouseholdIncome(site.pops, basicCost, {
-      农民: ruralIncome, 劳工: labourWages * netWages + armyWages + publicConstructionWages,
+      农民: ruralIncome + (relief?.农民 ?? 0),
+      劳工: labourWages * netWages + armyWages + publicConstructionWages + (relief?.劳工 ?? 0),
       工程师: privateSpecialistWages * netWages + publicSpecialistWages,
       资本家: ownerIncome, 贵族: ownerIncome + rentIncome,
     }, retainedValue);
@@ -1276,6 +1296,7 @@ export function settleEconomy(state: GameState, war?: WarPlan, fractionOfYear = 
       dividends: s.dividends,
       businessJobs: jobs,
       standardTarget: livingStandardTarget(s.consumptionIndex!, s.foodFulfillment!),
+      relief,
     }, tuning);
   }
   function complete<T extends Project>(queue: T[], points: number) {

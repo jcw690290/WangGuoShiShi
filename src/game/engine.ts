@@ -29,7 +29,8 @@ import { chooseLocalNegotiation, negotiateLocalUnrest } from "./unrest.ts";
 import type { LocalUnrestCommand } from "./unrest.ts";
 import { industries, isGood } from "./industry.ts";
 import { effectiveConvoyCapacity, maxConvoyOrder, shipGoodsPerConvoy } from "./fleet.ts";
-import { institutionCommands, institutionLevelSchema, institutionNames, institutionStaffNeed, institutions } from "./institutions.ts";
+import { institutionCommands, institutionLevelSchema, institutionNames,
+  institutionRequiredTech, institutionStaffNeed, institutions } from "./institutions.ts";
 import type { Institution } from "./institutions.ts";
 export { DAY_MS, elapsedTicks, TICKS_PER_DAY } from "./time.ts";
 
@@ -149,16 +150,22 @@ function chooseInstitutionUpgrade(state: GameState, report: EconomyReport, count
   const market = report.countries[countryId].market;
   return Object.entries(state.societies).flatMap(([stateId, site]) => {
     if (state.ownerByStateId[stateId] !== countryId || state.occupation?.stateId === stateId || site[kind] === 3) return [];
-    const unrest = site.stability?.unrest ?? 0;
+    const level = site[kind] + 1;
+    const technology = institutionRequiredTech(kind, level);
+    if (technology && state.nations[countryId].knowledge[technology] < 100) return [];
     const local = report.states[stateId];
-    if (kind === "policing" && (unrest < 25 || local.industries.services.output === 0 ||
+    const unrest = site.stability?.unrest ?? 0;
+    const foodGap = 1 - local.foodFulfillment!;
+    if (kind === "policing" && unrest < 25 || kind === "welfare" && foodGap < 0.20) return [];
+    if (kind !== "healthcare" && (local.industries.services.output === 0 ||
         market.paper.supply === 0 || market.tools.supply === 0)) return [];
     const population = state.stateEconomies[stateId].population;
     const coverage = local[kind]?.coverage ?? 0;
-    const level = site[kind] + 1;
-    return coverage >= 0.7 * site[kind] / 3 && treasury >= institutionStaffNeed(population, level) * 26 * 250
-      ? [{ stateId, level, population, unrest }] : [];
-  }).sort((a, b) => (kind === "policing" ? b.unrest - a.unrest : 0) || a.level - b.level || b.population - a.population)[0];
+    const weeklyReserve = institutionStaffNeed(population, level) * (kind === "welfare" ? 1_000 : 250);
+    const priority = kind === "policing" ? unrest : kind === "welfare" ? foodGap : 0;
+    return coverage >= 0.7 * site[kind] / 3 && treasury >= weeklyReserve * 26
+      ? [{ stateId, level, population, priority }] : [];
+  }).sort((a, b) => b.priority - a.priority || a.level - b.level || b.population - a.population)[0];
 }
 
 export function advanceTick(
@@ -384,17 +391,19 @@ function applyCommand(
       return { ...state, nations: { ...state.nations, [id]: { ...nation, fleet } } };
     }
     case "setHealthcareLevel":
-    case "setPolicingLevel": {
+    case "setPolicingLevel":
+    case "setWelfareLevel": {
       const { countryId, stateId, level } = cmd;
-      const kind = cmd.type === "setHealthcareLevel" ? "healthcare" : "policing";
+      const kind = institutions.find((institution) => institutionCommands[institution] === cmd.type)!;
       if (!institutionLevelSchema.safeParse(level).success) throw new GameRuleError(`${institutionNames[kind]}等级须为 0–3`);
       if (state.ownerByStateId[stateId] !== countryId) throw new GameRuleError("只能调整本国州的公共机构");
       const site = state.societies[stateId];
       if (level === site[kind]) return state;
       if (level > site[kind]) {
         if (state.occupation?.stateId === stateId) throw new GameRuleError("该州处于军事占领中");
-        if (kind === "healthcare" && level > 1 && state.nations[countryId].knowledge["公共卫生"] !== 100)
-          throw new GameRuleError("需要掌握公共卫生技术才能提升至 2 级及以上");
+        const technology = institutionRequiredTech(kind, level);
+        if (technology && state.nations[countryId].knowledge[technology] !== 100)
+          throw new GameRuleError(`需要掌握${technology}技术才能提升至 ${level} 级`);
       }
       return { ...state, societies: { ...state.societies, [stateId]: { ...site, [kind]: level } } };
     }

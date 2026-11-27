@@ -66,6 +66,7 @@ export const siteSocialSchema = z.object({
   bureaucracy: z.int().nonnegative().default(0),
   healthcare: institutionLevelSchema.default(0),
   policing: institutionLevelSchema.default(0),
+  welfare: institutionLevelSchema.default(0),
   construction: z.int().positive(),
   barracks: z.int().nonnegative(),
   conscription: z.int().nonnegative(),
@@ -83,7 +84,8 @@ export const laws = [
   "小农自耕",
 ] as const;
 export type Law = (typeof laws)[number];
-export const techs = ["纺织工艺", "野战后勤", "公共教育", "机械织造", "运输调度", "高等教育", "蒸汽动力", "铁路", "规模化钢铁", "电气化", "内燃机", "公共卫生"] as const;
+export const techs = ["纺织工艺", "野战后勤", "公共教育", "机械织造", "运输调度", "高等教育", "蒸汽动力", "铁路",
+  "规模化钢铁", "电气化", "内燃机", "公共卫生", "劳工保障", "社会保障"] as const;
 export type Tech = (typeof techs)[number];
 export const emptyKnowledge = (): Record<Tech, number> => ({
   纺织工艺: 0,
@@ -98,12 +100,16 @@ export const emptyKnowledge = (): Record<Tech, number> => ({
   电气化: 0,
   内燃机: 0,
   公共卫生: 0,
+  劳工保障: 0,
+  社会保障: 0,
 });
 const knowledgeSchema = z.object({
   纺织工艺: percent, 野战后勤: percent, 公共教育: percent, 机械织造: percent, 运输调度: percent, 高等教育: percent,
   蒸汽动力: percent.default(0), 铁路: percent.default(0), 规模化钢铁: percent.default(0), 电气化: percent.default(0),
   内燃机: percent.default(0),
   公共卫生: percent.default(0),
+  劳工保障: percent.default(0),
+  社会保障: percent.default(0),
 });
 export const privateProject = z.object({
   stateId: z.string(),
@@ -198,6 +204,7 @@ export function initSiteSociety(site: Scenario["states"][string]): SiteSocial {
     bureaucracy: site.startingOffices ?? 0,
     healthcare: 0,
     policing: 0,
+    welfare: 0,
     construction: 1,
     barracks: 1,
     conscription: 1,
@@ -321,6 +328,7 @@ export function evolvePops(
   week: {
     grainPrice: number; laborWages: number; specialistWages: number;
     dividends: number; ruralResources: number; landRent: number; businessJobs: number; standardTarget: number;
+    relief?: { 农民: number; 劳工: number };
   },
   tuning: RuleTuning,
 ) {
@@ -332,9 +340,9 @@ export function evolvePops(
     const isAccepted = accepted(p, id, nation);
     const income =
       p.occupation === "农民"
-        ? ruralResources
+        ? ruralResources + (week.relief?.农民 ?? 0)
         : p.occupation === "劳工"
-          ? laborWages
+          ? laborWages + (week.relief?.劳工 ?? 0)
           : socialTags[p.occupation][0] === "上层"
             ? dividends / 2 + (p.occupation === "贵族" ? landRent : 0)
             : totals[p.occupation] * 4 + (p.occupation === "工程师" ? specialistWages : 0);
