@@ -220,8 +220,11 @@ const market = z.object({
 })
   .refine((good) => good.traded === undefined || good.traded <= Math.min(good.supply, good.demand));
 const industry = z.object({ employed: uint, output: uint, wages: uint, sold: uint.optional(), bought: uint.optional(),
+  buyers: z.object({ households: uint, construction: uint, industry: uint, publicServices: uint }).optional(),
   electric: z.literal(true).optional() })
-  .refine((good) => good.sold === undefined || good.sold <= good.output);
+  .refine((good) => good.sold === undefined || good.sold <= good.output)
+  .refine(({ buyers, bought }) => !buyers ||
+    buyers.households + buyers.construction + buyers.industry + buyers.publicServices === bought);
 const issue = z.object({ demand: uint, delivered: uint }).refine((i) => i.delivered <= i.demand);
 const military = z.object({
   regulars: uint,

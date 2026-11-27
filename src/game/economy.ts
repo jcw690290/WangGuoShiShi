@@ -152,6 +152,7 @@ interface IndustryReport {
   wages: number;
   sold?: number;
   bought?: number;
+  buyers?: { households: number; construction: number; industry: number; publicServices: number };
   electric?: true;
 }
 export interface MilitarySupply {
@@ -1091,6 +1092,10 @@ function projectSettlement(state: GameState, war?: WarPlan, closingTick?: number
         const basicCost = production.bought > 0 ? Math.floor(payment * basicGoods / production.bought) : 0;
         const civilianCost = production.bought > 0 ? Math.floor(payment * civilianGoods / production.bought) : 0;
         const publicGoods = production.bought - privateGoods;
+        if (production.bought > 0) production.buyers = {
+          households: residentGoods, construction: civilianGoods - residentGoods,
+          industry: inputGoods, publicServices: publicGoods,
+        };
         const publicCost = payment - paidByPrivate;
         const publicFill = deliverInstitutionOrders(institutionOrders, publicOrder, publicGoods, publicCost);
         return {
