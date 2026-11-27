@@ -15,6 +15,7 @@ import { isTradeLaw, tariffBandSchema, tradeLaws, tradePartnersSchema } from "./
 import { civicLawCategory, civicLaws, civicPolicy, civicStanding, isBaselineCivicLaw } from "./civic-policy.ts";
 import { constitutionalFormSchema, constitutionalLaws, constitutionalMandate, constitutionLawCategory,
   powerDistribution, startingStateForm } from "./constitution.ts";
+import { economicLaws, isEconomicLaw, ownershipSchema } from "./ownership.ts";
 
 export const occupations = ["农民", "劳工", "工程师", "军官", "教士", "店主", "资本家", "贵族"] as const;
 export type Occupation = (typeof occupations)[number];
@@ -83,8 +84,6 @@ export const siteSocialSchema = z.object({
 export type SiteSocial = z.infer<typeof siteSocialSchema>;
 export const laws = [
   "工资税改革",
-  "干预主义",
-  "自由放任",
   "地主租佃",
   "小农自耕",
   ...institutionLawKinds.flatMap((kind) => [...institutionLawOptions[kind]]),
@@ -94,6 +93,7 @@ export const laws = [
   ...civicLaws,
   ...constitutionalLaws,
   ...governanceLaws,
+  ...economicLaws,
 ] as const;
 export type Law = (typeof laws)[number];
 export const techs = ["纺织工艺", "野战后勤", "公共教育", "机械织造", "运输调度", "高等教育", "蒸汽动力", "铁路",
@@ -132,6 +132,7 @@ export const privateProject = z.object({
   good: z.enum(goods),
   weeksLeft: z.number().positive(),
   levels: z.int().positive().optional(),
+  ownership: ownershipSchema.optional(),
 });
 export const facilityTypes = [
   "infrastructure",
@@ -170,7 +171,7 @@ export const nationSchema = z.object({
     const civicCategories = enacted.map(civicLawCategory).filter((category) => category !== undefined);
     return new Set(categories).size === categories.length && new Set(civicCategories).size === civicCategories.length;
   }).refine((enacted) => enacted.filter(isTaxLaw).length <= 1 && enacted.filter(isTradeLaw).length <= 1 &&
-    enacted.filter(isGovernanceLaw).length <= 1 &&
+    enacted.filter(isGovernanceLaw).length <= 1 && enacted.filter(isEconomicLaw).length <= 1 &&
     (["stateForm", "representation"] as const).every((category) =>
       enacted.filter((law) => constitutionLawCategory(law) === category).length <= 1)),
   taxBand: taxBandSchema.default(taxBands[2]),
@@ -315,6 +316,8 @@ export const supporters: Record<Law, Group[]> = {
   普选制: ["工会", "乡民"],
   干预主义: ["乡民", "小市民"],
   自由放任: ["实业家", "小市民"],
+  国家主导: ["地主", "武装部队", "小市民"],
+  合作经济: ["工会", "乡民", "知识分子"],
   出版自由: ["知识分子", "实业家"],
   地主租佃: ["地主"],
   小农自耕: ["乡民", "小市民"],
@@ -364,7 +367,7 @@ export function approval(nation: Nation, g: Group) {
   return (
     (nation.government.includes(g) ? 8 : 0) +
     nation.laws.reduce((n, l) => institutionLawDetails(l)?.level === 1 || neutralLaborLaws.has(l) ||
-      l === "传统土地身份税" || l === "贸易保护" || l === "复合辖区制" || isBaselineCivicLaw(l) ?
+      l === "传统土地身份税" || l === "贸易保护" || l === "复合辖区制" || l === "国家主导" || isBaselineCivicLaw(l) ?
       n : n + (supporters[l].includes(g) ? 4 : -1), 0)
   );
 }

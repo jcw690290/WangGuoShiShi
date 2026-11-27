@@ -51,7 +51,8 @@ test("陆路贸易按实际发货结算供需、实收关税、运费、投资�
     before.states[to].dividends - before.states[to].investment, delivery.profit);
   const week = dispatch(scenario, routed, { type: "advanceWeek" });
   const budget = week.lastEconomy!.countries[vietnam];
-  assert.equal(week.countryEconomies[vietnam].treasury - initial.countryEconomies[vietnam].treasury, budget.tax - budget.upkeep);
+  assert.equal(week.countryEconomies[vietnam].treasury - initial.countryEconomies[vietnam].treasury,
+    budget.tax + budget.publicIndustryIncome! - budget.upkeep);
   assert.deepEqual(await decodeSnapshot(scenario, await encodeSnapshot(scenario, week)), week);
   const priceAfterImports = projectEconomy(week).countries[vietnam].market.grain.targetPrice!;
   const noExpectedImports = { ...week, lastEconomy: { ...week.lastEconomy!, trade: [] } };
