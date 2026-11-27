@@ -19,9 +19,11 @@ import { taxLaws } from "./game/taxation.ts";
 import { isTradeLaw, tradeLaws } from "./game/trade-policy.ts";
 import { civicLawCategory, civicLawFamilies, enactedCivicLaws } from "./game/civic-policy.ts";
 import { authorityBudget, constitutionalForms, constitutionLawCategory, representationLaw, representationLaws, stateForm } from "./game/constitution.ts";
+import { governanceLaw, governanceLaws, isGovernanceLaw } from "./game/governance.ts";
 
 const otherLaws = laws.filter((law) => !institutionLawDetails(law) && !laborLawCategory(law) &&
-  !(taxLaws as readonly Law[]).includes(law) && !isTradeLaw(law) && !civicLawCategory(law) && !constitutionLawCategory(law));
+  !(taxLaws as readonly Law[]).includes(law) && !isTradeLaw(law) && !civicLawCategory(law) &&
+  !constitutionLawCategory(law) && !isGovernanceLaw(law));
 interface Props {
   game: GameState;
   playerId: string;
@@ -47,7 +49,7 @@ export function PoliticsPanel({ game, playerId: id, year, busy, send }: Props) {
   const { innovation, cap } = researchCapacity(universityStaff, literacy);
   const proposal = { type: "proposeLaw", countryId: id, law } as const;
   const reason = politicsError(game, proposal);
-  const effectiveLaws = n.laws.filter((law) => !civicLawCategory(law) && !constitutionLawCategory(law));
+  const effectiveLaws = n.laws.filter((law) => !civicLawCategory(law) && !constitutionLawCategory(law) && !isGovernanceLaw(law));
   const authority = authorityBudget(game, id);
   return (
     <section className="economy">
@@ -85,7 +87,7 @@ export function PoliticsPanel({ game, playerId: id, year, busy, send }: Props) {
                 </label>
               ))}
             </div>
-            <p>生效法律 · {[stateForm(n), representationLaw(n), ...effectiveLaws, ...enactedCivicLaws(n.laws)].join("、")}</p>
+            <p>生效法律 · {[stateForm(n), representationLaw(n), governanceLaw(n.laws), ...effectiveLaws, ...enactedCivicLaws(n.laws)].join("、")}</p>
             <select
               value={law}
               aria-label="改革法律"
@@ -121,6 +123,9 @@ export function PoliticsPanel({ game, playerId: id, year, busy, send }: Props) {
               </optgroup>
               <optgroup label="权力分配">
                 {representationLaws.map((l) => <option key={l}>{l}</option>)}
+              </optgroup>
+              <optgroup label="地方治理">
+                {governanceLaws.map((l) => <option key={l}>{l}</option>)}
               </optgroup>
             </select>
             <p>{lawEffect[law]}</p>

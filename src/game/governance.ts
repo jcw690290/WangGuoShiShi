@@ -13,6 +13,30 @@ export const governanceRules = {
   COLONIAL: { name: "殖民辖区", centralTax: 65, militaryShare: 0.75, administrationCost: 1.1 },
   INDIRECT: { name: "间接辖区", centralTax: 30, militaryShare: 0.25, administrationCost: 0.6 },
 } satisfies Record<GovernanceMode, { name: string; centralTax: number; militaryShare: number; administrationCost: number }>;
+export const governanceLaws = ["复合辖区制", "中央集权", "地方自治", "殖民特许"] as const;
+export const isGovernanceLaw = (law: string) => (governanceLaws as readonly string[]).includes(law);
+export const governanceLaw = (laws: readonly string[]) => governanceLaws.find((law) => laws.includes(law)) ?? governanceLaws[0];
+
+export function governanceModeAllowed(mode: GovernanceMode, laws: readonly string[]) {
+  const law = governanceLaw(laws);
+  return !(law === "中央集权" && mode === "INDIRECT") && !(law === "地方自治" && mode === "COLONIAL");
+}
+
+export function localGovernanceRule(site: SiteSocial, laws: readonly string[]) {
+  const { mode } = governanceOf(site);
+  const rule = governanceRules[mode];
+  switch (governanceLaw(laws)) {
+    case "中央集权":
+      return { ...rule, centralTax: mode === "FRONTIER" ? 90 : rule.centralTax,
+        administrationCost: rule.administrationCost * 1.15, integrationCost: 1.15 };
+    case "地方自治":
+      return { ...rule, centralTax: Math.min(80, rule.centralTax), militaryShare: rule.militaryShare * 0.8,
+        administrationCost: rule.administrationCost * 0.85, integrationCost: 0.85 };
+    case "殖民特许":
+      if (mode === "COLONIAL") return { ...rule, centralTax: 75, militaryShare: 0.65, administrationCost: 1.25, integrationCost: 1.2 };
+  }
+  return { ...rule, integrationCost: 1 };
+}
 
 export const integrationDuration = 60;
 export const administrationWage = 150;
@@ -35,8 +59,8 @@ const administrationDemand: Record<Difficulty, number> = {
   relaxed: 0.8, standard: 1, challenging: 1.15, extreme: 1.3,
 };
 export const administrationDemandMultiplier = (difficulty: Difficulty) => administrationDemand[difficulty];
-export const integrationStaffNeeded = (population: number, difficulty: Difficulty) =>
-  Math.ceil((20 + population / 50_000) * administrationDemandMultiplier(difficulty));
+export const integrationStaffNeeded = (population: number, difficulty: Difficulty, cost = 1) =>
+  Math.ceil((20 + population / 50_000) * administrationDemandMultiplier(difficulty) * cost);
 
 export type GovernanceCommand =
   | { type: "setLocalGovernance"; countryId: string; stateId: string; mode: GovernanceMode }
@@ -48,6 +72,8 @@ export function governanceError(state: GameState, cmd: GovernanceCommand) {
   if (state.occupation?.stateId === stateId) return "州处于军事占领中";
   const current = governanceOf(state.societies[stateId]);
   if (cmd.type === "setLocalGovernance") {
+    const laws = state.nations[countryId].laws;
+    if (!governanceModeAllowed(cmd.mode, laws)) return `《${governanceLaw(laws)}》限制新设此类辖区`;
     if (cmd.mode === "PROVINCE" && !current.integrated) return "正式州须先完成整合";
     if (cmd.mode === current.mode) return "州已采用此治理方式";
   } else if (cmd.type === "startIntegration") {
@@ -73,7 +99,8 @@ export function chooseIntegration(state: GameState, countryId: string): Governan
   for (const stateId of sites) {
     const command = { type: "startIntegration", countryId, stateId } as const;
     if (governanceError(state, command)) continue;
-    const required = integrationStaffNeeded(state.stateEconomies[stateId].population, state.settings.difficulty);
+    const rule = localGovernanceRule(state.societies[stateId], state.nations[countryId].laws);
+    const required = integrationStaffNeeded(state.stateEconomies[stateId].population, state.settings.difficulty, rule.integrationCost);
     if (country.treasury >= required * administrationWage * 8) return command;
   }
 }

@@ -273,6 +273,7 @@ const siteReport = z.object({
   constructionMaintenance: constructionMaintenanceSchema.optional(),
   industrial: industrialReportSchema.optional(),
   office: officeReportSchema.optional(),
+  localFiscal: z.object({ balance: uint, retainedTax: uint, publicSpending: uint }).optional(),
   healthcare: institutionReportSchema.healthcare.optional(),
   policing: institutionReportSchema.policing.optional(),
   welfare: institutionReportSchema.welfare.optional(),
@@ -318,7 +319,7 @@ export function parseSave(scenario: Scenario, save: unknown): GameState {
   const lastPopulation = z.object({ day: uint.positive(), changes: z.record(activeSite, cash) }).nullable();
   const stateEconomy = z.object({ population: z.int().positive(), buildings: goodsNumbers, localQuotes: quotes.optional(),
     industrial: industrialAccountSchema.optional(), basicBudget: uint, discretionaryBudget: uint.optional(), cropland: uint.optional(),
-    constructionStock: constructionStockSchema.optional(),
+    constructionStock: constructionStockSchema.optional(), localTreasury: uint.optional(),
     commercialRecipes: z.literal(true).optional(),
     inheritedArmamentCapacity: z.object({ arms: uint.optional(), ammo: uint.optional() }).optional() });
   const legacyBudgets = z.record(activeSite, stateEconomy.extend({ basicBudget: uint.optional() })

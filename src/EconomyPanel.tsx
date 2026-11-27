@@ -9,7 +9,8 @@ import type { GameCommand, GameState } from "./game/engine.ts";
 import { goods, industrialGoods, industries, isGood } from "./game/industry.ts";
 import type { Scenario } from "./scenario/scenario.ts";
 import { affinityLevel, culturalAffinityOf } from "./game/culture.ts";
-import { governanceModes, governanceOf, governanceRules, integrationDuration, integrationStaffNeeded } from "./game/governance.ts";
+import { governanceLaw, governanceModeAllowed, governanceModes, governanceOf, governanceRules,
+  integrationDuration, integrationStaffNeeded, localGovernanceRule } from "./game/governance.ts";
 import type { GovernanceMode } from "./game/governance.ts";
 import { TradePanel } from "./TradePanel.tsx";
 import { portCapacity } from "./game/transport.ts";
@@ -78,7 +79,7 @@ function StateIndustry({
   const order = nation.fleet.order;
   const motorizationHere = nation.fleet.motorizationPort === stateId;
   const movesOrder = order !== null && order.stateId !== stateId;
-  const rule = governanceRules[governance.mode];
+  const rule = localGovernanceRule(society, nation.laws);
   const occupied = game.occupation?.stateId === stateId;
   const integrationActive = governance.integration !== null;
   const stability = society.stability;
@@ -346,7 +347,12 @@ function StateIndustry({
         </details>
         <details>
           <summary>地方治理 · {rule.name}</summary>
-          <p>{governance.integrated ? "已整合" : "未整合"} · 中央税权 {rule.centralTax}% · 驻军与征兵额度 {Math.round(rule.militaryShare * 100)}%</p>
+          <p>{governanceLaw(nation.laws)} · {governance.integrated ? "已整合" : "未整合"} ·
+            中央税权 {rule.centralTax}% · 驻军与征兵额度 {Math.round(rule.militaryShare * 100)}%</p>
+          {snapshot.localFiscal && <p>
+            地方国库 {silver(local.localTreasury ?? 0)} · 周留税 {silver(snapshot.localFiscal.retainedTax)} ·
+            周公共支出 {silver(snapshot.localFiscal.publicSpending)}
+          </p>}
           {snapshot.office && <>
             <p>行政署 {society.bureaucracy} 级 · 治理覆盖 {Math.round(snapshot.office.coverage * 100)}% · 实付岗位 {count(snapshot.office.staff)} / {count(Math.ceil(snapshot.office.need))}</p>
             <p>周到货 纸张 {count(snapshot.office.paper)} / {count(snapshot.office.paperDemand)} · 服务 {count(snapshot.office.services)} / {count(snapshot.office.serviceDemand)}</p>
@@ -366,7 +372,7 @@ function StateIndustry({
           {integrationActive && (
             <p>整合 {governance.integration!.months.toFixed(1)} / {integrationDuration} 月 ·
               实付行政岗位 {(snapshot.administrationStaff ?? 0).toFixed(1)} /
-              {integrationStaffNeeded(local.population, game.settings.difficulty)}
+              {integrationStaffNeeded(local.population, game.settings.difficulty, rule.integrationCost)}
             </p>
           )}
           {isOwnState && (
@@ -381,8 +387,10 @@ function StateIndustry({
                   })}
                 >
                   {governanceModes.map((mode) => (
-                    <option key={mode} value={mode} disabled={mode === "PROVINCE" && !governance.integrated}>
+                    <option key={mode} value={mode}
+                      disabled={!governanceModeAllowed(mode, nation.laws) || (mode === "PROVINCE" && !governance.integrated)}>
                       {governanceRules[mode].name}
+                      {!governanceModeAllowed(mode, nation.laws) && "（现行法律限制新设）"}
                     </option>
                   ))}
                 </select>

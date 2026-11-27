@@ -15,8 +15,8 @@ import type { FiscalAccount } from "./fiscal.ts";
 import { allocateHouseholdIncome, basicEquivalentSupply, byExtraGood, extrasOrders, fundBasicBasket, isExtraGood,
   livingStandardTarget, openingBasicBudget, planBasicBasket, substitutedBasketCost } from "./households.ts";
 import type { BasicPurchases, ExtrasReport, SubstituteOrders } from "./households.ts";
-import { administrationWage, advanceIntegration, governanceOf, governanceRules,
-  integrationStaffNeeded, integrationWeekShare } from "./governance.ts";
+import { administrationWage, advanceIntegration, integrationStaffNeeded,
+  integrationWeekShare, localGovernanceRule } from "./governance.ts";
 import { expectedTrade, settleTrade } from "./trade.ts";
 import type { TradeDelivery } from "./trade.ts";
 import { unrestEffects } from "./unrest.ts";
@@ -74,6 +74,7 @@ export interface StateEconomy {
   constructionStock?: ConstructionStock;
   basicBudget: number;
   discretionaryBudget?: number;
+  localTreasury?: number;
 }
 export function initialStateEconomy(site: Scenario["states"][string]): StateEconomy {
   const buildings = byGood((good) => site.buildings[good] ?? 0);
@@ -169,6 +170,7 @@ export interface SiteReport {
   constructionMaintenance?: ConstructionMaintenance;
   industrial?: IndustrialReport;
   office?: OfficeReport;
+  localFiscal?: { balance: number; retainedTax: number; publicSpending: number };
   healthcare?: InstitutionReport;
   policing?: InstitutionReport;
   welfare?: InstitutionReport;
@@ -230,8 +232,6 @@ export function weeklyBudgets(nations: GameState["nations"], report: EconomyRepo
 }
 export { workForce } from "./labor.ts";
 const fulfillment = (bought: number, demand: number) => demand ? bought / demand : 1;
-const siteTaxShare = (site: SiteSocial, occupied: boolean) => occupied ? 0 :
-  unrestEffects(site.stability).collection * governanceRules[governanceOf(site).mode].centralTax / 100;
 
 function privateHouseholdIncome(site: SiteReport): HouseholdIncome {
   const specialist = site.industrial?.skilledWages ?? 0;
@@ -281,12 +281,8 @@ function equipmentNeeds(strength: number, field: boolean) {
   };
 }
 
-function siteMilitaryShare(site: SiteSocial) {
-  return governanceRules[governanceOf(site).mode].militaryShare;
-}
-
-function garrisonSize(site: SiteSocial, population: number) {
-  return Math.floor(Math.min(site.barracks * 100, population * 0.03) * siteMilitaryShare(site));
+function garrisonSize(site: SiteSocial, population: number, militaryShare: number) {
+  return Math.floor(Math.min(site.barracks * 100, population * 0.03) * militaryShare);
 }
 
 function availableEngineers(site: SiteSocial, owner: string, nation: GameState["nations"][string]) {
@@ -339,9 +335,10 @@ function planArmamentOrders(state: GameState, holdings: Record<string, string[]>
   }
   for (const [owner, ids] of Object.entries(holdings)) {
     const { treasury, fiscal } = state.countryEconomies[owner];
+    const laws = state.nations[owner].laws;
     if (Math.max(0, treasury) + availablePrepaymentCredit(fiscal, treasury) === 0) continue;
     const regulars = (sites: string[]) => sites.reduce((sum, id) =>
-      sum + garrisonSize(state.societies[id], state.stateEconomies[id].population), 0);
+      sum + garrisonSize(state.societies[id], state.stateEconomies[id].population, localGovernanceRule(state.societies[id], laws).militaryShare), 0);
     const route = war?.routes[owner];
     if (route) {
       const { front, rear } = militarySources(ids, route);
@@ -350,8 +347,8 @@ function planArmamentOrders(state: GameState, holdings: Record<string, string[]>
       const mobilized = !route.mobilized ? 0 : [...route.recruitmentStates].reduce((sum, id) => {
         const site = state.societies[id];
         const eligible = workForce(state.stateEconomies[id].population, site.laborParticipation) -
-          bondedRuralWorkers(ruralPopulation(site.pops), site.laborParticipation, state.nations[owner].laws);
-        return sum + Math.min(Math.floor(site.conscription * 500 * siteMilitaryShare(site)),
+          bondedRuralWorkers(ruralPopulation(site.pops), site.laborParticipation, laws);
+        return sum + Math.min(Math.floor(site.conscription * 500 * localGovernanceRule(site, laws).militaryShare),
           Math.floor(eligible * war!.recruitPercent / 100));
       }, 0);
       assign(owner, front, deployed + mobilized, true);
@@ -507,8 +504,8 @@ function projectSettlement(state: GameState, war?: WarPlan, closingTick?: number
     basicBudget: number; discretionaryBudget: number; extra: ExtrasReport["orders"];
   }>();
   const officePlans = new Map<string, ReturnType<typeof planOffice>>();
-  const institutionPlans = new Map<string, Record<Institution, ReturnType<typeof planInstitution>>>();
-  const welfareReliefPlans = new Map<string, ReturnType<typeof planWelfareRelief>>();
+  const institutionPlans = new Map<string, Record<Institution, ReturnType<typeof planInstitution> & { localReserved: number }>>();
+  const welfareReliefPlans = new Map<string, ReturnType<typeof planWelfareRelief> & { localReserved: number }>();
   const cashToCommit = Object.fromEntries(Object.entries(state.countryEconomies)
     .map(([id, account]) => [id, Math.max(0, account.treasury)]));
   const industrialClosing: Record<string, IndustrialAccount> = {};
@@ -571,8 +568,8 @@ function projectSettlement(state: GameState, war?: WarPlan, closingTick?: number
     const route = war?.routes[owner],
       front = route?.recruitmentStates.has(id);
     const effects = unrestEffects(site.stability);
-    const militaryShare = siteMilitaryShare(site);
-    const regulars = garrisonSize(site, local.population);
+    const { militaryShare, integrationCost } = localGovernanceRule(site, nation.laws);
+    const regulars = garrisonSize(site, local.population, militaryShare);
     const draftRate = front && route!.mobilized ? war!.recruitPercent : 0;
     const draftQuota = Math.floor(site.conscription * 500 * militaryShare);
     const engineers = availableEngineers(site, owner, nation);
@@ -595,25 +592,30 @@ function projectSettlement(state: GameState, war?: WarPlan, closingTick?: number
       ? (closingTick === undefined ? 1 : integrationWeekShare(integration.startedAtTick, closingTick)) : 0;
     const administrators = administrationShare > 0
       ? Math.min(unassignedAfterUniversity - office.staff,
-        integrationStaffNeeded(local.population, state.settings.difficulty))
+        integrationStaffNeeded(local.population, state.settings.difficulty, integrationCost))
       : 0;
     const administrationDue = Math.floor(administrators * administrationShare * administrationWage);
     const ceilings = orderQuoteCeilings(local, state.countryEconomies[marketOf(state, owner)]);
     let institutionStaff = 0;
+    let localCash = local.localTreasury ?? 0;
+    function reserveService(cost: number) {
+      const localReserved = Math.min(localCash, cost);
+      localCash -= localReserved;
+      cashToCommit[owner] -= cost - localReserved;
+      return localReserved;
+    }
     const institutionCapacity = state.occupation?.stateId === id ? 0 : unassignedAfterUniversity - office.staff - administrators;
     const services = byInstitution((kind) => {
       const level = Math.min(site[kind], institutionLawLimit(nation.laws, kind));
       const plan = planInstitution(kind, local.population, level, institutionCapacity - institutionStaff,
-        cashToCommit[owner], ceilings);
+        cashToCommit[owner] + localCash, ceilings);
       institutionStaff += plan.staff;
-      cashToCommit[owner] -= plan.reserved;
-      return plan;
+      return { ...plan, localReserved: reserveService(plan.reserved) };
     });
     institutionPlans.set(id, services);
     if (site.welfare > 0) {
-      const relief = planWelfareRelief(site.pops, services.welfare, cashToCommit[owner]);
-      welfareReliefPlans.set(id, relief);
-      cashToCommit[owner] -= relief.reserved;
+      const relief = planWelfareRelief(site.pops, services.welfare, cashToCommit[owner] + localCash);
+      welfareReliefPlans.set(id, { ...relief, localReserved: reserveService(relief.reserved) });
     }
     let workers = labour - universityStaff - administrators - office.staff - institutionStaff,
       conscripts = 0;
@@ -885,7 +887,7 @@ function projectSettlement(state: GameState, war?: WarPlan, closingTick?: number
       const s = report.states[id],
         site = state.societies[id];
       const effects = unrestEffects(site.stability);
-      const taxShare = siteTaxShare(site, id === state.occupation?.stateId);
+      const { centralTax } = localGovernanceRule(site, nation.laws);
       const transfer = trade?.transfers.get(id);
       const household = householdOrders[id];
       const { extra, basicBudget, discretionaryBudget } = householdPlans.get(id)!;
@@ -955,23 +957,30 @@ function projectSettlement(state: GameState, war?: WarPlan, closingTick?: number
       });
       const officeCost = fillsByUse.paper.publicCost + fillsByUse.services.publicCost;
       s.office = deliverOffice(office, fillsByUse.paper.publicGoods, fillsByUse.services.publicGoods, officeCost);
-      const collection = taxShare * (0.75 + 0.25 * s.office.coverage);
+      const collection = id === state.occupation?.stateId ? 0 : effects.collection * (0.75 + 0.25 * s.office.coverage);
       c.upkeep += officeCost;
       c.officeUpkeep! += s.office.wages + officeCost;
+      let publicSpending = 0;
+      function chargeService(paid: number, localReserved: number) {
+        const localPaid = Math.min(paid, localReserved);
+        publicSpending += localPaid;
+        return paid - localPaid;
+      }
       for (const kind of institutions) {
         const plan = services[kind];
         if (plan.level === 0) continue;
         const spending = institutionGoods.reduce((sum, good) => sum + fillsByUse[good].institutions[kind].paid, 0);
         const delivered = byInstitutionGood((good) => fillsByUse[good].institutions[kind].received);
         s[kind] = deliverInstitution(plan, delivered, spending, s.office.coverage);
-        const paid = plan.wages + spending;
+        const paid = chargeService(plan.wages + spending, plan.localReserved);
         c[`${kind}Upkeep`]! += paid;
         c.upkeep += paid;
       }
       if (s.welfare) {
-        const relief = deliverWelfareRelief(welfareReliefPlans.get(id)!, s.welfare.coverage);
+        const plan = welfareReliefPlans.get(id)!;
+        const relief = deliverWelfareRelief(plan, s.welfare.coverage);
         s.welfareRelief = relief;
-        const paid = relief.paid.农民 + relief.paid.劳工;
+        const paid = chargeService(relief.paid.农民 + relief.paid.劳工, plan.localReserved);
         c.welfareUpkeep! += paid;
         c.upkeep += paid;
       }
@@ -1015,7 +1024,8 @@ function projectSettlement(state: GameState, war?: WarPlan, closingTick?: number
       }));
       const excise = extraBills.reduce((sum, bill) => sum + bill.tax, 0);
       const extraSpending = excise + extraBills.reduce((sum, bill) => sum + bill.price, 0);
-      receipts.excise += excise;
+      const centralExcise = Math.floor(excise * centralTax / 100);
+      receipts.excise += centralExcise;
       const basicSpending = goods.reduce((sum, g) => sum + fillsByUse[g].basicCost, 0);
       if (basicSpending > basicBudget) throw new Error("基本消费超过已落实的家庭资金");
       s.householdBasicPurchases = { budget: basicBudget, spending: basicSpending };
@@ -1071,13 +1081,20 @@ function projectSettlement(state: GameState, war?: WarPlan, closingTick?: number
       c.investment += s.investment;
       const gross = privateHouseholdIncome(s);
       const paidTax = settleIncomeTax(gross, policy, collection);
-      receipts.income += Object.values(paidTax).reduce((sum, value) => sum + value, 0);
+      const incomeTax = Object.values(paidTax).reduce((sum, value) => sum + value, 0);
+      const centralIncomeTax = Math.floor(incomeTax * centralTax / 100);
+      receipts.income += centralIncomeTax;
+      const retainedTax = incomeTax - centralIncomeTax + excise - centralExcise;
+      const localTreasury = local.localTreasury ?? 0;
+      if (centralTax < 100 || localTreasury > 0) s.localFiscal = {
+        balance: localTreasury + retainedTax - publicSpending, retainedTax, publicSpending,
+      };
       privateIncomes[id] = {
         农民: gross.农民 - paidTax.农民, 劳工: gross.劳工 - paidTax.劳工, 工程师: gross.工程师 - paidTax.工程师,
         资本家: gross.资本家 - paidTax.资本家, 贵族: gross.贵族 - paidTax.贵族,
       };
-      if (policy.system === "工资税改革") c.wageTaxGain += Math.max(0,
-        paidTax.劳工 + paidTax.工程师 - Math.floor((gross.劳工 + gross.工程师) * 0.1 * collection * policy.multiplier));
+      if (policy.system === "工资税改革") c.wageTaxGain += Math.floor(Math.max(0,
+        paidTax.劳工 + paidTax.工程师 - Math.floor((gross.劳工 + gross.工程师) * 0.1 * collection * policy.multiplier)) * centralTax / 100);
       capacity += s.construction.public.points + s.construction.private.points;
     }
     c.capacity = Math.floor(capacity * 100) / 100;
@@ -1321,12 +1338,14 @@ export function settleEconomy(state: GameState, war?: WarPlan, fractionOfYear = 
     stateEconomies[id] = { ...local, localQuotes: localQuotes[id],
       basicBudget: basic.budget - basic.spending + income.basic,
       discretionaryBudget: extra.budget - extra.spending + income.discretionary,
+      ...(s.localFiscal ? { localTreasury: s.localFiscal.balance } : {}),
       ...(Object.hasOwn(constructionClosing, id) ? { constructionStock: constructionClosing[id] } : {}),
       ...(Object.hasOwn(industrialClosing, id) ? { industrial: industrialClosing[id] } : {}) };
     const governance = site.governance;
     if (governance?.integration) {
+      const { integrationCost } = localGovernanceRule(site, nations[owner].laws);
       societies[id] = { ...site, governance: advanceIntegration(
-        governance, s.administrationStaff!, integrationStaffNeeded(stateEconomies[id].population, state.settings.difficulty),
+        governance, s.administrationStaff!, integrationStaffNeeded(stateEconomies[id].population, state.settings.difficulty, integrationCost),
         s.access * (1 - (site.stability?.unrest ?? 0) / 250) * (0.75 + 0.25 * s.office!.coverage), fractionOfYear,
       ) };
     }
