@@ -4,7 +4,7 @@ import { elapsedTicks } from "./time.ts";
 import type { WarPlan } from "./diplomacy.ts";
 import { byGood, byIndustrialGood, commercialLevels, goods, industries, isGood, isIndustrialGood, isLocalGood, legacyCommercialCost } from "./industry.ts";
 import type { ByGood, Good } from "./industry.ts";
-import { accepted, evolvePops, facilityTypes, approval, tributeRate } from "./society.ts";
+import { evolvePops, facilityTypes, approval, tributeRate } from "./society.ts";
 import type { Nation, SiteSocial } from "./society.ts";
 import { getEconomicRules } from "./politics.ts";
 import { ruleTuning } from "./settings.ts";
@@ -42,6 +42,7 @@ import type { FleetGood, FleetReport } from "./fleet.ts";
 import { bondedRuralWorkers, laborProtection, ruralPopulation, workForce } from "./labor.ts";
 import { exciseOn, settleIncomeTax, taxPolicy } from "./taxation.ts";
 import type { HouseholdIncome, TaxSystem } from "./taxation.ts";
+import { civicPolicy, civicStanding } from "./civic-policy.ts";
 
 export { marketOf } from "./market.ts";
 
@@ -289,8 +290,9 @@ function garrisonSize(site: SiteSocial, population: number) {
 }
 
 function availableEngineers(site: SiteSocial, owner: string, nation: GameState["nations"][string]) {
+  const policy = civicPolicy(nation.laws);
   return site.pops.filter((p) => p.occupation === "工程师")
-    .reduce((sum, p) => sum + p.people * (accepted(p, owner, nation) ? 1 : 0.65), 0);
+    .reduce((sum, p) => sum + p.people * (0.65 + 0.35 * civicStanding(p, owner, site, policy)), 0);
 }
 
 function militarySources(ids: string[], route: WarPlan["routes"][string]) {

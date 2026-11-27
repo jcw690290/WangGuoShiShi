@@ -1,5 +1,6 @@
 import { useMemo } from "react";
-import { facilityNames, facilityTypes, livingStandardOf, socialTags, accepted } from "./game/society.ts";
+import { facilityNames, facilityTypes, livingStandardOf, socialTags } from "./game/society.ts";
+import { civicPolicy, civicStanding } from "./game/civic-policy.ts";
 import { privateShareOf, projectDeposit, projectPoints, remainingProjectPoints, weeklyBudgets } from "./game/economy.ts";
 import { count, silver } from "./format.ts";
 import { buildingCapacity, constructionError, workForce } from "./game/economy.ts";
@@ -71,6 +72,7 @@ function StateIndustry({
     snapshot = report.states[stateId];
   const governance = governanceOf(society);
   const nation = game.nations[owner];
+  const civic = civicPolicy(nation.laws);
   const boundWorkers = bondedRuralWorkers(ruralPopulation(society.pops), society.laborParticipation, nation.laws);
   const order = nation.fleet.order;
   const motorizationHere = nation.fleet.motorizationPort === stateId;
@@ -300,23 +302,25 @@ function StateIndustry({
                 </tr>
               </thead>
               <tbody>
-                {society.pops.map((p) => (
-                  <tr key={JSON.stringify([p.occupation, p.culture, p.religion])}>
-                    <td>
-                      {p.occupation} / {socialTags[p.occupation][0]}
-                    </td>
-                    <td>
-                      {cultureName(scenario, p.culture)} /{" "}
-                      {scenario.countries[p.religion] ? "国教" : "地方信仰"} ·{" "}
-                      {accepted(p, owner, game.nations[owner]) ? "接纳" : "受歧视"}
-                    </td>
-                    <td>{count(p.people)}</td>
-                    <td>{p.wealth.toFixed(1)}</td>
-                    <td>{p.livingStandard.toFixed(1)}</td>
-                    <td>{p.literacy.toFixed(1)}%</td>
-                    <td>{p.radicals.toFixed(1)}%</td>
-                  </tr>
-                ))}
+                {society.pops.map((p) => {
+                  const standing = civicStanding(p, owner, society, civic);
+                  return (
+                    <tr key={JSON.stringify([p.occupation, p.culture, p.religion])}>
+                      <td>
+                        {p.occupation} / {socialTags[p.occupation][0]}
+                      </td>
+                      <td>
+                        {cultureName(scenario, p.culture)} / {p.religion === owner ? "国教" : "其他信仰"} ·{" "}
+                        {standing === 1 ? "完整待遇" : standing > 0 ? "有限待遇" : "受限制"}
+                      </td>
+                      <td>{count(p.people)}</td>
+                      <td>{p.wealth.toFixed(1)}</td>
+                      <td>{p.livingStandard.toFixed(1)}</td>
+                      <td>{p.literacy.toFixed(1)}%</td>
+                      <td>{p.radicals.toFixed(1)}%</td>
+                    </tr>
+                  );
+                })}
               </tbody>
             </table>
           </div>

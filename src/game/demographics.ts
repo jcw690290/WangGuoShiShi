@@ -1,6 +1,6 @@
 import type { GameState } from "./engine.ts";
 import { marketOf } from "./economy.ts";
-import { accepted } from "./society.ts";
+import { civicPolicy, civicStanding } from "./civic-policy.ts";
 import type { Scenario } from "../scenario/scenario.ts";
 import { culturalAffinityOf, cultureShares, updateCulturalAffinity } from "./culture.ts";
 import { participants } from "./diplomacy.ts";
@@ -27,6 +27,7 @@ export function settlePopulationMonth<T extends GameState>(scenario: Scenario, s
   const societies = { ...state.societies };
   const changes: Record<string, number> = {};
   const educationBySite: Record<string, number> = {};
+  const rights = Object.fromEntries(Object.entries(state.nations).map(([id, nation]) => [id, civicPolicy(nation.laws)]));
   const dispute = state.borderDispute;
   const war = dispute?.phase === "war" ? dispute : undefined;
   const warParties = new Set(war ? participants(war) : []);
@@ -68,7 +69,7 @@ export function settlePopulationMonth<T extends GameState>(scenario: Scenario, s
     const totals = pops.reduce((facts, pop) => {
       facts.radicals += pop.radicals * pop.people;
       facts.living += pop.livingStandard * pop.people;
-      if (!accepted(pop, owner, state.nations[owner])) facts.excluded += pop.people;
+      facts.excluded += pop.people * (1 - civicStanding(pop, owner, site, rights[owner]));
       return facts;
     }, { radicals: 0, living: 0, excluded: 0 });
     const policing = occupied ? 0 : latest?.policing?.coverage ?? 0;
@@ -82,8 +83,8 @@ export function settlePopulationMonth<T extends GameState>(scenario: Scenario, s
 
   const destinations = new Map<string, string>();
   for (const [site, owner] of Object.entries(state.ownerByStateId)) {
-    const nation = state.nations[owner];
-    if (!nation.laws.includes("平等公民权") || !nation.laws.includes("信仰自由")) continue;
+    const policy = rights[owner];
+    if (policy.citizenship !== "平等公民权" || policy.religion !== "信仰自由") continue;
     const market = marketOf(state, owner);
     const current = destinations.get(market);
     if (current === undefined || societies[site].university > societies[current].university)
@@ -92,12 +93,13 @@ export function settlePopulationMonth<T extends GameState>(scenario: Scenario, s
   for (const [site, owner] of Object.entries(state.ownerByStateId)) {
     const target = destinations.get(marketOf(state, owner));
     if (target === undefined || state.ownerByStateId[target] === owner) continue;
-    const nation = state.nations[owner];
     const affinity = culturalAffinityOf(state.societies[target]);
     for (const pop of societies[site].pops) {
-      if (pop.occupation !== "工程师" || accepted(pop, owner, nation) || pop.people === 0) continue;
+      if (pop.occupation !== "工程师" || pop.people === 0) continue;
+      const exclusion = 1 - civicStanding(pop, owner, societies[site], rights[owner]);
+      if (exclusion === 0) continue;
       const familiarity = Object.hasOwn(affinity, pop.culture) ? affinity[pop.culture] : 0;
-      const people = Math.min(Math.ceil(pop.people * (0.01 + familiarity / 10_000)), stateEconomies[site].population - 1);
+      const people = Math.min(Math.ceil(pop.people * exclusion * (0.01 + familiarity / 10_000)), stateEconomies[site].population - 1);
       if (people === 0) break;
       const cohort = societies[target].pops.find((candidate) =>
         candidate.occupation === pop.occupation && candidate.culture === pop.culture && candidate.religion === pop.religion,

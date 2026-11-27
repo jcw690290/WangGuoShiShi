@@ -7,7 +7,7 @@ import type { BorderCommand, BorderDispute } from "./diplomacy.ts";
 import { chooseConstruction, chooseElectrification, choosePort, chooseRailway, chooseUniversity, constructionError,
   initialStateEconomy, projectDeposit, projectOpeningCapital, projects, settleEconomy } from "./economy.ts";
 import type { Building, CountryEconomy, EconomyReport, StateEconomy } from "./economy.ts";
-import { advancePolitics, applyPolitics, availableTech, politicsError } from "./politics.ts";
+import { advancePolitics, applyPolitics, availableTech, ownedSocieties, politicsError } from "./politics.ts";
 import type { PoliticsCommand } from "./politics.ts";
 import { initSociety, techs, hash, literacyOf } from "./society.ts";
 import type { Law, Nation, SiteSocial } from "./society.ts";
@@ -36,6 +36,7 @@ import { laborStatus } from "./labor.ts";
 import { exciseGoodsSchema, taxBands, taxBandSchema, taxPolicy } from "./taxation.ts";
 import { applyTradePolicy, tariffBands, tariffRate, tariffRates } from "./trade-policy.ts";
 import type { TradePolicyCommand } from "./trade-policy.ts";
+import { civicLawOf } from "./civic-policy.ts";
 export { DAY_MS, elapsedTicks, TICKS_PER_DAY } from "./time.ts";
 
 export interface GameState {
@@ -200,6 +201,32 @@ function chooseLaborLaw(state: GameState, countryId: string): PoliticsCommand | 
   }
 }
 
+function chooseCivicLaw(state: GameState, countryId: string): PoliticsCommand | undefined {
+  const nation = state.nations[countryId];
+  const people = ownedSocieties(state, countryId).flatMap((site) => site.pops);
+  const citizenship = civicLawOf(nation.laws, "citizenship");
+  const religion = civicLawOf(nation.laws, "religion");
+  const speech = civicLawOf(nation.laws, "speech");
+  const developed = nation.knowledge["大众政治"] === 100;
+  const proposals: Law[] = [];
+  if (people.some((pop) => pop.people > 0 && pop.culture !== countryId)) {
+    if (citizenship === "本族公民权") proposals.push("有限公民权");
+    else if (citizenship === "有限公民权" && developed) proposals.push("平等公民权");
+  }
+  if (people.some((pop) => pop.people > 0 && pop.religion !== countryId)) {
+    if (religion === "国教优先") proposals.push("宗教宽容");
+    else if (religion === "宗教宽容" && developed) proposals.push("信仰自由");
+  }
+  if (nation.research !== null) {
+    if (speech === "出版审查") proposals.push("有限出版");
+    else if (speech === "有限出版" && developed) proposals.push("出版自由");
+  }
+  for (const law of proposals) {
+    const proposal = { type: "proposeLaw", countryId, law } as const;
+    if (!politicsError(state, proposal)) return proposal;
+  }
+}
+
 export function advanceTick(
   scenario: Scenario,
   state: GameState,
@@ -281,7 +308,7 @@ export function advanceTick(
         });
       if (!n.reform) {
         const proposal = result.elapsedDays % 28 === 0
-          ? chooseLaborLaw(result, id) ?? chooseInstitutionLaw(result, settled.lastEconomy, id)
+          ? chooseLaborLaw(result, id) ?? chooseInstitutionLaw(result, settled.lastEconomy, id) ?? chooseCivicLaw(result, id)
           : undefined;
         if (proposal) result = applyCommand(scenario, result, proposal);
         else if (!n.laws.includes("普选制")) {
