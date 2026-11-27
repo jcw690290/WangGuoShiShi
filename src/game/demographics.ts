@@ -1,6 +1,6 @@
 import type { GameState } from "./engine.ts";
 import { civicPolicy, civicStanding } from "./civic-policy.ts";
-import { literacyOf, livingStandardOf } from "./society.ts";
+import { advanceGroupLeadership, literacyOf, livingStandardOf } from "./society.ts";
 import type { Scenario } from "../scenario/scenario.ts";
 import { culturalAffinityOf, cultureShares, updateCulturalAffinity } from "./culture.ts";
 import { participants } from "./diplomacy.ts";
@@ -122,5 +122,9 @@ export function settlePopulationMonth<T extends GameState>(scenario: Scenario, s
       trade,
     );
   }
-  return { ...state, stateEconomies, societies, lastPopulation: { day: state.elapsedDays, changes, moves } };
+  const governingCountries = new Set(Object.values(state.ownerByStateId));
+  const nations = Object.fromEntries(Object.entries(state.nations).map(([id, nation]) => [
+    id, governingCountries.has(id) ? advanceGroupLeadership(nation, id, state.rng) : nation,
+  ]));
+  return { ...state, stateEconomies, societies, nations, lastPopulation: { day: state.elapsedDays, changes, moves } };
 }
