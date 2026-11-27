@@ -80,7 +80,7 @@ export const laws = [
   "小农自耕",
 ] as const;
 export type Law = (typeof laws)[number];
-export const techs = ["纺织工艺", "野战后勤", "公共教育", "机械织造", "运输调度", "高等教育", "蒸汽动力", "铁路", "规模化钢铁", "电气化"] as const;
+export const techs = ["纺织工艺", "野战后勤", "公共教育", "机械织造", "运输调度", "高等教育", "蒸汽动力", "铁路", "规模化钢铁", "电气化", "内燃机"] as const;
 export type Tech = (typeof techs)[number];
 export const emptyKnowledge = (): Record<Tech, number> => ({
   纺织工艺: 0,
@@ -93,10 +93,12 @@ export const emptyKnowledge = (): Record<Tech, number> => ({
   铁路: 0,
   规模化钢铁: 0,
   电气化: 0,
+  内燃机: 0,
 });
 const knowledgeSchema = z.object({
   纺织工艺: percent, 野战后勤: percent, 公共教育: percent, 机械织造: percent, 运输调度: percent, 高等教育: percent,
   蒸汽动力: percent.default(0), 铁路: percent.default(0), 规模化钢铁: percent.default(0), 电气化: percent.default(0),
+  内燃机: percent.default(0),
 });
 export const privateProject = z.object({
   stateId: z.string(),

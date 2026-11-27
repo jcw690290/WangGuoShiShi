@@ -62,6 +62,7 @@ export type GameCommand =
   | { type: "queueConstruction"; countryId: string; stateId: string; good: Building; privateBuild?: boolean }
   | { type: "cancelConstruction"; countryId: string; index: number; stateId: string; good: Building; privateBuild?: boolean }
   | { type: "setConvoyOrder"; countryId: string; stateId: string; operation: "add" | "move" | "cancel" }
+  | { type: "setFleetMotorization"; countryId: string; stateId: string; enabled: boolean }
   | { type: "advanceTick" | "advanceWeek" | "advanceDay" | "advanceHalfYear" }
   | PoliticsCommand
   | GovernanceCommand
@@ -181,6 +182,15 @@ export function advanceTick(
           occupiedCargo > 0 && occupiedCargo >= effectiveConvoyCapacity(next.nations[id]) * 0.8 &&
           result.countryEconomies[id].treasury >= shipGoodsPerConvoy * industries.shipGoods.basePrice * 1.75) {
         result = applyCommand(scenario, result, { type: "setConvoyOrder", countryId: id, stateId: port, operation: "add" });
+      }
+      const fleetNation = result.nations[id];
+      if (result.elapsedDays % 28 === 0 && port && result.occupation?.stateId !== port &&
+          fleetNation.knowledge["内燃机"] === 100 && fleetNation.convoys > fleetNation.fleet.motorized &&
+          fleetNation.fleet.motorizationPort === null && occupiedCargo > 0 &&
+          (["oil", "rubber"] as const).every((good) =>
+            Object.values(scenario.states).some((s) => result.ownerByStateId[s.id] === id && (s.capacity[good] ?? 0) > 0) ||
+            result.tradeRoutes?.some((route) => route.importer === id && route.to === port && route.good === good && !route.paused))) {
+        result = applyCommand(scenario, result, { type: "setFleetMotorization", countryId: id, stateId: port, enabled: true });
       }
       const n = result.nations[id];
       const pending = techs.filter((t) => availableTech(n, t));
@@ -332,6 +342,19 @@ function applyCommand(
       const order = operation === "cancel" ? null :
         { stateId, remaining: (current?.remaining ?? 0) + (operation === "add" ? 1 : 0) };
       return { ...state, nations: { ...state.nations, [id]: { ...nation, fleet: { ...nation.fleet, order } } } };
+    }
+    case "setFleetMotorization": {
+      const { countryId: id, stateId, enabled } = cmd;
+      if (state.ownerByStateId[stateId] !== id || !scenario.states[stateId]?.coastal)
+        throw new GameRuleError("只能在本国沿海州安排商船改装");
+      const nation = state.nations[id];
+      if (enabled) {
+        if (nation.knowledge["内燃机"] !== 100) throw new GameRuleError("需要掌握内燃机技术");
+        if (nation.convoys <= nation.fleet.motorized) throw new GameRuleError("没有待改装的商船");
+        if (state.occupation?.stateId === stateId) throw new GameRuleError("该港口处于军事占领中");
+      } else if (nation.fleet.motorizationPort !== stateId) throw new GameRuleError("该港口没有商船改装计划");
+      const fleet = { ...nation.fleet, motorizationPort: enabled ? stateId : null };
+      return { ...state, nations: { ...state.nations, [id]: { ...nation, fleet } } };
     }
     case "setGovernment":
     case "proposeLaw":

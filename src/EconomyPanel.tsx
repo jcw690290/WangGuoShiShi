@@ -12,7 +12,7 @@ import { governanceModes, governanceOf, governanceRules, integrationDuration, in
 import type { GovernanceMode } from "./game/governance.ts";
 import { TradePanel } from "./TradePanel.tsx";
 import { portCapacity } from "./game/transport.ts";
-import { effectiveConvoyCapacity, maxConvoyOrder, shipGoodsPerConvoy } from "./game/fleet.ts";
+import { effectiveConvoyCapacity, maxConvoyOrder, rubberPerMotor, shipGoodsPerConvoy, shipGoodsPerMotor } from "./game/fleet.ts";
 import { incidentNames, unrestEffects } from "./game/unrest.ts";
 import { basicEquivalentSupply, extraGoods } from "./game/households.ts";
 
@@ -64,7 +64,9 @@ function StateIndustry({
     society = game.societies[stateId],
     snapshot = report.states[stateId];
   const governance = governanceOf(society);
-  const order = game.nations[owner].fleet.order;
+  const nation = game.nations[owner];
+  const order = nation.fleet.order;
+  const motorizationHere = nation.fleet.motorizationPort === stateId;
   const movesOrder = order !== null && order.stateId !== stateId;
   const rule = governanceRules[governance.mode];
   const occupied = game.occupation?.stateId === stateId;
@@ -188,6 +190,13 @@ function StateIndustry({
           </button>
           {order?.stateId === stateId && <button className="build" disabled={busy}
             onClick={() => send({ type: "setConvoyOrder", countryId: playerId, stateId, operation: "cancel" })}>取消商船订单</button>}
+          <button className="build" disabled={busy || (!motorizationHere &&
+            (occupied || nation.knowledge["内燃机"] < 100 || nation.fleet.motorized >= nation.convoys))}
+            onClick={() => send({ type: "setFleetMotorization", countryId: playerId, stateId, enabled: !motorizationHere })}>
+            {motorizationHere ? "取消商船内燃机改装" : "在本港改装商船内燃机"}
+            <small>{nation.knowledge["内燃机"] < 100 ? "需要掌握内燃机技术" :
+              `每艘船舶制品 ${shipGoodsPerMotor} · 橡胶 ${rubberPerMotor}`}</small>
+          </button>
         </div>}
         {snapshot.subsistence && <details>
           <summary>自给农业 · {snapshot.subsistence.rentRate > 0 ? "地主租佃" : "小农自耕"}</summary>
@@ -413,6 +422,11 @@ export function EconomyPanel({ scenario, game, playerId, selectedId, report, bus
               <small>商运 {count(tradeSeaCargo ?? 0)} · 军需 {count(military.seaCargoUsed ?? 0)}</small>
               <small>{scenario.states[fleet.port].name} · 到货 {count(fleet.delivered)}/{count(fleet.ordered)} · 实付 {silver(fleet.spending)} ·
                 维护 {count(fleet.maintained)}/{count(fleet.maintenanceDue)} · 交付 {count(fleet.commissioned)} 艘</small>
+              {fleet.motorization && <small>内燃机商船 {count(nation.fleet.motorized)} 艘 · 装油 {count(nation.fleet.fueled)} 艘 ·
+                石油到货 {count(fleet.motorization.oil.delivered)}/{count(fleet.motorization.oil.ordered)} ·
+                橡胶到货 {count(fleet.motorization.rubber.delivered)}/{count(fleet.motorization.rubber.ordered)} ·
+                实付 {silver(fleet.motorization.oil.spending + fleet.motorization.rubber.spending)} ·
+                改装 {count(fleet.motorization.converted)} 艘</small>}
             </div>}
             <div>
               <dt>贡金收入 / 上缴</dt>
