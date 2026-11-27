@@ -56,6 +56,8 @@ import { advanceOpiumBurden, opiumCommerceAllowed, opiumLaw, planOpium, recordOp
 import type { OpiumReport, OpiumSmuggling } from "./opium.ts";
 import { isProductionProject, productionProject, productionProjectDefinitions, productionTierNames } from "./production-methods.ts";
 import type { ProductionTier } from "./production-methods.ts";
+import { industrialWage, productionHiringLimit } from "./private-labor.ts";
+import type { IndustryLabor } from "./private-labor.ts";
 
 export { marketOf } from "./market.ts";
 
@@ -105,6 +107,7 @@ export interface StateEconomy {
   discretionaryBudget?: number;
   localTreasury?: number;
   ownership?: IndustryOwnership;
+  industryLabor?: IndustryLabor;
 }
 export function initialStateEconomy(site: Scenario["states"][string]): StateEconomy {
   const buildings = byGood((good) => site.buildings[good] ?? 0);
@@ -189,6 +192,7 @@ export interface MilitarySupply {
 }
 type EquipmentIssue = { demand: number; delivered: number };
 export interface SiteReport {
+  industrialWage?: number;
   workforce?: number;
   universityStaff?: number;
   administrationStaff?: number;
@@ -359,13 +363,13 @@ function militarySources(ids: string[], route: WarPlan["routes"][string]) {
   return { front, rear };
 }
 
-function planArmamentOrders(state: GameState, holdings: Record<string, string[]>, rosters: Record<string, Battalion[]>, war?: WarPlan) {
+function planArmamentOrders(state: GameState, holdings: Record<string, string[]>, rosters: Record<string, Battalion[]>,
+  wages: Record<string, number>, war?: WarPlan) {
   const orders: Record<string, ArmamentOrders> = Object.fromEntries(
     Object.keys(state.stateEconomies).map((id) => [id, { arms: 0, ammo: 0 }]),
   );
   function assign(owner: string, sources: string[], needs: ReturnType<typeof equipmentNeeds>) {
     const nation = state.nations[owner];
-    const { ordinaryWage } = laborProtection(nation.laws);
     for (const good of armamentGoods) {
       let remaining = good === "arms" ? needs.weapons : needs.ammunition;
       // Reach staffed, stocked suppliers first. Orders placed beyond that output fund restocking.
@@ -377,11 +381,13 @@ function planArmamentOrders(state: GameState, holdings: Record<string, string[]>
         const site = state.societies[id];
         const spec = industryMethodAt(good, site);
         const trained = Math.max(0, workForce(availableEngineers(site, owner, nation), site.laborParticipation) - site.university * universityJobs);
-        const possible = Math.min(local.buildings[good] * spec.jobs, trainedLabourCapacity(good, trained, spec),
-          affordableIndustryWorkers(good, account.capital, spec, industries.electricity.basePrice, ordinaryWage));
+        const capacity = local.buildings[good] * spec.jobs;
+        const hiring = local.industryLabor ? productionHiringLimit(capacity, spec.skill[0], local.industryLabor.staffing[good]) : capacity;
+        const possible = Math.min(hiring, trainedLabourCapacity(good, trained, spec),
+          affordableIndustryWorkers(good, account.capital, spec, industries.electricity.basePrice, wages[id]));
         const employed = materialWorkers(good, possible, account.stocks, spec);
-        const capacity = Math.floor(employed * spec.output * unrestEffects(site.stability).output / spec.jobs);
-        const assigned = Math.min(Math.max(0, capacity - orders[id][good]), remaining);
+        const available = Math.floor(employed * spec.output * unrestEffects(site.stability).output / spec.jobs);
+        const assigned = Math.min(Math.max(0, available - orders[id][good]), remaining);
         orders[id][good] += assigned;
         remaining -= assigned;
       }
@@ -507,7 +513,7 @@ function fleetPlans(state: GameState, holdings: Record<string, string[]>, scenar
 }
 
 function fleetIndustryOrders(state: GameState, plans: ReturnType<typeof fleetPlans>, good: FleetGood,
-  armyFuelDemand: Record<string, { oil: number; rubber: number }>) {
+  armyFuelDemand: Record<string, { oil: number; rubber: number }>, wages: Record<string, number>) {
   const demand = new Map<string, number>();
   const offers = new Map<string, number>();
   for (const [owner, plan] of Object.entries(plans)) {
@@ -531,8 +537,10 @@ function fleetIndustryOrders(state: GameState, plans: ReturnType<typeof fleetPla
   const suppliers = Object.entries(state.stateEconomies).flatMap(([id, local]) => {
     if (local.buildings[good] === 0) return [];
     const industry = industryMethodAt(good, state.societies[id]), account = local.industrial!;
-    const ready = Math.floor(materialWorkers(good, Math.min(local.buildings[good] * industry.jobs,
-      affordableIndustryWorkers(good, account.capital, industry, industries.electricity.basePrice)), account.stocks, industry) *
+    const capacity = local.buildings[good] * industry.jobs;
+    const hiring = local.industryLabor ? productionHiringLimit(capacity, industry.skill[0], local.industryLabor.staffing[good]) : capacity;
+    const ready = Math.floor(materialWorkers(good, Math.min(hiring,
+      affordableIndustryWorkers(good, account.capital, industry, industries.electricity.basePrice, wages[id])), account.stocks, industry) *
       industry.output / industry.jobs);
     return [{ id, market: marketOf(state, state.ownerByStateId[id]), ready, limit: local.buildings[good] * industry.output }];
   });
@@ -656,8 +664,14 @@ function projectSettlement(state: GameState, war?: WarPlan, closingTick?: number
     if (illicitOpiumEligible(state, route)) illicitDestinations.add(route.to);
   }
   const garrisons = Object.fromEntries(Object.keys(state.stateEconomies).map((id) => [id, garrisonHeadcount(state, id)]));
+  const wages = Object.fromEntries(Object.entries(state.stateEconomies).map(([id, local]) => {
+    const site = state.societies[id], laws = state.nations[state.ownerByStateId[id]].laws;
+    const available = fitWorkforce(site, local.population, state.elapsedDays) - garrisons[id] -
+      bondedRuralWorkers(ruralPopulation(site.pops), site.laborParticipation, laws);
+    return [id, industrialWage(laborProtection(laws).ordinaryWage, available, local.industrial?.capital ?? 0, local.industryLabor)];
+  }));
   const rosters = Object.fromEntries(Object.keys(garrisons).map((id) => [id, battalionsAt(state, id, garrisons[id])]));
-  const armamentOrders = planArmamentOrders(state, holdings, rosters, war);
+  const armamentOrders = planArmamentOrders(state, holdings, rosters, wages, war);
   const fleets = fleetPlans(state, holdings, scenario);
   const armyFuelDemand = Object.fromEntries(Object.entries(holdings).map(([owner, ids]) => {
     const route = war?.routes[owner];
@@ -676,7 +690,7 @@ function projectSettlement(state: GameState, war?: WarPlan, closingTick?: number
     }
     return [owner, demand];
   }));
-  const fleetProduction = byFleetGood((good) => fleetIndustryOrders(state, fleets, good, armyFuelDemand));
+  const fleetProduction = byFleetGood((good) => fleetIndustryOrders(state, fleets, good, armyFuelDemand, wages));
   for (const [id, local] of Object.entries(state.stateEconomies)) {
     const owner = state.ownerByStateId[id],
       nation = state.nations[owner],
@@ -700,7 +714,7 @@ function projectSettlement(state: GameState, war?: WarPlan, closingTick?: number
     const specialists = workForce(engineers, participation);
     const universityStaff = Math.min(labour, specialists, site.university * universityJobs);
     const unassignedAfterUniversity = Math.min(labour - universityStaff, specialists - universityStaff);
-    const { ordinaryWage } = laborProtection(nation.laws);
+    const ordinaryWage = wages[id];
     const offices = state.occupation?.stateId === id ? 0 : site.bureaucracy;
     const office = planOffice(officeNeed(local.population, site, state.settings.difficulty, nation.laws),
       offices, unassignedAfterUniversity, cashToCommit[owner], site.administrativeArchive === 1);
@@ -797,9 +811,11 @@ function projectSettlement(state: GameState, war?: WarPlan, closingTick?: number
       const civilianTarget = Math.ceil(ordered * spec.jobs / (spec.output * effects.output));
       const orderedJobs = civilianTarget === 0 ? 0 : Math.min(civilianTarget + draftQuota - conscripts,
         Math.ceil(civilianTarget * 100 / (100 - draftRate)));
+      const capacity = local.buildings[g] * spec.jobs;
+      const hiring = local.industryLabor ? productionHiringLimit(capacity, spec.skill[0], local.industryLabor.staffing[g]) : capacity;
       const jobs = Math.min(
         workers,
-        local.buildings[g] * spec.jobs,
+        hiring,
         orderedJobs,
         trainedLabourCapacity(g, technicians, spec),
         affordableIndustryWorkers(g, payrollBudget, spec, ceilings.electricity, ordinaryWage),
@@ -878,6 +894,7 @@ function projectSettlement(state: GameState, war?: WarPlan, closingTick?: number
         isFleetGood(g) && fleet.port === id ? fleet.ordered[g] : g === "electricity" ? powerUsed : 0));
     report.states[id] = {
       industries: activity,
+      industrialWage: ordinaryWage,
       workforce,
       ...(powerDemand > 0 || local.buildings.electricity > 0 ?
         { power: { requested: powerRequested, delivered: powerUsed, spending: 0 } } : {}),
@@ -1038,7 +1055,6 @@ function projectSettlement(state: GameState, war?: WarPlan, closingTick?: number
   for (const [owner, ids] of Object.entries(holdings)) {
     const c = report.countries[owner],
       nation = state.nations[owner];
-    const { ordinaryWage } = laborProtection(nation.laws);
     c.market = markets[marketOf(state, owner)];
     const rate =
       economicOwnershipRules(nation.laws).privateReinvestment +
@@ -1192,7 +1208,7 @@ function projectSettlement(state: GameState, war?: WarPlan, closingTick?: number
         const available = account.capital + industrialIncome - inputCost;
         if (available < 0) throw new Error("工商业采购超过已落实的周转资金");
         const methods = byGood((good) => industryMethodAt(good, site));
-        const targetCapital = workingCapitalTarget(local.buildings, methods, ordinaryWage);
+        const targetCapital = workingCapitalTarget(local.buildings, methods, wages[id]);
         const capital = Math.min(available, targetCapital);
         const surplus = available - capital;
         const subsidyLimit = state.countryEconomies[owner].industrySubsidies?.[id];
@@ -1636,7 +1652,14 @@ export function settleEconomy(state: GameState, war?: WarPlan, fractionOfYear = 
     const habit = s.opium?.nonMedical;
     const extra = s.householdExtras!;
     const { constructionStock: _priorStock, ...local } = stateEconomies[id];
+    const staffing = Object.fromEntries(goods.flatMap((good) => {
+      const { employed } = s.industries[good];
+      if (employed === 0) return [];
+      const { skilled } = industrialPayroll(good, employed, industryMethodAt(good, site), s.industrialWage!);
+      return [[good, { ordinary: employed - skilled, skilled }] as const];
+    }));
     stateEconomies[id] = { ...local, localQuotes: localQuotes[id],
+      industryLabor: { wage: s.industrialWage!, staffing },
       basicBudget: basic.budget - basic.spending + income.basic + (habit ? habit.budget - habit.spending : 0),
       discretionaryBudget: extra.budget - extra.spending + income.discretionary,
       ...(s.localFiscal ? { localTreasury: s.localFiscal.balance } : {}),

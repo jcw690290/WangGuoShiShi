@@ -114,7 +114,7 @@ export function productionMethod(good: Good, tier: ProductionTier): Method {
   if (mechanized || good === "electricity") recipe.coal = (recipe.coal ?? 0) + (mechanized ? 3 : 5);
   return {
     jobs: Math.round(base.jobs * factor.jobs), output: Math.round(base.output * factor.output), recipe,
-    skill: [Math.min(100, base.skill[0] + (mechanized ? 10 : 20)), Math.max(180, base.skill[1])],
+    skill: [Math.min(100, base.skill[0] + (mechanized ? 10 : 20)), mechanized ? Math.max(180, base.skill[1]) : 250],
     power: mechanized || good === "electricity" ? 0 : good === "steel" ? 50 : 35,
   };
 }
@@ -146,8 +146,9 @@ export function affordableIndustryWorkers(good: Good, capital: number, method = 
     return low;
   }
   const wage = industrialPayroll(good, 100, method, ordinaryWage).total / 100;
-  const estimated = Math.floor(capital / wage);
-  return industrialPayroll(good, estimated, method, ordinaryWage).total <= capital ? estimated : estimated - 1;
+  let estimated = Math.floor(capital / wage);
+  while (industrialPayroll(good, estimated, method, ordinaryWage).total > capital) estimated -= 1;
+  return estimated;
 }
 
 export function workingCapitalPerLevel(good: Good, method = industryMethod(good), ordinaryWage = baseOrdinaryWage) {
