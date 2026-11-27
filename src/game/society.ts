@@ -25,7 +25,8 @@ import { isMilitaryServiceLaw, militaryServiceLaws } from "./military-service.ts
 import { productionProjects, productionTiers } from "./production-methods.ts";
 import { publicPayBandSchema } from "./public-pay.ts";
 
-export const occupations = ["农民", "劳工", "工程师", "军官", "教士", "店主", "资本家", "贵族"] as const;
+const startingOccupations = ["农民", "劳工", "工程师", "军官", "教士", "店主", "资本家", "贵族"] as const;
+export const occupations = [...startingOccupations, "文职"] as const;
 export type Occupation = (typeof occupations)[number];
 export const groups = ["乡民", "工会", "知识分子", "武装部队", "教会", "小市民", "实业家", "地主"] as const;
 export type Group = (typeof groups)[number];
@@ -37,6 +38,7 @@ const occupationSupport: Record<Occupation, readonly (readonly [Group, number])[
   农民: [["乡民", 0.70], ["地主", 0.20], ["教会", 0.10]],
   劳工: [["工会", 0.55], ["小市民", 0.15], ["教会", 0.15], ["武装部队", 0.05], ["实业家", 0.05], ["乡民", 0.05]],
   工程师: [["知识分子", 0.40], ["工会", 0.30], ["实业家", 0.20], ["小市民", 0.10]],
+  文职: [["小市民", 0.50], ["知识分子", 0.35], ["教会", 0.15]],
   军官: [["武装部队", 0.80], ["小市民", 0.10], ["地主", 0.10]],
   教士: [["教会", 0.80], ["地主", 0.10], ["知识分子", 0.10]],
   店主: [["小市民", 0.65], ["实业家", 0.20], ["教会", 0.15]],
@@ -54,6 +56,7 @@ export const socialTags = {
   农民: ["下层", "乡民"],
   劳工: ["下层", "工会"],
   工程师: ["中层", "知识分子"],
+  文职: ["中层", "小市民"],
   军官: ["中层", "武装部队"],
   教士: ["中层", "教会"],
   店主: ["中层", "小市民"],
@@ -82,6 +85,31 @@ export function mergePopCohorts(target: Pop, arriving: Pop, arrivals: number): P
     ...target, people, wealth: average("wealth"), livingStandard: average("livingStandard"),
     literacy: average("literacy"), radicals: average("radicals"), loyalists: average("loyalists"),
   };
+}
+
+export function assignClerkHouseholds(site: SiteSocial, staff: number) {
+  const clerks = site.pops.reduce((sum, pop) => sum + (pop.occupation === "文职" ? pop.people : 0), 0);
+  const change = Math.ceil(staff / site.laborParticipation) - clerks;
+  if (change === 0) return site;
+  const [from, to] = change > 0 ? ["工程师", "文职"] as const : ["文职", "工程师"] as const;
+  const pops = site.pops.map((pop) => ({ ...pop }));
+  const sources = pops.filter((pop) => pop.occupation === from && pop.people > 0);
+  const available = sources.reduce((sum, pop) => sum + pop.people, 0);
+  const total = Math.min(available, Math.abs(change));
+  let people = 0, moved = 0;
+  for (const pop of sources) {
+    people += pop.people;
+    const cumulative = Math.floor(total * (people / available));
+    const leaving = cumulative - moved;
+    if (leaving === 0) continue;
+    const index = pops.findIndex((other) => other.occupation === to &&
+      other.culture === pop.culture && other.religion === pop.religion);
+    if (index === -1) pops.push({ ...pop, occupation: to, people: leaving });
+    else pops[index] = mergePopCohorts(pops[index], pop, leaving);
+    pop.people -= leaving;
+    moved = cumulative;
+  }
+  return { ...site, pops };
 }
 export const siteSocialSchema = z.object({
   pops: z.array(popSchema).min(1),
@@ -276,9 +304,9 @@ const startingShares = [0.69, 0.18, 0.018, 0.012, 0.02, 0.05, 0.01, 0.02];
 export function initSiteSociety(site: Scenario["states"][string]): SiteSocial {
   const pops: Pop[] = [];
   let remainder = site.population;
-  for (const [i, occupation] of occupations.entries()) {
+  for (const [i, occupation] of startingOccupations.entries()) {
     const total =
-      i === occupations.length - 1 ? remainder : Math.floor(site.population * startingShares[i]);
+      i === startingOccupations.length - 1 ? remainder : Math.floor(site.population * startingShares[i]);
     remainder -= total;
     const minority = Math.floor(total * 0.12);
     for (const foreign of [false, true]) {
@@ -571,14 +599,15 @@ export function evolvePops(
   id: string,
   nation: Nation,
   week: {
-    grainPrice: number; laborWages: number; specialistWages: number;
+    grainPrice: number; laborWages: number; specialistWages: number; clerkWages: number;
     capitalistIncome: number; landownerIncome: number; ruralResources: number; businessJobs: number; standardTarget: number;
     taxBurden: number; warPressure: number;
     relief?: { 农民: number; 劳工: number };
   },
   tuning: RuleTuning,
 ) {
-  const { grainPrice, laborWages, specialistWages, capitalistIncome, landownerIncome, ruralResources, businessJobs, standardTarget } = week;
+  const { grainPrice, laborWages, specialistWages, clerkWages, capitalistIncome, landownerIncome, ruralResources,
+    businessJobs, standardTarget } = week;
   const totals = Object.fromEntries(
     occupations.map((o) => [o, site.pops.reduce((s, p) => s + (p.occupation === o ? p.people : 0), 0)]),
   ) as Record<Occupation, number>;
@@ -587,16 +616,15 @@ export function evolvePops(
   const protection = laborProtection(nation.laws).relief * employed;
   const policy = civicPolicy(nation.laws);
   const restrictedVoice = powerDistribution(nation) === "autocracy";
+  const occupationIncome: Record<Occupation, number> = {
+    农民: ruralResources + (week.relief?.农民 ?? 0), 劳工: laborWages + (week.relief?.劳工 ?? 0),
+    工程师: specialistWages, 文职: clerkWages,
+    军官: totals.军官 * 4, 教士: totals.教士 * 4, 店主: totals.店主 * 4,
+    资本家: capitalistIncome, 贵族: landownerIncome,
+  };
   const pops = site.pops.map((p) => {
     const standing = civicStanding(p, id, site, policy);
-    const income =
-      p.occupation === "农民"
-        ? ruralResources + (week.relief?.农民 ?? 0)
-        : p.occupation === "劳工"
-          ? laborWages + (week.relief?.劳工 ?? 0)
-          : socialTags[p.occupation][0] === "上层"
-            ? p.occupation === "贵族" ? landownerIncome : capitalistIncome
-            : totals[p.occupation] * 4 + (p.occupation === "工程师" ? specialistWages : 0);
+    const income = occupationIncome[p.occupation];
     const living = Math.max(
       0.5,
       (((income / Math.max(1, totals[p.occupation])) * 0.3) / (grainPrice / 100)) * (0.65 + 0.35 * standing),
@@ -633,7 +661,8 @@ export function evolvePops(
   // Workers qualify for new technical posts in their own culture/religion cohort.
   for (const p of pops.filter((p) => p.occupation === "劳工")) {
     const index = pops.findIndex((e) => e.occupation === "工程师" && e.culture === p.culture && e.religion === p.religion);
-    const engineers = index === -1 ? 0 : pops[index].people;
+    const engineers = (index === -1 ? 0 : pops[index].people) + pops.reduce((sum, clerk) =>
+      sum + (clerk.occupation === "文职" && clerk.culture === p.culture && clerk.religion === p.religion ? clerk.people : 0), 0);
     const vacancies = Math.max(
       0,
       Math.ceil((businessJobs * 0.12 * p.people) / Math.max(1, totals["劳工"])) - engineers,
