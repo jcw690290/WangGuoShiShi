@@ -16,8 +16,10 @@ import { count } from "./format.ts";
 import { institutionLawDetails, institutionLawFamilies, institutionLawKinds, institutionLawOptions } from "./game/institutions.ts";
 import { laborLawCategory, laborLawFamilies } from "./game/labor.ts";
 import { taxLaws } from "./game/taxation.ts";
+import { isTradeLaw, tradeLaws } from "./game/trade-policy.ts";
 
-const otherLaws = laws.filter((law) => !institutionLawDetails(law) && !laborLawCategory(law) && !(taxLaws as readonly Law[]).includes(law));
+const otherLaws = laws.filter((law) => !institutionLawDetails(law) && !laborLawCategory(law) &&
+  !(taxLaws as readonly Law[]).includes(law) && !isTradeLaw(law));
 interface Props {
   game: GameState;
   playerId: string;
@@ -100,6 +102,9 @@ export function PoliticsPanel({ game, playerId: id, year, busy, send }: Props) {
               ))}
               <optgroup label="税制">
                 {taxLaws.map((l) => <option key={l}>{l}</option>)}
+              </optgroup>
+              <optgroup label="贸易法">
+                {tradeLaws.map((l) => <option key={l}>{l}</option>)}
               </optgroup>
             </select>
             <p>{lawEffect[law]}</p>

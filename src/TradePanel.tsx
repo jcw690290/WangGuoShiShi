@@ -5,7 +5,7 @@ import type { GameCommand, GameState } from "./game/engine.ts";
 import { tradableGoods, industries } from "./game/industry.ts";
 import type { Good } from "./game/industry.ts";
 import { marketOf } from "./game/market.ts";
-import { tradeRouteKey, tradeStatuses } from "./game/trade.ts";
+import { foreignTradeStatus, tradeRouteBlock, tradeRouteKey, tradeStatuses } from "./game/trade.ts";
 import type { TradeMode, TradeRoute } from "./game/trade.ts";
 import type { Scenario } from "./scenario/scenario.ts";
 
@@ -56,6 +56,8 @@ export function TradePanel({ scenario, game, stateId, playerId, busy, send }: Pr
   const sources = mode === "land" ? landSources :
     Object.keys(game.ownerByStateId).filter((id) => scenario.states[id].coastal && eligible(id));
   const source = sources.includes(choice) ? choice : sources[0];
+  const restriction = source && (game.occupation?.stateId === source || game.occupation?.stateId === stateId)
+    ? "occupied" : source ? foreignTradeStatus(game, game.ownerByStateId[source], playerId) : undefined;
   if (!routes.length && !landSources.length && !port) return null;
   function openRoute(event: FormEvent<HTMLFormElement>) {
     event.preventDefault();
@@ -79,18 +81,21 @@ export function TradePanel({ scenario, game, stateId, playerId, busy, send }: Pr
             {tradableGoods.map((id) => <option key={id} value={id}>{industries[id].goodName}</option>)}
           </select></label>
           <label>周运量上限 <input name="limit" type="number" min="1" max="100000" defaultValue="500" required /></label>
-          <button className="build" type="submit" disabled={busy || duplicate}>批准进口</button>
+          <button className="build" type="submit" disabled={busy || duplicate || restriction !== undefined}>批准进口</button>
+          {restriction && <small>{tradeStatuses[restriction]}</small>}
         </form>
       )}
       {routes.length > 0 && <ul className="industry-list">
         {routes.map((route) => {
           const key = tradeRouteKey(route);
           const latest = game.lastEconomy?.trade?.find((row) => tradeRouteKey(row) === key);
+          const currentRestriction = tradeRouteBlock(game, route);
           return (
             <li key={key}>
               <div>
                 <strong>{scenario.states[route.from].name} → {scenario.states[route.to].name} · {modeNames[route.mode]} · {industries[route.good].goodName}</strong>
-                <p>{route.paused ? "已暂停" : latest ? tradeStatuses[latest.status] : "待周结"} · 周上限 {count(route.limit)}</p>
+                <p>{currentRestriction ? tradeStatuses[currentRestriction] :
+                  latest ? `上周${tradeStatuses[latest.status]}` : "待周结"} · 周上限 {count(route.limit)}</p>
                 {latest?.status === "shipped" && <p>
                   上周运量 {count(latest.quantity)} · 购货 {silver(latest.purchase)} · 销售 {silver(latest.sales)} ·
                   运费 {silver(latest.freight)} · 关税 {silver(latest.tariff)} · 利润 {silver(latest.profit)}

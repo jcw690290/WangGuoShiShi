@@ -19,6 +19,7 @@ import { institutionCommands, institutionGoods, institutionLawLimit, institution
   institutionNames, institutions } from "./game/institutions.ts";
 import { bondedRuralWorkers, ruralPopulation } from "./game/labor.ts";
 import { exciseGoods, taxBandNames, taxBands, taxPolicy } from "./game/taxation.ts";
+import { tariffBandNames, tariffBands, tariffRate, tariffRates, tradeLaw } from "./game/trade-policy.ts";
 
 function cultureName(scenario: Scenario, id: string) {
   const separator = id.indexOf("-");
@@ -404,6 +405,7 @@ export function EconomyPanel({ scenario, game, playerId, selectedId, report, bus
   const { market, tax, wageTaxRate, upkeep, tribute, officeUpkeep, military, fleet, tradeSeaCargo } = countryReport;
   const nation = game.nations[marketId];
   const policy = taxPolicy(nation);
+  const commercialLaw = tradeLaw(nation.laws);
   const { tributeReceived, balance } = weeklyBudgets(game.nations, report)[marketId];
   const countryLiving = useMemo(() => livingStandardOf(Object.entries(game.societies)
     .filter(([stateId]) => game.ownerByStateId[stateId] === marketId).flatMap(([, site]) => site.pops)),
@@ -521,6 +523,29 @@ export function EconomyPanel({ scenario, game, playerId, selectedId, report, bus
             <p>本周借款 {silver(fiscal.week.borrowed)} · 偿还本金 {silver(fiscal.week.repaid)}</p>
             <p>支付利息 {silver(fiscal.week.interestPaid)} · 未付利息 {silver(fiscal.arrears)}</p>
             <p>必要支出实付 {silver(fiscal.week.upkeepPaid)} ／ 应付 {silver(fiscal.week.upkeepDue)}</p>
+          </details>}
+          {marketId === playerId && <details className="control-block">
+            <summary>贸易设置 · {commercialLaw} · 现行关税 {tariffRate(nation)}%</summary>
+            <label>关税档位{" "}
+              <select value={nation.tariffBand} disabled={busy}
+                onChange={(event) => send({ type: "setTariffBand", countryId: playerId, band: event.target.value as typeof nation.tariffBand })}>
+                {tariffBands.map((band) => <option key={band} value={band}>{tariffBandNames[band]}档 · {tariffRates[band]}%</option>)}
+              </select>
+            </label>
+            {commercialLaw === "自由贸易" && <p>自由贸易期间关税全额减免，档位在改行其他贸易法后生效。</p>}
+            {commercialLaw === "许可贸易" && <fieldset>
+              <legend>授予进出口许可</legend>
+              <p>朝贡贸易伙伴可按既有关系通商。</p>
+              <div className="group-grid">
+                {Object.values(scenario.countries).filter(({ id }) => id !== playerId).map(({ id, name }) => (
+                  <label key={id}>
+                    <input type="checkbox" checked={nation.tradePartners.includes(id)} disabled={busy}
+                      onChange={(event) => send({ type: "setTradePartner", countryId: playerId, partnerId: id, allowed: event.target.checked })} />
+                    {name}
+                  </label>
+                ))}
+              </div>
+            </fieldset>}
           </details>}
           <div className="economy-table">
             <table aria-label={`${country.name}商品供需`}>
