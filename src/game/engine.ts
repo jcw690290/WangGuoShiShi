@@ -57,6 +57,8 @@ import {
 } from "./civil-war.ts";
 import type { CivilWar, CivilWarCommand, CivilWarResult } from "./civil-war.ts";
 import { militaryServiceLaw } from "./military-service.ts";
+import { publicPayBandSchema } from "./public-pay.ts";
+import type { PublicPayBand } from "./public-pay.ts";
 export { DAY_MS, elapsedTicks, TICKS_PER_DAY } from "./time.ts";
 
 export interface GameState {
@@ -105,6 +107,7 @@ export type GameCommand =
   | { type: "setFleetMotorization"; countryId: string; stateId: string; enabled: boolean }
   | { type: (typeof institutionCommands)[Institution]; countryId: string; stateId: string; level: number }
   | { type: "setTaxBand"; countryId: string; band: Nation["taxBand"] }
+  | { type: "setPublicPay"; countryId: string; band: PublicPayBand }
   | { type: "setExciseGoods"; countryId: string; goods: Nation["exciseGoods"] }
   | { type: "setIndustrySubsidy"; countryId: string; stateId: string; limit: number }
   | { type: "advanceTick" | "advanceWeek" | "advanceDay" | "advanceHalfYear" }
@@ -349,6 +352,14 @@ export function advanceTick(
           result = applyCommand(scenario, result, { type: "setTaxBand", countryId: id, band: taxBands[band + 1] });
         }
         const nation = result.nations[id];
+        if (!nation.pendingPublicPay) {
+          const strained = fiscal.week.risk === "restricted" || fiscal.week.risk === "defaulted";
+          const recovered = fiscal.week.risk === "stable" && result.countryEconomies[id].treasury >= 4 * fiscal.week.upkeepDue;
+          if (strained && nation.publicPay !== "low")
+            result = applyCommand(scenario, result, { type: "setPublicPay", countryId: id, band: "low" });
+          if (recovered && nation.publicPay === "low")
+            result = applyCommand(scenario, result, { type: "setPublicPay", countryId: id, band: "standard" });
+        }
         const nextTariff = tariffBands[tariffBands.indexOf(nation.tariffBand) + 1];
         if (fiscal.week.risk === "restricted" && tariffRate(nation) > 0 && nextTariff) {
           const shipments = settled.lastEconomy.trade?.filter((row) => row.status === "shipped" && settled.ownerByStateId[row.to] === id);
@@ -492,6 +503,13 @@ function applyCommand(
     }
     case "setRuleTuning":
       return { ...state, settings: { ...state.settings, tuning: cmd.tuning } };
+    case "setPublicPay": {
+      const nation = state.nations[cmd.countryId];
+      if (!nation || !publicPayBandSchema.safeParse(cmd.band).success) throw new GameRuleError("公共工资档位或国家无效");
+      const { pendingPublicPay: _pending, ...current } = nation;
+      const changed = cmd.band === current.publicPay ? current : { ...current, pendingPublicPay: cmd.band };
+      return { ...state, nations: { ...state.nations, [cmd.countryId]: changed } };
+    }
     case "setTaxBand":
     case "setExciseGoods": {
       const nation = state.nations[cmd.countryId];

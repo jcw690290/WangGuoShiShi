@@ -22,6 +22,7 @@ import { initialNavy, navySchema } from "./navy.ts";
 import { isOpiumLaw, opiumBurdenSchema, opiumLaws } from "./opium.ts";
 import { isMilitaryServiceLaw, militaryServiceLaws } from "./military-service.ts";
 import { productionProjects, productionTiers } from "./production-methods.ts";
+import { publicPayBandSchema } from "./public-pay.ts";
 
 export const occupations = ["农民", "劳工", "工程师", "军官", "教士", "店主", "资本家", "贵族"] as const;
 export type Occupation = (typeof occupations)[number];
@@ -222,6 +223,8 @@ export const projectTypes = [...goods, ...facilityTypes, ...productionProjects] 
 export const subjectTypes = ["protectorate", "puppet", "vassal"] as const;
 export const tributeRate = { protectorate: 0.1, puppet: 0.15, vassal: 0.2 };
 export const nationSchema = z.object({
+  publicPay: publicPayBandSchema.default("standard"),
+  pendingPublicPay: publicPayBandSchema.optional(),
   government: z.array(z.enum(groups)).min(1),
   startingRepresentation: z.literal("limited").optional(),
   startingStateForm: constitutionalFormSchema.optional(),
@@ -322,6 +325,7 @@ export function initSociety(scenario: Scenario) {
   }
   for (const id of Object.keys(scenario.countries)) {
     nations[id] = {
+      publicPay: "standard",
       startingStateForm: startingStateForm(id),
       ...(limitedVoteCountries.has(id) ? { startingRepresentation: "limited" as const } : {}),
       government: ["地主", "乡民"],

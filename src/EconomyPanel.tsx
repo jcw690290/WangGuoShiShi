@@ -4,6 +4,7 @@ import { civicPolicy, civicStanding, nationalIdentity } from "./game/civic-polic
 import { privateShareOf, projectDeposit, projectName, projectPoints, remainingProjectPoints, weeklyBudgets } from "./game/economy.ts";
 import { count, silver } from "./format.ts";
 import { fiscalRiskNames } from "./game/fiscal.ts";
+import { publicPayBands, publicPayBandSchema, publicPayNames } from "./game/public-pay.ts";
 import { CommodityDetails } from "./CommodityDetails.tsx";
 import { buildingCapacity, constructionError, workForce } from "./game/economy.ts";
 import type { EconomyReport } from "./game/economy.ts";
@@ -529,6 +530,9 @@ export function EconomyPanel(
               })}
               {military.procurement && <small>军粮 {silver(military.procurement.grain)} · 军服 {silver(military.procurement.cloth)} ·
                 武器 {silver(military.procurement.arms ?? 0)} · 弹药 {silver(military.procurement.ammo ?? 0)}</small>}
+              {military.payroll && <small>军饷 {military.payroll.paid === undefined ? "预估应付 " : "实付 "}
+                {silver(military.payroll.paid ?? military.payroll.due)}
+                {military.payroll.paid !== undefined && ` ／应付 ${silver(military.payroll.due)}`}</small>}
             </div>
             {report.countries[marketId].universityWages !== undefined && <div>
               <dt>大学实付工资</dt>
@@ -575,6 +579,16 @@ export function EconomyPanel(
               </small> : <small>工资税 {wageTaxRate}%</small>}
             </div>
           </dl>
+          {marketId === playerId && <details className="control-block">
+            <summary>公共工资 · {publicPayNames[nation.publicPay]}档</summary>
+            <label>下一周工资档位{" "}
+              <select value={nation.pendingPublicPay ?? nation.publicPay} disabled={busy}
+                onChange={(event) => send({ type: "setPublicPay", countryId: playerId, band: publicPayBandSchema.parse(event.target.value) })}>
+                {publicPayBands.map((band) => <option key={band} value={band}>{publicPayNames[band]}档</option>)}
+              </select>
+            </label>
+            <p>低档 80% · 标准档 100% · 高档 120%。调整在本周结账后生效。</p>
+          </details>}
           {marketId === playerId && <details className="control-block">
             <summary>税收设置 · {policy.system} · {taxBandNames[nation.taxBand]}档</summary>
             <label>税率档位{" "}

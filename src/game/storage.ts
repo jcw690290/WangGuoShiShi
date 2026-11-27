@@ -230,6 +230,8 @@ const industry = z.object({ employed: uint, output: uint, wages: uint, sold: uin
     buyers.households + buyers.construction + buyers.industry + buyers.publicServices === bought);
 const issue = z.object({ demand: uint, delivered: uint }).refine((i) => i.delivered <= i.demand);
 const military = z.object({
+  payroll: z.object({ due: uint, paid: uint.optional() })
+    .refine(({ due, paid }) => paid === undefined || paid <= due).optional(),
   regulars: uint,
   trainedRegulars: uint.optional(),
   conscripts: uint,
@@ -331,9 +333,13 @@ const siteReport = z.object({
 }).refine((site) => (site.deployedConscripts ?? 0) <= site.conscripts
 ).refine((site) => site.power === undefined ||
   site.power.delivered <= Math.min(site.industries.electricity.output, site.power.requested)
-).refine((site) => site.construction === undefined ||
-  site.construction.public.wages + site.construction.private.wages === site.builders * constructionWage
-).refine((site) => site.householdConsumption === undefined
+).refine((site) => {
+  if (!site.construction) return true;
+  const { public: government, private: company } = site.construction;
+  const publicRate = government.wageRate ?? constructionWage, privateRate = company.wageRate ?? constructionWage;
+  return government.wages % publicRate === 0 && company.wages % privateRate === 0 &&
+    government.wages / publicRate + company.wages / privateRate === site.builders;
+}).refine((site) => site.householdConsumption === undefined
   ? site.consumptionIndex === undefined
   : site.consumptionIndex !== undefined && site.foodFulfillment !== undefined);
 export function parseSave(baseScenario: Scenario, save: unknown): GameState {
@@ -650,6 +656,7 @@ export function parseSave(baseScenario: Scenario, save: unknown): GameState {
     )
       invalid();
     if (Boolean(n.overlord) !== Boolean(n.subjectType)) invalid();
+    if (n.pendingPublicPay === n.publicPay) invalid();
     const queued = [...state.countryEconomies[id].queue, ...n.privateQueue];
     const retrofits = new Set<string>();
     for (const p of queued) {

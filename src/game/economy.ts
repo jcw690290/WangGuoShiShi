@@ -32,7 +32,7 @@ import { byInstitution, byInstitutionGood, deliverInstitution, deliverInstitutio
 import type { Institution, InstitutionReport, WelfareRelief } from "./institutions.ts";
 import { harvestGood, isCrop, rentRateOf, reservedCropland, subsistenceHarvest } from "./subsistence.ts";
 import type { SubsistenceReport } from "./subsistence.ts";
-import { affordableCrew, constructionJobs, constructionMaterials, constructionPointsPerLevel, constructionSectors,
+import { affordableCrew, constructionJobs, constructionMaterials, constructionPointsPerLevel, constructionSectors, constructionWage,
   constructionSpending, crewMaterials, deliverConstruction, emptyConstructionReport, materialOrder,
   planConstructionMaintenance, reserveCrew, shareCrew } from "./construction.ts";
 import type { ConstructionMaintenance, ConstructionReport, ConstructionSector, ConstructionStock } from "./construction.ts";
@@ -58,6 +58,7 @@ import { isProductionProject, productionProject, productionProjectDefinitions, p
 import type { ProductionTier } from "./production-methods.ts";
 import { industrialWage, productionHiringLimit } from "./private-labor.ts";
 import type { IndustryLabor } from "./private-labor.ts";
+import { militarySalary, publicSalary } from "./public-pay.ts";
 
 export { marketOf } from "./market.ts";
 
@@ -189,6 +190,7 @@ export interface MilitarySupply {
   equipment: Record<"weapons" | "ammunition" | "uniforms", EquipmentIssue> & Partial<Record<"fuel" | "spares", EquipmentIssue>>;
   readiness: number;
   supplyRatio?: number;
+  payroll?: { due: number; paid?: number };
 }
 type EquipmentIssue = { demand: number; delivered: number };
 export interface SiteReport {
@@ -616,7 +618,8 @@ function projectSettlement(state: GameState, war?: WarPlan, closingTick?: number
       investment: 0,
       capacity: 0,
       construction: emptyConstructionReport(),
-      constructionMaintenance: { workers: 0, wages: 0, tools: 0, materials: 0 },
+      constructionMaintenance: { workers: 0, wages: 0, tools: 0, materials: 0,
+        ...(nation.publicPay === "standard" ? {} : { wageRate: publicSalary(constructionWage, nation.publicPay) }) },
       tribute: 0,
       upkeep: 0,
       publicIndustryIncome: 0,
@@ -648,6 +651,7 @@ function projectSettlement(state: GameState, war?: WarPlan, closingTick?: number
           spares: { demand: 0, delivered: 0 },
         },
         readiness: 1,
+        payroll: { due: 0 },
       },
     };
   }
@@ -715,9 +719,12 @@ function projectSettlement(state: GameState, war?: WarPlan, closingTick?: number
     const universityStaff = Math.min(labour, specialists, site.university * universityJobs);
     const unassignedAfterUniversity = Math.min(labour - universityStaff, specialists - universityStaff);
     const ordinaryWage = wages[id];
+    const constructionPay = publicSalary(constructionWage, nation.publicPay);
+    const teachingPay = publicSalary(universityWage, nation.publicPay);
+    const administrationPay = publicSalary(administrationWage, nation.publicPay);
     const offices = state.occupation?.stateId === id ? 0 : site.bureaucracy;
     const office = planOffice(officeNeed(local.population, site, state.settings.difficulty, nation.laws),
-      offices, unassignedAfterUniversity, cashToCommit[owner], site.administrativeArchive === 1);
+      offices, unassignedAfterUniversity, cashToCommit[owner], site.administrativeArchive === 1, administrationPay);
     officePlans.set(id, office);
     cashToCommit[owner] -= office.reserved;
     const integration = site.governance?.integration;
@@ -727,7 +734,7 @@ function projectSettlement(state: GameState, war?: WarPlan, closingTick?: number
       ? Math.min(unassignedAfterUniversity - office.staff,
         integrationStaffNeeded(local.population, state.settings.difficulty, integrationCost))
       : 0;
-    const administrationDue = Math.floor(administrators * administrationShare * administrationWage);
+    const administrationDue = Math.floor(administrators * administrationShare * administrationPay);
     const ceilings = orderQuoteCeilings(local, state.countryEconomies[marketOf(state, owner)]);
     let institutionStaff = 0;
     let localCash = local.localTreasury ?? 0;
@@ -741,7 +748,7 @@ function projectSettlement(state: GameState, war?: WarPlan, closingTick?: number
     const services = byInstitution((kind) => {
       const level = Math.min(site[kind], institutionLawLimit(nation.laws, kind));
       const plan = planInstitution(kind, local.population, level, institutionCapacity - institutionStaff,
-        cashToCommit[owner] + localCash, ceilings);
+        cashToCommit[owner] + localCash, ceilings, nation.publicPay);
       institutionStaff += plan.staff;
       return { ...plan, localReserved: reserveService(plan.reserved) };
     });
@@ -760,14 +767,14 @@ function projectSettlement(state: GameState, war?: WarPlan, closingTick?: number
     const need = constructionNeeds[owner];
     const stock = local.constructionStock ?? { public: crewMaterials(0), private: crewMaterials(0) };
     const crews = shareCrew(jobs, privateShareOf(nation),
-      affordableCrew(Math.min(jobs, need.public), cashToCommit[owner], ceilings, stock.public),
+      affordableCrew(Math.min(jobs, need.public), cashToCommit[owner], ceilings, stock.public, constructionPay),
       affordableCrew(Math.min(jobs, need.private), privateConstructionCash[owner], ceilings, stock.private));
     constructionCrews[id] = crews;
-    cashToCommit[owner] -= reserveCrew(crews.public, ceilings, stock.public);
+    cashToCommit[owner] -= reserveCrew(crews.public, ceilings, stock.public, constructionPay);
     privateConstructionCash[owner] -= reserveCrew(crews.private, ceilings, stock.private);
     for (const sector of constructionSectors) need[sector] -= crews[sector];
     const builders = crews.public + crews.private;
-    const standby = planConstructionMaintenance(jobs - builders, cashToCommit[owner], ceilings.tools);
+    const standby = planConstructionMaintenance(jobs - builders, cashToCommit[owner], ceilings.tools, constructionPay);
     maintenancePlans[id] = standby;
     cashToCommit[owner] -= standby.reserved;
     workers -= builders + standby.workers;
@@ -855,9 +862,11 @@ function projectSettlement(state: GameState, war?: WarPlan, closingTick?: number
     const deployedConscripts = route?.deployedDrafts.has(id) ? trainedConscripts : 0;
     c.military.trainedConscripts! += trainedConscripts;
     c.military.deployedConscripts! += deployedConscripts;
-    c.universityWages! += universityStaff * universityWage;
+    c.universityWages! += universityStaff * teachingPay;
     c.administrationWages! += administrationDue;
-    c.upkeep += (regulars + conscripts + injuredTroops) * 12 + universityStaff * universityWage + administrationDue + office.wages;
+    const militaryDue = militarySalary(regulars, conscripts, injuredTroops, nation.publicPay);
+    c.military.payroll!.due += militaryDue;
+    c.upkeep += militaryDue + universityStaff * teachingPay + administrationDue + office.wages;
     supplies[id] = byGood((g) => activity[g].output);
     const essentialNeeds = byGood((g) => Math.round(local.population * industries[g].demandPerPerson));
     const subsistence = local.cropland === undefined ? undefined : subsistenceHarvest(
@@ -903,7 +912,7 @@ function projectSettlement(state: GameState, war?: WarPlan, closingTick?: number
       ...(subsistence ? { subsistence } : {}),
       regulars,
       universityStaff,
-      administrationStaff: administrationDue / administrationWage,
+      administrationStaff: administrationDue / administrationPay,
       builders,
       conscripts,
       deployedConscripts,
@@ -1266,7 +1275,9 @@ function projectSettlement(state: GameState, war?: WarPlan, closingTick?: number
       s.householdExtras = { budget: discretionaryBudget, orders: extra, delivered, spending: extraSpending };
       const crews = constructionCrews[id];
       const { workers: standbyWorkers, wages: standbyWages } = maintenancePlans[id];
-      const maintenance = { workers: standbyWorkers, wages: standbyWages, tools: 0, materials: 0 };
+      const constructionPay = publicSalary(constructionWage, nation.publicPay);
+      const maintenance = { workers: standbyWorkers, wages: standbyWages, tools: 0, materials: 0,
+        ...(constructionPay === constructionWage ? {} : { wageRate: constructionPay }) };
       const stock = local.constructionStock ?? { public: crewMaterials(0), private: crewMaterials(0) };
       const publicOrder = materialOrder(crews.public, stock.public), privateOrder = materialOrder(crews.private, stock.private);
       const publicDelivered = crewMaterials(0), privateDelivered = crewMaterials(0);
@@ -1286,7 +1297,7 @@ function projectSettlement(state: GameState, war?: WarPlan, closingTick?: number
         publicMaterials += paidPublic;
         privateMaterials += activeCost - paidPublic;
       }
-      const publicWork = deliverConstruction(crews.public, stock.public, publicDelivered, publicMaterials, effects.output);
+      const publicWork = deliverConstruction(crews.public, stock.public, publicDelivered, publicMaterials, effects.output, constructionPay);
       const privateWork = deliverConstruction(crews.private, stock.private, privateDelivered, privateMaterials, effects.output);
       s.construction = { public: publicWork.bill, private: privateWork.bill };
       s.constructionMaintenance = maintenance;
@@ -1420,7 +1431,8 @@ export function constructionError(
   } else if (privateBuild) return "私人资金限用于生产建筑";
   const ceilings = orderQuoteCeilings(state.stateEconomies[stateId], state.countryEconomies[marketOf(state, countryId)]);
   const stock = state.stateEconomies[stateId].constructionStock?.[privateBuild ? "private" : "public"] ?? crewMaterials(0);
-  if ((privateBuild ? nation.investment : country.treasury) < projectDeposit(good) + reserveCrew(1, ceilings, stock)) return "资金不足";
+  const wage = privateBuild ? constructionWage : publicSalary(constructionWage, nation.publicPay);
+  if ((privateBuild ? nation.investment : country.treasury) < projectDeposit(good) + reserveCrew(1, ceilings, stock, wage)) return "资金不足";
 }
 export function chooseConstruction(
   scenario: Scenario,
@@ -1557,7 +1569,7 @@ export function settleEconomy(state: GameState, war?: WarPlan, fractionOfYear = 
   const budgets = weeklyBudgets(nations, production);
   const campusFunding: Record<string, number> = {};
   const administrationFunding: Record<string, number> = {};
-  const militaryPayroll: Record<string, { paid: number; personnel: number; served: number; allocated: number }> = {};
+  const militaryPayroll: Record<string, { paid: number; due: number; accrued: number; allocated: number }> = {};
   for (const [id, c] of Object.entries(production.countries)) {
     const country = countryEconomies[id];
     const construction = c.construction!;
@@ -1599,8 +1611,8 @@ export function settleEconomy(state: GameState, war?: WarPlan, fractionOfYear = 
     campusFunding[id] = universityDue > 0 ? universityPaid / universityDue : 0;
     administrationFunding[id] = administrationDue > 0 ? administrationPaid / administrationDue : 0;
     const militaryPaid = remainingPaid - civilianPaid;
-    militaryPayroll[id] = { paid: militaryPaid, personnel: c.military.regulars + c.military.conscripts + c.military.injuredTroops!,
-      served: 0, allocated: 0 };
+    c.military.payroll!.paid = militaryPaid;
+    militaryPayroll[id] = { paid: militaryPaid, due: militaryDue, accrued: 0, allocated: 0 };
     if (militaryDue > 0) c.military.readiness *= Math.min(1, militaryPaid / militaryDue);
     c.upkeep = week.upkeepPaid;
     c.interestPaid = week.interestPaid;
@@ -1625,15 +1637,17 @@ export function settleEconomy(state: GameState, war?: WarPlan, fractionOfYear = 
     s.administrationStaff! *= administrationFunding[owner];
     const site = societies[id];
     const earned = privateIncomes[id];
-    const publicSpecialistWages = s.universityStaff! * universityWage + s.administrationStaff! * administrationWage +
+    const band = nations[owner].publicPay;
+    const publicSpecialistWages = s.universityStaff! * publicSalary(universityWage, band) +
+      s.administrationStaff! * publicSalary(administrationWage, band) +
       s.office!.wages + institutions.reduce((sum, kind) => sum + (s[kind]?.wages ?? 0), 0);
     const construction = s.construction!;
     const standby = s.constructionMaintenance!;
     const publicConstructionWages = construction.public.wages + standby.wages;
     const payroll = militaryPayroll[owner];
     const injured = injuredPersonnel(site);
-    payroll.served += s.regulars + s.conscripts + injured.regulars + injured.conscripts;
-    const assigned = payroll.personnel ? Math.floor(payroll.paid * payroll.served / payroll.personnel) : 0;
+    payroll.accrued += militarySalary(s.regulars, s.conscripts, injured.regulars + injured.conscripts, band);
+    const assigned = payroll.due > 0 ? Math.floor(payroll.paid * payroll.accrued / payroll.due) : 0;
     const armyWages = assigned - payroll.allocated;
     payroll.allocated = assigned;
     const jobs = goods.reduce((sum, good) => sum + s.industries[good].employed, s.builders + standby.workers);
