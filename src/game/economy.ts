@@ -812,18 +812,22 @@ function projectSettlement(state: GameState, war?: WarPlan, closingTick?: number
         militaryCargo.set(owner, cargo);
         for (const terminals of route.maritimeTerminals ?? []) {
           let remaining = cargo;
-          if (route.raided && terminals.length > 0) blockadedPorts.add(terminals[0].stateId);
+          // A raid interrupts forward ports; the recruitment depot is the rear
+          // port and remains available for trade unless it is the only terminal.
+          const forwardPorts = terminals.filter(({ stateId }) => !route.recruitmentStates.has(stateId));
+          if (route.raided)
+            for (const { stateId } of forwardPorts.length > 0 ? forwardPorts : terminals.slice(0, 1))
+              blockadedPorts.add(stateId);
           for (const { stateId, capacity } of terminals) {
             if (remaining === 0) break;
             const handled = Math.min(remaining, capacity);
             militaryPortUse.set(stateId, handled);
             report.states[stateId].portMilitaryCargo = handled;
-            if (route.raided) blockadedPorts.add(stateId);
             remaining -= handled;
           }
         }
       }
-      if (route.raided && route.maritimeTerminals === undefined)
+      if (route.raided && (!route.maritimeTerminals || route.maritimeTerminals.length === 0))
         for (const stateId of route.recruitmentStates) blockadedPorts.add(stateId);
       // Rear garrisons draw from the remaining domestic output, outside the front's transport limit.
       if (rearRegulars > 0)
