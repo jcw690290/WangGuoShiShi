@@ -12,6 +12,8 @@ import type { EconomyReport } from "./economy.ts";
 import { projectOpeningCapital } from "./economy.ts";
 import { ruleTuning } from "./settings.ts";
 import { syncOccupation } from "./occupation.ts";
+import { adjustForeignRelation, breakOpposedTreaties, diplomaticTrust, expireTreatyOffers, reconcileTreaties,
+  relationBetween, treatyBetween, treatyPartners } from "./foreign-relations.ts";
 
 export const goals = ["cession", "reparations", "puppet", "vassal", "protectorate", "annex"] as const;
 export type Goal = (typeof goals)[number];
@@ -28,6 +30,7 @@ export function subjectGoal(g: Goal): g is "puppet" | "vassal" | "protectorate" 
 }
 export function canDemandGoal(state: GameState, claimantId: string, defenderId: string, goal: Goal) {
   return (
+    !treatyBetween(state, claimantId, defenderId, "defensive") &&
     (goal !== "annex" || state.nations[defenderId].overlord === claimantId) &&
     (!subjectGoal(goal) || !state.nations[claimantId].marketLeader)
   );
@@ -122,6 +125,7 @@ export function attacking(d: BorderDispute, id: string) {
 }
 function treaty(state: GameState, d: BorderDispute, victory: boolean, withdrawal = false): GameState {
   const { occupation: released, ...world } = state;
+  let diplomaticState: GameState = world;
   const ownerByStateId = { ...state.ownerByStateId },
     countryEconomies = { ...state.countryEconomies },
     nations = { ...state.nations },
@@ -181,14 +185,15 @@ function treaty(state: GameState, d: BorderDispute, victory: boolean, withdrawal
         treasury: countryEconomies[ally].treasury + reward,
       };
       if (reward < 50000) nations[a] = { ...nations[a], prestige: nations[a].prestige - 10 };
+      diplomaticState = adjustForeignRelation(diplomaticState, a, ally, reward < 50000 ? -12 : 6, reward < 50000 ? -15 : 6);
     }
   }
   const live = new Set(Object.values(ownerByStateId));
-  const relations = removeDiplomaticTies(world, ({ senior, partner }) =>
+  const relations = removeDiplomaticTies(diplomaticState, ({ senior, partner }) =>
     !live.has(senior) || !live.has(partner) ||
     nations[senior].overlord === partner || nations[partner].overlord === senior,
   );
-  return {
+  return reconcileTreaties({
     ...relations,
     ownerByStateId,
     countryEconomies,
@@ -201,7 +206,7 @@ function treaty(state: GameState, d: BorderDispute, victory: boolean, withdrawal
       since: state.elapsedDays,
       outcome: victory ? "victory" : withdrawal ? "withdrawal" : "statusQuo",
     },
-  };
+  });
 }
 export function applyBorderCommand(scenario: Scenario, state: GameState, cmd: BorderCommand): GameState {
   const id = cmd.countryId,
@@ -260,19 +265,21 @@ export function applyBorderCommand(scenario: Scenario, state: GameState, cmd: Bo
       !canDemandGoal(state, id, defender, cmd.goal)
     )
       throw new GameRuleError("无法提出这项外交要求");
-    const defenders = Object.keys(state.nations).filter(
+    const defenders = new Set(Object.keys(state.nations).filter(
       (x) =>
         x !== id &&
         x !== defender &&
         ((state.nations[x].overlord === defender && state.nations[x].subjectType !== "protectorate") ||
           x === state.nations[defender].overlord),
-    );
+    ));
+    for (const partner of treatyPartners(state, defender, "defensive"))
+      if (partner !== id) defenders.add(partner);
     const allies = Object.keys(state.nations).filter(
       (x) =>
-        x !== defender && state.nations[x].overlord === id && state.nations[x].subjectType !== "protectorate",
+        x !== defender && !defenders.has(x) && state.nations[x].overlord === id && state.nations[x].subjectType !== "protectorate",
     );
     return {
-      ...change({ infamy: n.infamy + (cmd.goal === "annex" ? 3 : 12) }),
+      ...adjustForeignRelation(change({ infamy: n.infamy + (cmd.goal === "annex" ? 3 : 12) }), id, defender, -12, -5),
       borderDispute: {
         phase: "escalation",
         claimantId: id,
@@ -283,7 +290,7 @@ export function applyBorderCommand(scenario: Scenario, state: GameState, cmd: Bo
         maneuvers: 2,
         allies,
         promises: [],
-        defenders,
+        defenders: [...defenders],
         mobilized: [],
         advance: [],
         raid: [],
@@ -312,6 +319,9 @@ export function applyBorderCommand(scenario: Scenario, state: GameState, cmd: Bo
     )
       throw new GameRuleError("第三国需要在目标地区拥有利益");
     const cost = swayCost(n.infamy);
+    const relationship = relationBetween(state, id, cmd.allyId);
+    if (relationship.standing < -35 || diplomaticTrust(relationship, cmd.allyId) < 25)
+      throw new GameRuleError("关系或信任过低，第三国拒绝支持");
     if (d.maneuvers < cost) throw new GameRuleError("恶名提高了拉拢成本，博弈点不足");
     return patch({
       maneuvers: d.maneuvers - cost,
@@ -349,6 +359,7 @@ export function applyBorderCommand(scenario: Scenario, state: GameState, cmd: Bo
   });
 }
 export function tickDiplomacy(scenario: Scenario, state: GameState): GameState {
+  state = expireTreatyOffers(state);
   const d = state.borderDispute;
   if (!d || d.phase === "war" || d.phase === "resolved") return state;
   const duration = {
@@ -361,7 +372,7 @@ export function tickDiplomacy(scenario: Scenario, state: GameState): GameState {
   const next = { ...state, borderDispute: { ...d, phase, since: state.elapsedDays } };
   if (phase !== "war") return next;
   const sides = new Set(participants(d));
-  return removeDiplomaticTies(next, ({ senior, partner }) =>
+  return removeDiplomaticTies(breakOpposedTreaties(next, d.claimantId), ({ senior, partner }) =>
     sides.has(senior) && sides.has(partner) && attacking(d, senior) !== attacking(d, partner),
   );
 }
@@ -521,7 +532,8 @@ export function aiDiplomacy(
           !humanCountries.has(id) &&
           !state.nations[id].overlord &&
           state.nations[owner].overlord !== id &&
-          !diplomaticTie(state, id, owner)
+          !diplomaticTie(state, id, owner) &&
+          !treatyBetween(state, id, owner, "defensive")
         )
           return [{ type: "demandBorder", countryId: id, targetStateId: site.id, goal: "reparations" }];
       }

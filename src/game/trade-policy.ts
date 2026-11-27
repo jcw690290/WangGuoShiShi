@@ -3,6 +3,7 @@ import { diplomaticTie } from "./diplomatic-ties.ts";
 import type { GameState } from "./engine.ts";
 import type { Nation } from "./society.ts";
 import { GameRuleError } from "./rules.ts";
+import { treatyBetween } from "./foreign-relations.ts";
 
 export const tradeLaws = ["贸易保护", "自由贸易", "许可贸易"] as const;
 export const isTradeLaw = (law: string) => (tradeLaws as readonly string[]).includes(law);
@@ -38,6 +39,7 @@ export function tradeRestriction(state: GameState, exporter: string, importer: s
   const allows = (country: string, partner: string) => {
     const nation = state.nations[country];
     return tradeLaw(nation.laws) !== "许可贸易" || nation.tradePartners.includes(partner) ||
+      treatyBetween(state, country, partner, "commercial") !== undefined ||
       diplomaticTie(state, country, partner)?.kind === "tributeTrade";
   };
   if (!allows(exporter, importer)) return "exportPolicy";
