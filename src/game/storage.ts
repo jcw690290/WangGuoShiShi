@@ -294,6 +294,7 @@ const countryReport = z.object({
 const siteReport = z.object({
   industrialWage: uint.positive().optional(),
   militaryWages: z.object({ enlisted: uint, officers: uint }).optional(),
+  draftWorkforce: uint.optional(),
   industries: z.object({ grain: industry, cloth: industry, ...byIndustrialGood(() =>
     industry.default({ employed: 0, output: 0, wages: 0 })) }),
   cashCrops: industry.optional(),
@@ -335,7 +336,8 @@ const siteReport = z.object({
   dividends: uint,
   ownershipIncome: ownershipAmountsSchema.optional(),
   investment: uint,
-}).refine((site) => (site.deployedConscripts ?? 0) <= site.conscripts
+}).refine((site) => (site.deployedConscripts ?? 0) <= site.conscripts &&
+  (site.draftWorkforce ?? 0) <= site.conscripts
 ).refine(({ cashCrops, industries: { luxury } }) => cashCrops === undefined ||
   (cashCrops.output <= luxury.output && cashCrops.employed <= luxury.employed && cashCrops.wages <= luxury.wages &&
     (cashCrops.sold ?? 0) <= Math.min(cashCrops.output, luxury.sold ?? 0))
@@ -850,7 +852,8 @@ export function parseSave(baseScenario: Scenario, save: unknown): GameState {
     const transferred = d.outcome === "victory" && (executed.includes("cession") || executed.includes("annex"));
     if (state.ownerByStateId[d.targetStateId] !== (transferred ? d.claimantId : d.defenderId)) invalid();
     for (const [id, order] of Object.entries(d.mobilization ?? {})) {
-      if (!d.mobilized.includes(id) || order.orderedDay > state.elapsedDays ||
+      if (!d.mobilized.includes(id) ||
+          elapsedTicks({ elapsedDays: order.orderedDay, tickInDay: order.orderedTickInDay ?? 0 }) > elapsedTicks(state) ||
           (d.phase !== "war" && d.phase !== "resolved") ||
           (d.phase === "war" ? order.orderedDay < d.since : order.orderedDay > d.since) ||
           order.origins.some((siteId) => !Object.hasOwn(state.societies, siteId) ||

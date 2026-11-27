@@ -6,6 +6,8 @@ import type { GameState, GameCommand } from "../src/game/engine.ts";
 import { projectEconomy } from "../src/game/economy.ts";
 import { infamyLevel, planWar, swayCost } from "../src/game/diplomacy.ts";
 import { applyMilitaryLoss } from "../src/game/military-health.ts";
+import { publicSalary } from "../src/game/public-pay.ts";
+import { TICKS_PER_WEEK } from "../src/game/time.ts";
 import { parseSave, saveVersion } from "../src/game/storage.ts";
 import { borderScenario as scenario } from "../src/scenario/scenario.ts";
 const a = "country_01",
@@ -66,6 +68,27 @@ test("常备军和平支薪，征兵占用产业工人；战线受命令和补�
   assert.equal(g.borderDispute!.phase, "countdown");
   g = week(g);
   assert.equal(g.borderDispute!.phase, "war");
+  const nearClose = { ...g, elapsedDays: g.elapsedDays + 6, tickInDay: 3 };
+  const lateOrder = load(send(nearClose, { type: "mobilize", countryId: a }));
+  const lastTick = lateOrder.borderDispute!.mobilization![a];
+  assert.equal(lastTick.orderedTickInDay, 3);
+  const lateReadyDay = { ...lateOrder, elapsedDays: lastTick.readyDay, tickInDay: 2 };
+  assert.equal(planWar(scenario, lateReadyDay)!.routes[a].draftReady, false);
+  assert.equal(planWar(scenario, { ...lateReadyDay, tickInDay: 3 })!.routes[a].draftReady, true);
+
+  const noCallUp = send(nearClose, { type: "advanceTick" }).lastEconomy!;
+  const partial = send(lateOrder, { type: "advanceTick" }).lastEconomy!;
+  const rate = publicSalary(120, g.nations[a].publicPay);
+  let addedPay = 0;
+  for (const [id, line] of Object.entries(partial.states)) {
+    if (g.ownerByStateId[id] !== a || line.conscripts === 0) continue;
+    assert.equal(line.draftWorkforce, Math.floor(line.conscripts / TICKS_PER_WEEK));
+    addedPay += Math.floor(line.conscripts * rate / TICKS_PER_WEEK);
+  }
+  assert.ok(addedPay > 0);
+  assert.equal(partial.countries[a].military.payroll!.due - noCallUp.countries[a].military.payroll!.due, addedPay);
+  assert.equal(partial.countries[a].military.grainDemand - noCallUp.countries[a].military.grainDemand,
+    Math.round(partial.countries[a].military.conscripts / TICKS_PER_WEEK));
   const before = projectEconomy(g, planWar(scenario, g));
   assert.equal(before.countries[a].military.conscripts, 0);
   g = send(g, { type: "mobilize", countryId: a });

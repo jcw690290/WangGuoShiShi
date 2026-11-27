@@ -64,7 +64,7 @@ function StateIndustry({
   const society = game.societies[stateId];
   const workforce =
     (report.states[stateId].workforce ?? workForce(local.population, society.laborParticipation)) -
-    conscripts -
+    (report.states[stateId].draftWorkforce ?? conscripts) -
     report.states[stateId].builders -
     (report.states[stateId].constructionMaintenance?.workers ?? 0) -
     report.states[stateId].regulars -
@@ -164,7 +164,7 @@ function StateIndustry({
         {conscripts > 0 && (
           <div>
             <dt>征兵占用</dt>
-            <dd>{count(conscripts)} 人</dd>
+            <dd>{count(conscripts)} 人{snapshot.draftWorkforce !== undefined && ` · 周内等效占用 ${count(snapshot.draftWorkforce)} 人`}</dd>
           </div>
         )}
         {snapshot.militaryWages && (

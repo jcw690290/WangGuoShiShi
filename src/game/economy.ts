@@ -1,6 +1,6 @@
 import type { Scenario } from "../scenario/scenario.ts";
 import type { GameState } from "./engine.ts";
-import { elapsedTicks } from "./time.ts";
+import { elapsedTicks, TICKS_PER_WEEK } from "./time.ts";
 import type { WarPlan } from "./diplomacy.ts";
 import { byGood, byIndustrialGood, byProductiveBuilding, commercialLevels, goods, industries, isGood, isIndustrialGood,
   isLocalGood, isProductiveBuilding, legacyCommercialCost, outputGood, productiveBuildings, productiveDefinitions } from "./industry.ts";
@@ -202,6 +202,7 @@ type EquipmentIssue = { demand: number; delivered: number };
 export interface SiteReport {
   industrialWage?: number;
   militaryWages?: { enlisted: number; officers: number };
+  draftWorkforce?: number;
   workforce?: number;
   universityStaff?: number;
   administrationStaff?: number;
@@ -375,8 +376,13 @@ function militarySources(ids: string[], route: WarPlan["routes"][string]) {
   return { front, rear };
 }
 
+function draftDutyTicks(route: WarPlan["routes"][string] | undefined, closingTick: number | undefined) {
+  if (route?.mobilizedAtTick === undefined || closingTick === undefined) return TICKS_PER_WEEK;
+  return Math.max(0, Math.min(TICKS_PER_WEEK, closingTick - route.mobilizedAtTick));
+}
+
 function planArmamentOrders(state: GameState, holdings: Record<string, string[]>, rosters: Record<string, Battalion[]>,
-  wages: Record<string, number>, war?: WarPlan) {
+  wages: Record<string, number>, war?: WarPlan, closingTick?: number) {
   const orders: Record<string, ArmamentOrders> = Object.fromEntries(
     Object.keys(state.stateEconomies).map((id) => [id, { arms: 0, ammo: 0 }]),
   );
@@ -431,9 +437,11 @@ function planArmamentOrders(state: GameState, holdings: Record<string, string[]>
         homeReserves += quota - front;
       }
       const deployed = ids.filter((id) => route.recruitmentStates.has(id)).flatMap((id) => rosters[id]);
-      assign(owner, front, equipmentNeeds(deployed, fieldReserves, true));
+      const duty = draftDutyTicks(route, closingTick);
+      assign(owner, front, equipmentNeeds(deployed, Math.round(fieldReserves * duty / TICKS_PER_WEEK), true));
       assign(owner, rear, equipmentNeeds(rear.flatMap((id) => rosters[id]), 0, false));
-      assign(owner, ids.filter((id) => id !== state.occupation?.stateId), equipmentNeeds([], homeReserves, false));
+      assign(owner, ids.filter((id) => id !== state.occupation?.stateId),
+        equipmentNeeds([], Math.round(homeReserves * duty / TICKS_PER_WEEK), false));
     } else {
       assign(owner, ids, equipmentNeeds(ids.flatMap((id) => rosters[id]), 0, false));
     }
@@ -685,7 +693,7 @@ function projectSettlement(state: GameState, war?: WarPlan, closingTick?: number
     return [id, industrialWage(laborProtection(laws).ordinaryWage, available, local.industrial?.capital ?? 0, local.industryLabor)];
   }));
   const rosters = Object.fromEntries(Object.keys(garrisons).map((id) => [id, battalionsAt(state, id, garrisons[id])]));
-  const armamentOrders = planArmamentOrders(state, holdings, rosters, wages, war);
+  const armamentOrders = planArmamentOrders(state, holdings, rosters, wages, war, closingTick);
   const fleets = fleetPlans(state, holdings, scenario);
   const armyFuelDemand = Object.fromEntries(Object.entries(holdings).map(([owner, ids]) => {
     const route = war?.routes[owner];
@@ -716,6 +724,8 @@ function projectSettlement(state: GameState, war?: WarPlan, closingTick?: number
     const { integrationCost } = localGovernanceRule(site, nation.laws);
     const regulars = garrisons[id];
     const draftRate = route?.mobilized && route.draftOrigins.has(id) ? war!.recruitPercent : 0;
+    const draftTicks = draftDutyTicks(route, closingTick);
+    const draftDuty = draftTicks / TICKS_PER_WEEK;
     const injured = injuredPersonnel(site);
     const injuredTroops = injured.regulars + injured.conscripts;
     const draftQuota = Math.min(draftCenterQuota(site, nation.laws),
@@ -829,8 +839,8 @@ function projectSettlement(state: GameState, war?: WarPlan, closingTick?: number
       const ordered = g === "arms" || g === "ammo" ? armamentOrders[id][g] :
         isFleetGood(g) ? fleetProduction[g].get(id) ?? 0 : g === "electricity" ? powerDemand : Infinity;
       const civilianTarget = Math.ceil(ordered * spec.jobs / (spec.output * effects.output));
-      const orderedJobs = civilianTarget === 0 ? 0 : Math.min(civilianTarget + draftQuota - conscripts,
-        Math.ceil(civilianTarget * 100 / (100 - draftRate)));
+      const orderedJobs = civilianTarget === 0 ? 0 : Math.min(civilianTarget + Math.ceil((draftQuota - conscripts) * draftDuty),
+        Math.ceil(civilianTarget * 100 / (100 - draftRate * draftDuty)));
       const capacity = local.buildings[g] * spec.jobs;
       const hiring = local.industryLabor ? productionHiringLimit(capacity, spec.skill[0], local.industryLabor.staffing[g]) : capacity;
       const jobs = Math.min(
@@ -841,8 +851,10 @@ function projectSettlement(state: GameState, war?: WarPlan, closingTick?: number
         affordableIndustryWorkers(g, payrollBudget, spec, ceilings.electricity, ordinaryWage),
       );
       const drafted = Math.min(draftQuota - conscripts, Math.floor(jobs * draftRate / 100));
+      const service = Math.floor((conscripts + drafted) * draftTicks / TICKS_PER_WEEK) -
+        Math.floor(conscripts * draftTicks / TICKS_PER_WEEK);
       conscripts += drafted;
-      const civilianJobs = jobs - drafted;
+      const civilianJobs = jobs - service;
       plannedWorkers[g] = civilianJobs;
       const powerLimit = electric ? Math.floor(powerLeft * spec.jobs / spec.power) : civilianJobs;
       if (electric) powerRequested += electricityUse(spec, materialWorkers(g, civilianJobs, remaining, spec));
@@ -850,7 +862,7 @@ function projectSettlement(state: GameState, war?: WarPlan, closingTick?: number
       const electricity = electricityUse(spec, employed);
       powerLeft -= electricity;
       powerUsed += electricity;
-      workers -= employed + drafted;
+      workers -= employed + service;
       const payroll = industrialPayroll(g, employed, spec, ordinaryWage);
       payrollBudget -= payroll.total + electricity * ceilings.electricity;
       technicians -= payroll.skilled;
@@ -883,7 +895,7 @@ function projectSettlement(state: GameState, war?: WarPlan, closingTick?: number
     c.military.deployedConscripts! += deployedConscripts;
     c.universityWages! += universityStaff * teachingPay;
     c.administrationWages! += administrationDue;
-    const militaryDue = militarySalary(regulars, conscripts, injuredTroops, nation.publicPay);
+    const militaryDue = militarySalary(regulars, conscripts, injuredTroops, nation.publicPay, draftTicks);
     c.military.payroll!.due += militaryDue;
     c.upkeep += militaryDue + universityStaff * teachingPay + administrationDue + office.wages;
     supplies[id] = byGood((g) => activity[g].output);
@@ -924,6 +936,8 @@ function projectSettlement(state: GameState, war?: WarPlan, closingTick?: number
       industries: activity,
       ...(cashCrops ? { cashCrops } : {}),
       industrialWage: ordinaryWage,
+      ...(conscripts > 0 && draftTicks < TICKS_PER_WEEK ?
+        { draftWorkforce: Math.floor(conscripts * draftTicks / TICKS_PER_WEEK) } : {}),
       workforce,
       ...(powerDemand > 0 || local.buildings.electricity > 0 ?
         { power: { requested: powerRequested, delivered: powerUsed, spending: 0 } } : {}),
@@ -970,12 +984,14 @@ function projectSettlement(state: GameState, war?: WarPlan, closingTick?: number
       const { front, rear } = militarySources(ids, route);
       const rearRegulars = rear.reduce((sum, id) => sum + report.states[id].regulars, 0);
       const deployed = m.regulars - rearRegulars;
-      const fieldStrength = deployed + m.deployedConscripts!;
-      const homeReserves = m.conscripts - m.deployedConscripts!;
+      const draftTicks = draftDutyTicks(route, closingTick);
+      const fieldReserves = Math.round(m.deployedConscripts! * draftTicks / TICKS_PER_WEEK);
+      const fieldStrength = deployed + fieldReserves;
+      const homeReserves = Math.round((m.conscripts - m.deployedConscripts!) * draftTicks / TICKS_PER_WEEK);
       const deployedRoster = ids.filter((id) => route.recruitmentStates.has(id)).flatMap((id) => rosters[id]);
       m.readiness = issueSupplies(
         m, contract, supplies, front,
-        deployed + fieldStrength * war!.grainPerRecruit, equipmentNeeds(deployedRoster, m.deployedConscripts!, true),
+        deployed + fieldStrength * war!.grainPerRecruit, equipmentNeeds(deployedRoster, fieldReserves, true),
         route.grainTransport, war!.supplyPercent / 100 * route.priorityShare, route.overseas, route.priorityShare,
       );
       if (route.overseas) {
@@ -1709,7 +1725,8 @@ export function settleEconomy(state: GameState, war?: WarPlan, fractionOfYear = 
     const standby = s.constructionMaintenance!;
     const publicConstructionWages = construction.public.wages + standby.wages;
     const payroll = militaryPayroll[owner];
-    const grossArmyWages = militarySalary(s.regulars, s.conscripts, injuredTroops, band);
+    const grossArmyWages = militarySalary(s.regulars, s.conscripts, injuredTroops, band,
+      draftDutyTicks(war?.routes[owner], closingTick));
     payroll.accrued += grossArmyWages;
     const assigned = payroll.due > 0 ? Math.floor(payroll.paid * payroll.accrued / payroll.due) : 0;
     const armyWages = assigned - payroll.allocated;
