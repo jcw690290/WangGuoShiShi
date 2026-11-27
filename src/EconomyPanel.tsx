@@ -233,7 +233,8 @@ function StateIndustry({
           return <details key={kind}>
             <summary>{name} · {level} 级{level > limit ? ` · 法律上限 ${limit} 级` : ""}</summary>
             {service && <>
-              <p>周结 {service.level} 级 · 覆盖 {Math.round(service.coverage * 100)}% · 实付岗位 {count(service.staff)} / {count(service.needed)} 人</p>
+              <p>{service.equivalentLevel === undefined ? `周结 ${service.level} 级` : `周均运行 ${service.equivalentLevel.toFixed(2)} 级`}
+                {" · "}覆盖 {Math.round(service.coverage * 100)}% · 实付岗位 {count(service.staff)} / {count(service.needed)} 人</p>
               <p>工资 {silver(service.wages)} · 采购 {silver(service.spending)} · 到货{" "}
                 {institutionGoods.map((good) =>
                   `${industries[good].goodName} ${count(service.delivered[good])} / ${count(service.orders[good])}`).join(" · ")}</p>

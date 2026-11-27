@@ -9,7 +9,7 @@ import { initialIndustrialAccount, industrialAccountSchema, industrialReportSche
   industrialRetrofits, industrySubsidyLimit, industrySubsidyReportSchema, isIndustrialRetrofit, productionTierAt } from "./industrial.ts";
 import { officeReportSchema } from "./administration.ts";
 import { byInstitution, institutionLawDetails, institutionLawKinds, institutionLawOptions,
-  institutionReportSchema, welfareReliefSchema } from "./institutions.ts";
+  institutionReportSchema, validInstitutionDuty, welfareReliefSchema } from "./institutions.ts";
 import { basicPurchasesSchema, extrasReportSchema, openingBasicBudget, substituteOrdersSchema } from "./households.ts";
 import { reservedCropland, subsistenceReportSchema } from "./subsistence.ts";
 import { migrateCommercialProduction } from "./commercialMigration.ts";
@@ -727,6 +727,8 @@ export function parseSave(baseScenario: Scenario, save: unknown): GameState {
         barracksTraining.some((group, index) => group.readyDay > latestTrainingDay ||
           (index > 0 && group.readyDay <= barracksTraining[index - 1].readyDay)))) invalid();
     if (governance?.integration && governance.integration.startedAtTick > elapsedTicks(state)) invalid();
+    const duty = state.societies[id].institutionDuty;
+    if (duty && Object.values(duty).some((interval) => !validInstitutionDuty(interval, elapsedTicks(state)))) invalid();
     if (stability && (Object.values(stability.lastIncident).some((day) => day > state.elapsedDays) ||
         (stability.lastResolved && Object.entries(stability.lastResolved).some(([cause, day]) =>
           day > state.elapsedDays || !(cause in stability.lastIncident))) ||

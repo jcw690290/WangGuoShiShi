@@ -8,7 +8,7 @@ import { emptyStability, stabilitySchema } from "./unrest.ts";
 import type { LocalStability } from "./unrest.ts";
 import { goods } from "./industry.ts";
 import { initialFleet, merchantFleetSchema } from "./fleet.ts";
-import { institutionLawDetails, institutionLawKinds, institutionLawOptions, institutionLevelSchema } from "./institutions.ts";
+import { institutionDutySchema, institutionLawDetails, institutionLawKinds, institutionLawOptions, institutionLevelSchema } from "./institutions.ts";
 import { bondedRuralShare, laborLawCategory, laborLaws, laborProtection, neutralLaborLaws,
   participationTarget, startingLaborLaws, workForce } from "./labor.ts";
 import { exciseGoods, exciseGoodsSchema, isTaxLaw, taxBands, taxBandSchema, taxLaws } from "./taxation.ts";
@@ -105,6 +105,7 @@ export const siteSocialSchema = z.object({
   policing: institutionLevelSchema.default(0),
   welfare: institutionLevelSchema.default(0),
   education: institutionLevelSchema.default(0),
+  institutionDuty: institutionDutySchema.optional(),
   laborParticipation: z.number().min(0.30).max(0.60).default(0.40),
   construction: z.int().positive(),
   barracks: z.int().nonnegative(),

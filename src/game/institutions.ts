@@ -3,6 +3,7 @@ import type { ByGood } from "./industry.ts";
 import type { Pop, Tech } from "./society.ts";
 import { publicSalary } from "./public-pay.ts";
 import type { PublicPayBand } from "./public-pay.ts";
+import { TICKS_PER_WEEK } from "./time.ts";
 
 export const institutionLevelSchema = z.int().min(0).max(3);
 export const institutions = ["healthcare", "policing", "welfare", "education"] as const;
@@ -67,9 +68,44 @@ const inputsPerTen = {
   education: { paper: 4, tools: 1, services: 3 },
 };
 export const institutionStaffNeed = (people: number, level: number) => Math.ceil(people * level / 1000);
+const dutyTicks = count.max(TICKS_PER_WEEK - 1);
+const dutySchema = z.object({ changedAt: count, ticks: z.tuple([dutyTicks, dutyTicks, dutyTicks, dutyTicks]) });
+export const institutionDutySchema = z.partialRecord(z.enum(institutions), dutySchema);
+type Duty = z.infer<typeof dutySchema>;
+
+export function recordInstitutionDuty(previous: Duty | undefined, level: number, tick: number): Duty {
+  const weekStart = tick - tick % TICKS_PER_WEEK;
+  const ticks: Duty["ticks"] = previous ? [...previous.ticks] : [0, 0, 0, 0];
+  ticks[level] += tick - (previous?.changedAt ?? weekStart);
+  return { changedAt: tick, ticks };
+}
+
+export function validInstitutionDuty(duty: Duty, tick: number) {
+  const weekStart = tick - tick % TICKS_PER_WEEK;
+  return duty.changedAt > weekStart && duty.changedAt <= tick &&
+    duty.ticks.reduce((sum, duration) => sum + duration, 0) === duty.changedAt - weekStart;
+}
+
+export function institutionOperation(population: number, level: number, limit: number,
+  duty: Duty | undefined, closingTick: number | undefined) {
+  const permitted = Math.min(level, limit);
+  if (duty === undefined || closingTick === undefined)
+    return { level: permitted, equivalentLevel: permitted, needed: institutionStaffNeed(population, permitted) };
+
+  let levelTicks = permitted * (closingTick - duty.changedAt);
+  let staffTicks = institutionStaffNeed(population, permitted) * (closingTick - duty.changedAt);
+  for (const [configured, duration] of duty.ticks.entries()) {
+    const operatingLevel = Math.min(configured, limit);
+    levelTicks += operatingLevel * duration;
+    staffTicks += institutionStaffNeed(population, operatingLevel) * duration;
+  }
+  return { level: permitted, equivalentLevel: levelTicks / TICKS_PER_WEEK, needed: Math.floor(staffTicks / TICKS_PER_WEEK) };
+}
+
 const materialSchema = z.object({ paper: count, tools: count, services: count });
 const institutionReport = z.object({
   level: institutionLevelSchema, needed: count, staff: count, wages: count, spending: count,
+  equivalentLevel: z.number().min(0).max(3).optional(),
   wageRate: count.positive().optional(),
   orders: materialSchema, delivered: materialSchema, coverage: z.number().min(0).max(1),
 });
@@ -81,10 +117,10 @@ const recipients = z.object({ 农民: count, 劳工: count });
 export const welfareReliefSchema = z.object({ eligible: recipients, paid: recipients });
 export type WelfareRelief = z.infer<typeof welfareReliefSchema>;
 
-export function planInstitution(kind: Institution, population: number, level: number, available: number, cash: number,
+export function planInstitution(kind: Institution, operation: ReturnType<typeof institutionOperation>, available: number, cash: number,
   ceilings: ByGood<number>, band: PublicPayBand = "standard") {
   const wage = publicSalary(wages[kind], band);
-  const needed = institutionStaffNeed(population, level);
+  const { needed } = operation;
   const ordersFor = (staff: number) => byInstitutionGood((good) => Math.ceil(staff * inputsPerTen[kind][good] / 10));
   const cost = (staff: number, orders = ordersFor(staff)) =>
     institutionGoods.reduce((sum, good) => sum + orders[good] * ceilings[good], staff * wage);
@@ -95,17 +131,18 @@ export function planInstitution(kind: Institution, population: number, level: nu
     else high = staff - 1;
   }
   const staff = low, orders = ordersFor(staff);
-  return { level, needed, staff, orders, wages: staff * wage, reserved: cost(staff, orders),
+  return { ...operation, staff, orders, wages: staff * wage, reserved: cost(staff, orders),
     ...(band === "standard" ? {} : { wageRate: wage }) };
 }
 
 export function deliverInstitution(plan: ReturnType<typeof planInstitution>, delivered: InstitutionReport["delivered"],
   spending: number, administration: number,
 ): InstitutionReport {
-  const { level, needed, staff, orders, wages, wageRate } = plan;
+  const { level, equivalentLevel, needed, staff, orders, wages, wageRate } = plan;
   const supplied = staff > 0 ? Math.min(...institutionGoods.map((good) => delivered[good] / orders[good])) : 0;
-  const coverage = needed > 0 ? level / 3 * staff / needed * supplied * (0.75 + 0.25 * administration) : 0;
+  const coverage = needed > 0 ? equivalentLevel / 3 * staff / needed * supplied * (0.75 + 0.25 * administration) : 0;
   return { level, needed, staff, orders, delivered, coverage, wages, spending,
+    ...(equivalentLevel === level ? {} : { equivalentLevel }),
     ...(wageRate === undefined ? {} : { wageRate }) };
 }
 
@@ -129,7 +166,8 @@ export function planWelfareRelief(pops: readonly Pop[], plan: ReturnType<typeof 
     if (occupation === "农民" || occupation === "劳工") eligible[occupation] += people;
   }
   const total = eligible.农民 + eligible.劳工;
-  const reserved = Math.min(cash, Math.floor(total * weeklyReliefPerPerson * plan.level / 3 * plan.staff / plan.needed));
+  const served = plan.needed > 0 ? plan.equivalentLevel / 3 * plan.staff / plan.needed : 0;
+  const reserved = Math.min(cash, Math.floor(total * weeklyReliefPerPerson * served));
   return { eligible, total, reserved };
 }
 
