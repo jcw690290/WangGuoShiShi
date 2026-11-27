@@ -9,7 +9,7 @@ import { chooseAdministrativeArchive, chooseConstruction, chooseElectrification,
 import type { Building, CountryEconomy, EconomyReport, StateEconomy } from "./economy.ts";
 import { advancePolitics, applyPolitics, availableTech, ownedSocieties, politicsError } from "./politics.ts";
 import type { PoliticsCommand } from "./politics.ts";
-import { initSociety, techs, hash, literacyOf } from "./society.ts";
+import { assignMilitaryHouseholds, initSociety, techs, hash, literacyOf } from "./society.ts";
 import type { Law, Nation, SiteSocial } from "./society.ts";
 import { advanceTerritorialSettlements, applyTerritorialClaim, applyTerritorialSettlement, chooseTerritorialSettlement } from "./territory.ts";
 import type { TerritorialClaim, TerritorialClaimCommand, TerritorialSettlement, TerritorialSettlementCommand } from "./territory.ts";
@@ -43,7 +43,7 @@ import { projectOwnership } from "./ownership.ts";
 import { industrySubsidyLimit } from "./industrial.ts";
 import { applyForeignCommand, settleAiForeignOffers } from "./foreign-relations.ts";
 import type { AidOffer, ForeignCommand, ForeignObligation, ForeignRelation, ForeignTreaty, TreatyOffer } from "./foreign-relations.ts";
-import { applyBattalionOrder, applyEquipmentOrder, chooseBattalionOrder, chooseEquipmentOrder } from "./military.ts";
+import { applyBattalionOrder, applyEquipmentOrder, chooseBattalionOrder, chooseEquipmentOrder, garrisonHeadcount } from "./military.ts";
 import type { BattalionCommand, BattalionEquipmentCommand } from "./military.ts";
 import { recoverMilitaryInjuries } from "./military-health.ts";
 import { applyNavalConstruction, warshipMaterials } from "./navy.ts";
@@ -133,7 +133,7 @@ export function createGame(scenario: Scenario, seed = 1820, difficulty: Difficul
     techs.slice(0, 3).forEach((tech, i) => {
       social.nations[countries[(seed + i) % countries.length].id].knowledge[tech] = 100;
     });
-  return {
+  const state: GameState = {
     elapsedDays: 0,
     tickInDay: 0,
     settings: initialSettings(difficulty),
@@ -156,6 +156,12 @@ export function createGame(scenario: Scenario, seed = 1820, difficulty: Difficul
       countries.map((c) => [c.id, { treasury: openingReserve(c.treasury, difficulty), queue: [] }]),
     ),
   };
+  for (const [id, owner] of Object.entries(state.ownerByStateId)) {
+    state.societies[id] = assignMilitaryHouseholds(
+      state.societies[id], garrisonHeadcount(state, id), 0, 0, state.nations[owner].laws,
+    );
+  }
+  return state;
 }
 export function getGameDate(scenario: Scenario, state: GameState) {
   return new Date(Date.parse(scenario.startDate) + DAY_MS * state.elapsedDays);

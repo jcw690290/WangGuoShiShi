@@ -69,11 +69,10 @@ export function applyMilitaryLoss(state: GameState, stateId: string, loss: Milit
   const site = state.societies[stateId], local = state.stateEconomies[stateId];
   const dead = loss.regularDead + loss.conscriptDead;
   const injured = loss.regularInjured + loss.conscriptInjured;
-  // Recruit deaths fall on the farm and industrial labor pools and the officer corps.
-  const recruitment = site.pops.filter((pop) => pop.occupation === "农民" || pop.occupation === "劳工" || pop.occupation === "军官");
-  const recruitPopulation = recruitment.reduce((sum, pop) => sum + pop.people, 0);
-  const origins = recruitPopulation >= dead ? new Set(recruitment) : new Set(site.pops);
-  const sourcePopulation = recruitPopulation >= dead ? recruitPopulation : local.population;
+  const military = site.pops.filter((pop) => pop.occupation === "军人" || pop.occupation === "军官");
+  const sourcePopulation = military.reduce((sum, pop) => sum + pop.people, 0);
+  if (dead > sourcePopulation) throw new Error("战斗死亡超过军人家庭人口");
+  const origins = new Set(military);
   let cumulative = 0, assigned = 0;
   const pops = dead === 0 ? site.pops : site.pops.map((pop) => {
     if (!origins.has(pop)) return pop;

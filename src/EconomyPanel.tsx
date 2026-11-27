@@ -167,6 +167,12 @@ function StateIndustry({
             <dd>{count(conscripts)} 人</dd>
           </div>
         )}
+        {snapshot.militaryWages && (
+          <div>
+            <dt>周军饷实付</dt>
+            <dd>军人 {silver(snapshot.militaryWages.enlisted)} · 军官 {silver(snapshot.militaryWages.officers)}</dd>
+          </div>
+        )}
       </dl>
       <ul className="industry-list">
         {productiveBuildings.map((good) => {
