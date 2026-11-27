@@ -8,6 +8,7 @@ import type { EconomyReport } from "./economy.ts";
 import type { GameState } from "./engine.ts";
 import { goods, industrialGoods, industries } from "./industry.ts";
 import { industryMethod } from "./industrial.ts";
+import { institutions } from "./institutions.ts";
 import { accepted, governmentLegitimacy, influence } from "./society.ts";
 import { basicEquivalentSupply, essentialGoods } from "./households.ts";
 
@@ -117,7 +118,7 @@ export function measureCampaign(
       site.builders + site.regulars + site.conscripts +
       (site.constructionMaintenance?.workers ?? 0) +
       (site.universityStaff ?? 0) + (site.administrationStaff ?? 0) + (site.office?.staff ?? 0) +
-      (site.healthcare?.staff ?? 0) + (site.policing?.staff ?? 0) + (site.welfare?.staff ?? 0) + (site.subsistence?.employed ?? 0);
+      institutions.reduce((sum, kind) => sum + (site[kind]?.staff ?? 0), 0) + (site.subsistence?.employed ?? 0);
     food += population * (site.foodFulfillment ?? 0);
     governance += population * (site.office?.coverage ?? 0);
   }

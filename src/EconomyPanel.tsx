@@ -394,8 +394,8 @@ function StateIndustry({
 export function EconomyPanel({ scenario, game, playerId, selectedId, report, busy, send, onPopulationOpen }: Props) {
   const marketId = selectedId === null ? playerId : game.ownerByStateId[selectedId];
   const country = scenario.countries[marketId];
-  const { market, tax, wageTaxRate, upkeep, tribute, officeUpkeep, healthcareUpkeep, policingUpkeep, welfareUpkeep, military, fleet, tradeSeaCargo } =
-    report.countries[marketId];
+  const countryReport = report.countries[marketId];
+  const { market, tax, wageTaxRate, upkeep, tribute, officeUpkeep, military, fleet, tradeSeaCargo } = countryReport;
   const nation = game.nations[marketId];
   const { tributeReceived, balance } = weeklyBudgets(game.nations, report)[marketId];
   const countryLiving = useMemo(() => livingStandardOf(Object.entries(game.societies)
@@ -438,9 +438,10 @@ export function EconomyPanel({ scenario, game, playerId, selectedId, report, bus
               <dt>周必要公共支出</dt>
               <dd>{silver(upkeep)}</dd>
               {officeUpkeep !== undefined && <small>其中行政署 {silver(officeUpkeep)}</small>}
-              {healthcareUpkeep !== undefined && healthcareUpkeep > 0 && <small>其中医疗 {silver(healthcareUpkeep)}</small>}
-              {policingUpkeep !== undefined && policingUpkeep > 0 && <small>其中警务 {silver(policingUpkeep)}</small>}
-              {welfareUpkeep !== undefined && welfareUpkeep > 0 && <small>其中福利 {silver(welfareUpkeep)}</small>}
+              {institutions.map((kind) => {
+                const paid = countryReport[`${kind}Upkeep`];
+                return paid ? <small key={kind}>其中{institutionNames[kind]} {silver(paid)}</small> : null;
+              })}
               {military.procurement && <small>军粮 {silver(military.procurement.grain)} · 军服 {silver(military.procurement.cloth)} ·
                 武器 {silver(military.procurement.arms ?? 0)} · 弹药 {silver(military.procurement.ammo ?? 0)}</small>}
             </div>

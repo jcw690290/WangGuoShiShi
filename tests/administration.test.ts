@@ -25,7 +25,7 @@ test("行政岗位采购真实物资，必要支出只记账一次，治理覆�
   const forecast = projectEconomy(initial);
   assert.deepEqual(initial, before);
   const office = forecast.states[stateId].office!;
-  assert.equal(office.need, officeNeed(base.population, initial.societies[stateId], initial.nations[countryId], "standard"));
+  assert.equal(office.need, officeNeed(base.population, initial.societies[stateId], "standard"));
   assert.equal(office.staff, Math.ceil(office.need));
   assert.equal(office.coverage, 1);
   assert.ok(office.wages > 0 && office.purchases > 0);

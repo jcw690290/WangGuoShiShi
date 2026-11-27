@@ -3,19 +3,21 @@ import type { ByGood } from "./industry.ts";
 import type { Pop, Tech } from "./society.ts";
 
 export const institutionLevelSchema = z.int().min(0).max(3);
-export const institutions = ["healthcare", "policing", "welfare"] as const;
+export const institutions = ["healthcare", "policing", "welfare", "education"] as const;
 export type Institution = typeof institutions[number];
-export const institutionNames = { healthcare: "医疗机构", policing: "警务机构", welfare: "福利机构" };
+export const institutionNames = { healthcare: "医疗机构", policing: "警务机构", welfare: "福利机构", education: "学校" };
 export const institutionCommands = {
   healthcare: "setHealthcareLevel", policing: "setPolicingLevel", welfare: "setWelfareLevel",
+  education: "setEducationLevel",
 } as const;
 export function byInstitution<T>(make: (institution: Institution) => T): Record<Institution, T> {
-  return { healthcare: make("healthcare"), policing: make("policing"), welfare: make("welfare") };
+  return { healthcare: make("healthcare"), policing: make("policing"), welfare: make("welfare"), education: make("education") };
 }
 const institutionTechnologies: Record<Institution, Partial<Record<number, Tech>>> = {
   healthcare: { 2: "公共卫生", 3: "公共卫生" },
   policing: {},
   welfare: { 2: "劳工保障", 3: "社会保障" },
+  education: { 2: "公共教育", 3: "高等教育" },
 };
 export const institutionRequiredTech = (kind: Institution, level: number) => institutionTechnologies[kind][level];
 const count = z.int().nonnegative();
@@ -27,11 +29,12 @@ export function byInstitutionGood<T>(make: (good: InstitutionGood) => T): Record
   return { paper: make("paper"), tools: make("tools"), services: make("services") };
 }
 
-const wages = { healthcare: 150, policing: 130, welfare: 130 };
+const wages = { healthcare: 150, policing: 130, welfare: 130, education: 150 };
 const inputsPerTen = {
   healthcare: { paper: 2, tools: 1, services: 4 },
   policing: { paper: 1, tools: 1, services: 2 },
   welfare: { paper: 2, tools: 1, services: 2 },
+  education: { paper: 4, tools: 1, services: 3 },
 };
 export const institutionStaffNeed = (people: number, level: number) => Math.ceil(people * level / 1000);
 const materialSchema = z.object({ paper: count, tools: count, services: count });

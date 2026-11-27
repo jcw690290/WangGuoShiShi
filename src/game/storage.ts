@@ -240,11 +240,12 @@ const countryReport = z.object({
   healthcareUpkeep: uint.optional(),
   policingUpkeep: uint.optional(),
   welfareUpkeep: uint.optional(),
+  educationUpkeep: uint.optional(),
   tradeTariff: uint.optional(),
   tradeSeaCargo: uint.optional(),
   fleet: fleetReportSchema.optional(),
 }).refine((country) => (country.officeUpkeep ?? 0) + (country.healthcareUpkeep ?? 0) + (country.policingUpkeep ?? 0) +
-  (country.welfareUpkeep ?? 0) + militaryProcurementCost(country.military.procurement) +
+  (country.welfareUpkeep ?? 0) + (country.educationUpkeep ?? 0) + militaryProcurementCost(country.military.procurement) +
   (country.construction === undefined ? 0 : constructionSpending(country.construction.public)) +
   (country.constructionMaintenance === undefined ? 0 : constructionSpending(country.constructionMaintenance)) +
   (country.fleet === undefined ? 0 : fleetSpending(country.fleet)) <= country.upkeep);
@@ -267,6 +268,7 @@ const siteReport = z.object({
   healthcare: institutionReportSchema.healthcare.optional(),
   policing: institutionReportSchema.policing.optional(),
   welfare: institutionReportSchema.welfare.optional(),
+  education: institutionReportSchema.education.optional(),
   welfareRelief: welfareReliefSchema.optional(),
   consumptionIndex: z.number().nonnegative().optional(),
   conscripts: uint,
