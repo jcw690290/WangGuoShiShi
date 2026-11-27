@@ -106,6 +106,10 @@ function StateIndustry({
           <dt>市场接入</dt>
           <dd>{Math.round(snapshot.access * 100)}%</dd>
         </div>
+        {snapshot.power && <div>
+          <dt>本州用电</dt>
+          <dd>到电 {count(snapshot.power.delivered)} / {count(snapshot.power.requested)} · 实付 {silver(snapshot.power.spending)}</dd>
+        </div>}
         {site.coastal && <div>
           <dt>港口每周吞吐</dt>
           <dd>{count(portCapacity(site.grainTransport, society))}</dd>
@@ -154,7 +158,7 @@ function StateIndustry({
                   {local.buildings[good]} / {buildingCapacity(site, local, good)} 级
                 </span>
                 <p>
-                  就业 {count(jobs.employed)} 人 · 周产出 {count(jobs.output)} · 本地价{" "}
+                  {jobs.electric && "电动生产 · "}就业 {count(jobs.employed)} 人 · 周产出 {count(jobs.output)} · 本地价{" "}
                   {silver(snapshot.localPrices[good])} · 人均周工资{" "}
                   {jobs.employed === 0 ? "—" : silver(jobs.wages / jobs.employed)}
                 </p>
@@ -212,20 +216,29 @@ function StateIndustry({
           </div>
         </details>}
         <div className="diplomacy-actions">
-          {facilityTypes.filter((g) => g !== "port" || site.coastal).map((g) => (
+          {facilityTypes.filter((g) => {
+            if (g === "port") return site.coastal;
+            if (g === "electrifyTools") return local.buildings.tools > 0;
+            if (g === "electrifySteel") return local.buildings.steel > 0;
+            return true;
+          }).map((g) => {
+            const problem = isOwnState ? constructionError(scenario, game, playerId, stateId, g) : undefined;
+            return (
             <button
               key={g}
               className="build"
-              disabled={!isOwnState || busy || !!constructionError(scenario, game, playerId, stateId, g)}
+              disabled={!isOwnState || busy || problem !== undefined}
               onClick={() => send({ type: "queueConstruction", countryId: playerId, stateId, good: g })}
             >
-              {facilityNames[g]} {society[g]} 级 · 扩建
+              {g === "electrifyTools" || g === "electrifySteel"
+                ? `${facilityNames[g]}${society[g] ? " · 已投产" : ""}`
+                : `${facilityNames[g]} ${society[g]} 级 · 扩建`}
               <small>
-                {g === "railway" && game.nations[playerId].knowledge["铁路"] < 100
-                  ? "需要掌握铁路技术" : `按周实付 · ${projectPoints(g)} 施工点`}
+                {problem ?? `按周实付 · ${projectPoints(g)} 施工点`}
               </small>
             </button>
-          ))}
+            );
+          })}
         </div>
         <details onToggle={(event) => { if (event.currentTarget.open) onPopulationOpen(); }}>
           <summary>人口群体 · 职业、文化与生活水平</summary>

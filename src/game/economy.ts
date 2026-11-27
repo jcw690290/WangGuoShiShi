@@ -2,7 +2,7 @@ import type { Scenario } from "../scenario/scenario.ts";
 import type { GameState } from "./engine.ts";
 import { elapsedTicks } from "./time.ts";
 import type { WarPlan } from "./diplomacy.ts";
-import { byGood, byIndustrialGood, commercialLevels, goods, industries, isGood, isIndustrialGood, legacyCommercialCost } from "./industry.ts";
+import { byGood, byIndustrialGood, commercialLevels, goods, industries, isGood, isIndustrialGood, isLocalGood, legacyCommercialCost } from "./industry.ts";
 import type { ByGood, Good } from "./industry.ts";
 import { accepted, evolvePops, facilityTypes, approval, tributeRate } from "./society.ts";
 import type { SiteSocial } from "./society.ts";
@@ -20,8 +20,9 @@ import { administrationWage, advanceIntegration, governanceOf, governanceRules,
 import { expectedTrade, settleTrade } from "./trade.ts";
 import type { TradeDelivery } from "./trade.ts";
 import { unrestEffects } from "./unrest.ts";
-import { affordableIndustryWorkers, emptyIndustrialAccount, fundedRestock, initialIndustrialAccount,
-  industrialPayroll, materialWorkers, operateIndustry, trainedLabourCapacity, workingCapitalPerLevel, workingCapitalTarget } from "./industrial.ts";
+import { affordableIndustryWorkers, electricityUse, electricIndustries, electricRetrofits, emptyIndustrialAccount,
+  fundedRestock, initialIndustrialAccount, industrialPayroll, industryMethod, materialWorkers, operateIndustry,
+  trainedLabourCapacity, workingCapitalPerLevel, workingCapitalTarget } from "./industrial.ts";
 import type { IndustrialAccount, IndustrialReport } from "./industrial.ts";
 import { deliverOffice, officeNeed, planOffice } from "./administration.ts";
 import type { OfficeReport } from "./administration.ts";
@@ -46,6 +47,8 @@ export const projects = {
   infrastructure: { cost: 210000, weeks: 2 },
   railway: { cost: 300000, weeks: 5 },
   port: { cost: 330000, weeks: 6 },
+  electrifyTools: { cost: 190000, weeks: 4 },
+  electrifySteel: { cost: 190000, weeks: 4 },
   university: { cost: 360000, weeks: 3 },
   bureaucracy: { cost: 180000, weeks: 4 },
   construction: { cost: 300000, weeks: 3 },
@@ -123,6 +126,7 @@ interface IndustryReport {
   wages: number;
   sold?: number;
   bought?: number;
+  electric?: true;
 }
 export interface MilitarySupply {
   regulars: number;
@@ -141,6 +145,7 @@ export interface SiteReport {
   freightWages?: number;
   portTradeCargo?: number;
   portMilitaryCargo?: number;
+  power?: { requested: number; delivered: number; spending: number };
   industries: ByGood<IndustryReport>;
   populationChange?: number;
   foodFulfillment?: number;
@@ -561,16 +566,25 @@ function projectSettlement(state: GameState, war?: WarPlan, closingTick?: number
     const restock = byIndustrialGood(() => 0);
     let technicians = workForce(engineers) - universityStaff - administrators - office.staff;
     let skilledWages = 0;
+    const retrofitting = new Set(state.countryEconomies[owner].queue
+      .filter((job) => job.stateId === id && job.weeksLeft < projects[job.good].weeks)
+      .map((job) => job.good));
+    const activeElectric = (good: Good) => (good === "tools" || good === "steel") && site[electricRetrofits[good]] === 1;
+    const powerDemand = electricIndustries.reduce((sum, good) => sum +
+      (activeElectric(good) ? local.buildings[good] * industryMethod(good, true).power : 0), 0);
+    let powerLeft = 0, powerRequested = 0, powerUsed = 0;
     const access = Math.min(
       1,
       ((site.infrastructure + site.railway * railCapacityPerLevel) * 11000) /
         (local.population + 2000 * (local.buildings.cloth / commercialLevels.cloth + local.buildings.grain / commercialLevels.grain) +
           250 * (local.buildings.wood + local.buildings.iron + local.buildings.coal + local.buildings.tools + local.buildings.paper)),
     ) * effects.transport;
-    function produce(g: Good) {
-      const spec = industries[g];
+    function produce(g: Good): IndustryReport {
+      if ((g === "tools" || g === "steel") && retrofitting.has(electricRetrofits[g])) return { employed: 0, output: 0, wages: 0 };
+      const electric = activeElectric(g);
+      const spec = industryMethod(g, electric);
       const ordered = g === "arms" || g === "ammo" ? armamentOrders[id][g] :
-        g === "shipGoods" ? shipsToProduce.get(id) ?? 0 : Infinity;
+        g === "shipGoods" ? shipsToProduce.get(id) ?? 0 : g === "electricity" ? powerDemand : Infinity;
       const civilianTarget = Math.ceil(ordered * spec.jobs / (spec.output * effects.output));
       const orderedJobs = civilianTarget === 0 ? 0 : Math.min(civilianTarget + draftQuota - conscripts,
         Math.ceil(civilianTarget * 100 / (100 - draftRate)));
@@ -578,25 +592,31 @@ function projectSettlement(state: GameState, war?: WarPlan, closingTick?: number
         workers,
         local.buildings[g] * spec.jobs,
         orderedJobs,
-        trainedLabourCapacity(g, technicians),
-        affordableIndustryWorkers(g, payrollBudget),
+        trainedLabourCapacity(g, technicians, spec),
+        affordableIndustryWorkers(g, payrollBudget, spec, ceilings.electricity),
       );
       const drafted = Math.min(draftQuota - conscripts, Math.floor(jobs * draftRate / 100));
       conscripts += drafted;
       const civilianJobs = jobs - drafted;
-      const employed = operateIndustry(g, civilianJobs, remaining, restock);
+      const powerLimit = electric ? Math.floor(powerLeft * spec.jobs / spec.power) : civilianJobs;
+      if (electric) powerRequested += electricityUse(spec, materialWorkers(g, civilianJobs, remaining, spec));
+      const employed = operateIndustry(g, civilianJobs, remaining, restock, spec, powerLimit);
+      const electricity = electricityUse(spec, employed);
+      powerLeft -= electricity;
+      powerUsed += electricity;
       workers -= employed + drafted;
-      const payroll = industrialPayroll(g, employed);
-      payrollBudget -= payroll.total;
+      const payroll = industrialPayroll(g, employed, spec);
+      payrollBudget -= payroll.total + electricity * ceilings.electricity;
       technicians -= payroll.skilled;
       skilledWages += payroll.skilledWages;
       const base = Math.floor((employed * spec.output * effects.output) / spec.jobs);
       const output = g === "cloth" ? Math.floor((base * (100 + c.clothOutputBonus)) / 100) : base;
       if (g === "cloth") c.clothOutputGain += output - base;
-      return { employed, output, wages: payroll.total };
+      return { employed, output, wages: payroll.total, ...(electric ? { electric: true } : {}) };
     }
     const suppliesFirst = { grain: produce("grain"), cloth: produce("cloth"),
-      arms: produce("arms"), ammo: produce("ammo"), shipGoods: produce("shipGoods") };
+      arms: produce("arms"), ammo: produce("ammo"), shipGoods: produce("shipGoods"), electricity: produce("electricity") };
+    powerLeft = suppliesFirst.electricity.output;
     const activity = byGood((g) => Object.hasOwn(suppliesFirst, g) ? suppliesFirst[g as keyof typeof suppliesFirst] : produce(g));
     c.military.regulars += regulars;
     c.military.conscripts += conscripts;
@@ -635,9 +655,11 @@ function projectSettlement(state: GameState, war?: WarPlan, closingTick?: number
     demands[id] = byGood((g) => household[g] + (isExtraGood(g) ? extra[g] : 0) + construction[g] +
       (isIndustrialGood(g) ? funded[g] : 0) +
       (g === "paper" ? office.paperDemand : g === "services" ? office.serviceDemand :
-        g === "shipGoods" ? shipGoodsOrdered : 0));
+        g === "shipGoods" ? shipGoodsOrdered : g === "electricity" ? powerUsed : 0));
     report.states[id] = {
       industries: activity,
+      ...(powerDemand > 0 || local.buildings.electricity > 0 ?
+        { power: { requested: powerRequested, delivered: powerUsed, spending: 0 } } : {}),
       householdBasicOrders: essentialNeeds,
       householdSubstituteOrders: { food: household.food, coal: household.coal },
       ...(subsistence ? { subsistence } : {}),
@@ -721,7 +743,7 @@ function projectSettlement(state: GameState, war?: WarPlan, closingTick?: number
       marketSites[marketId].push(id);
       for (const g of goods) {
         pool[g].supply += supplies[id][g];
-        pool[g].demand += demands[id][g];
+        pool[g].demand += g === "electricity" ? report.states[id].power?.requested ?? 0 : demands[id][g];
       }
     }
   }
@@ -740,7 +762,7 @@ function projectSettlement(state: GameState, war?: WarPlan, closingTick?: number
       good.targetPrice = Math.round(target);
       good.price = Math.round(quote);
       const clearing = clearMarket(sites.map((id) => ({
-        supply: supplies[id][g], demand: demands[id][g], access: g === "services" ? 0 : report.states[id].access,
+        supply: supplies[id][g], demand: demands[id][g], access: isLocalGood(g) ? 0 : report.states[id].access,
       })));
       good.traded = clearing.traded;
       sites.forEach((id, index) => { fills[g][id] = clearing.fills[index]; });
@@ -752,11 +774,12 @@ function projectSettlement(state: GameState, war?: WarPlan, closingTick?: number
     const flow = expected.sites.get(id);
     localQuotes[id] = byGood((g) => {
       const base = industries[g].basePrice;
-      const target = targetPrice(base, supplies[id][g] + (flow?.[g].incoming ?? 0), demands[id][g] + (flow?.[g].outgoing ?? 0));
+      const requested = g === "electricity" ? site.power?.requested ?? 0 : demands[id][g];
+      const target = targetPrice(base, supplies[id][g] + (flow?.[g].incoming ?? 0), requested + (flow?.[g].outgoing ?? 0));
       return nextPrice(state.stateEconomies[id].localQuotes?.[g] ?? base, target);
     });
     site.localPrices = byGood((g) => {
-      const marketShare = g === "services" ? 0 : site.access;
+      const marketShare = isLocalGood(g) ? 0 : site.access;
       return Math.round(marketShare * market[g].price + (1 - marketShare) * Math.round(localQuotes[id][g]));
     });
   }
@@ -848,6 +871,7 @@ function projectSettlement(state: GameState, war?: WarPlan, closingTick?: number
       s.office = deliverOffice(office, fillsByUse.paper.officeGoods, fillsByUse.services.officeGoods, officeCost);
       c.upkeep += officeCost;
       c.officeUpkeep! += s.office.wages + officeCost;
+      if (s.power) s.power.spending = fillsByUse.electricity.materialCost;
       const fleet = fleets[owner];
       if (fleet.port === id) {
         fleet.delivered = fillsByUse.shipGoods.officeGoods;
@@ -856,11 +880,12 @@ function projectSettlement(state: GameState, war?: WarPlan, closingTick?: number
       }
       if (account) {
         const { remaining, skilledWages } = productionStocks.get(id)!;
-        const bought = byIndustrialGood((g) => fillsByUse[g].inputGoods);
+        const bought = byIndustrialGood((g) => g === "electricity" ? 0 : fillsByUse[g].inputGoods);
         const inputCost = goods.reduce((sum, g) => sum + fillsByUse[g].materialCost, 0);
         const available = account.capital + industrialIncome - inputCost;
         if (available < 0) throw new Error("工商业采购超过已落实的周转资金");
-        const capital = Math.min(available, workingCapitalTarget(state.stateEconomies[id].buildings));
+        const methods = byGood((g) => industryMethod(g, s.industries[g].electric === true));
+        const capital = Math.min(available, workingCapitalTarget(local.buildings, methods));
         const surplus = available - capital;
         const contribution = Math.floor(surplus * rate);
         s.investment += contribution;
@@ -974,6 +999,14 @@ export function constructionError(
   const country = state.countryEconomies[countryId],
     nation = state.nations[countryId];
   if (good === "railway" && nation.knowledge["铁路"] !== 100) return "需要掌握铁路技术";
+  if ((good === "electricity" || good === "electrifyTools" || good === "electrifySteel") &&
+      nation.knowledge["电气化"] !== 100) return "需要掌握电气化技术";
+  if (good === "electrifyTools" || good === "electrifySteel") {
+    const industry = good === "electrifyTools" ? "tools" : "steel";
+    if (state.stateEconomies[stateId].buildings[industry] === 0) return "需要已经投产的工厂";
+    if (state.societies[stateId][good] === 1 || country.queue.some((p) => p.stateId === stateId && p.good === good))
+      return "该州已经安排相同改造";
+  }
   if (good === "port" && !scenario.states[stateId].coastal) return "只能在沿海州建设港口";
   if (good === "shipGoods" && !scenario.states[stateId].coastal) return "只能在沿海州建设造船厂";
   const fiscalRisk = country.fiscal?.week.risk;
@@ -1057,6 +1090,22 @@ export function choosePort(scenario: Scenario, state: GameState, countryId: stri
     return utilized > 0 && utilized >= capacity * 0.8 ? [{ id, utilized }] : [];
   }).sort((left, right) => right.utilized - left.utilized);
   if (candidates.length > 0) return { stateId: candidates[0].id, good: "port" as const };
+}
+
+export function chooseElectrification(scenario: Scenario, state: GameState, countryId: string): Pick<Project, "stateId" | "good"> | undefined {
+  const country = state.countryEconomies[countryId];
+  if (country.queue.length || state.elapsedDays % 28 !== 0 || country.treasury < projects.electricity.cost ||
+      state.nations[countryId].knowledge["电气化"] !== 100) return;
+  const districts = Object.entries(state.stateEconomies).filter(([id, local]) =>
+    state.ownerByStateId[id] === countryId && (local.buildings.tools > 0 || local.buildings.steel > 0))
+    .sort(([, a], [, b]) => b.buildings.steel + b.buildings.tools - a.buildings.steel - a.buildings.tools);
+  for (const [stateId, local] of districts) {
+    const retrofit = electricIndustries.map((good) => electricRetrofits[good])
+      .find((good) => !constructionError(scenario, state, countryId, stateId, good));
+    if (retrofit === undefined) continue;
+    const good = local.buildings.electricity > 0 ? retrofit : "electricity";
+    if (!constructionError(scenario, state, countryId, stateId, good)) return { stateId, good };
+  }
 }
 
 export function settleEconomy(state: GameState, war?: WarPlan, fractionOfYear = 7 / 365, scenario?: Scenario): GameState & { lastEconomy: EconomyReport } {

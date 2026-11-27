@@ -4,7 +4,7 @@ import { z } from "zod";
 import { disputeSchema, participants } from "./diplomacy.ts";
 import { createGame, DAY_MS, elapsedTicks, getGameDate, isPopulationMonth, TICKS_PER_DAY } from "./engine.ts";
 import type { GameState } from "./engine.ts";
-import { byIndustrialGood, commercialLevels, goods, industries, isGood, isIndustrialGood } from "./industry.ts";
+import { byIndustrialGood, commercialLevels, goods, industries, isGood, isIndustrialGood, isLocalGood } from "./industry.ts";
 import { initialIndustrialAccount, industrialAccountSchema, industrialReportSchema } from "./industrial.ts";
 import { officeReportSchema } from "./administration.ts";
 import { basicPurchasesSchema, extrasReportSchema, openingBasicBudget, substituteOrdersSchema } from "./households.ts";
@@ -203,7 +203,8 @@ const market = z.object({
   demand: uint, supply: uint, price: z.int().positive(), traded: uint.optional(), targetPrice: z.int().positive().optional(),
 })
   .refine((good) => good.traded === undefined || good.traded <= Math.min(good.supply, good.demand));
-const industry = z.object({ employed: uint, output: uint, wages: uint, sold: uint.optional(), bought: uint.optional() })
+const industry = z.object({ employed: uint, output: uint, wages: uint, sold: uint.optional(), bought: uint.optional(),
+  electric: z.literal(true).optional() })
   .refine((good) => good.sold === undefined || good.sold <= good.output);
 const issue = z.object({ demand: uint, delivered: uint }).refine((i) => i.delivered <= i.demand);
 const military = z.object({
@@ -267,12 +268,15 @@ const siteReport = z.object({
   freightWages: uint.optional(),
   portTradeCargo: uint.optional(),
   portMilitaryCargo: uint.optional(),
+  power: z.object({ requested: uint, delivered: uint, spending: uint }).optional(),
   builders: uint,
   access: fraction,
   localPrices: goodsNumbers,
   dividends: uint,
   investment: uint,
-}).refine((site) => site.construction === undefined ||
+}).refine((site) => site.power === undefined ||
+  site.power.delivered <= Math.min(site.industries.electricity.output, site.power.requested)
+).refine((site) => site.construction === undefined ||
   site.construction.public.wages + site.construction.private.wages === site.builders * constructionWage
 ).refine((site) => site.householdConsumption === undefined
   ? site.consumptionIndex === undefined
@@ -444,13 +448,13 @@ export function parseSave(scenario: Scenario, save: unknown): GameState {
     for (const route of state.tradeRoutes) {
       const key = tradeRouteKey(route);
       const capacity = routeTransport(scenario, route.from, route.to, route.mode);
-      if (keys.has(key) || !capacity || route.good === "services" || route.importer === route.exporter ||
+      if (keys.has(key) || !capacity || isLocalGood(route.good) || route.importer === route.exporter ||
           route.fromCapacity !== capacity.fromCapacity || route.toCapacity !== capacity.toCapacity || route.cargoCost !== capacity.cargoCost ||
           !Object.hasOwn(state.ownerByStateId, route.from) || !Object.hasOwn(state.ownerByStateId, route.to)) invalid();
       keys.add(key);
     }
   }
-  if (state.lastEconomy?.trade?.some(({ from, to, mode, good }) => good === "services" || !routeTransport(scenario, from, to, mode) ||
+  if (state.lastEconomy?.trade?.some(({ from, to, mode, good }) => isLocalGood(good) || !routeTransport(scenario, from, to, mode) ||
       !Object.hasOwn(state.ownerByStateId, from) || !Object.hasOwn(state.ownerByStateId, to))) invalid();
   for (const [id, n] of Object.entries(state.nations)) {
     const fiscal = state.countryEconomies[id].fiscal;
@@ -490,6 +494,7 @@ export function parseSave(scenario: Scenario, save: unknown): GameState {
     if (governance?.integration && governance.integration.startedAtTick > elapsedTicks(state)) invalid();
     if (stability && Object.values(stability.lastIncident).some((day) => day > state.elapsedDays)) invalid();
     if (!local.industrial && goods.some((good) => local.buildings[good] > 0)) invalid();
+    if (local.industrial && local.industrial.stocks.electricity !== 0) invalid();
     if (local.buildings.shipGoods > 0 && !scenario.states[id].coastal) invalid();
     if (pops.reduce((sum, p) => sum + p.people, 0) !== local.population) invalid();
     for (const p of pops) {

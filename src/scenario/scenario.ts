@@ -171,7 +171,7 @@ export const atlas = z.record(z.string(), siteSchema).parse(
     return [id, {
       ...state, name: (stateNames as Record<string, string>)[id],
       capacity: { ...convertCommercialLevels(state.capacity), wood, iron, coal, tools, paper, services, food, fiber,
-        dailyGoods, luxury, steel: 3, arms: 3, ammo: 3, shipGoods: state.coastal ? 3 : 0 },
+        dailyGoods, luxury, steel: 3, arms: 3, ammo: 3, shipGoods: state.coastal ? 3 : 0, electricity: 4 },
       buildings: {
         ...regionalBuildings,
         wood: owned ? Math.min(wood, Math.max(1, Math.ceil(state.population / 24_000))) : 0,
@@ -186,6 +186,7 @@ export const atlas = z.record(z.string(), siteSchema).parse(
         luxury: owned && state.buildings.cloth > 0 && state.population >= 32_000 ? 1 : 0,
         steel: openingSteel,
         shipGoods: openingShipyards.get(sourceStates.get(id)?.countryId ?? "") === id ? 1 : 0,
+        electricity: 0,
         arms: owned ? 1 : 0,
         ammo: owned ? 1 : 0,
       },
