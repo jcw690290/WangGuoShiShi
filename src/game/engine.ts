@@ -42,6 +42,8 @@ import { projectOwnership } from "./ownership.ts";
 import { industrySubsidyLimit } from "./industrial.ts";
 import { applyForeignCommand, settleAiTreatyOffers } from "./foreign-relations.ts";
 import type { ForeignCommand, ForeignRelation, ForeignTreaty, TreatyOffer } from "./foreign-relations.ts";
+import { applyBattalionOrder, chooseBattalionOrder } from "./military.ts";
+import type { BattalionCommand } from "./military.ts";
 export { DAY_MS, elapsedTicks, TICKS_PER_DAY } from "./time.ts";
 
 export interface GameState {
@@ -89,6 +91,7 @@ export type GameCommand =
   | TradeCommand
   | TradePolicyCommand
   | ForeignCommand
+  | BattalionCommand
   | LocalUnrestCommand
   | BorderCommand;
 
@@ -308,6 +311,8 @@ export function advanceTick(
             result.tradeRoutes?.some((route) => route.importer === id && route.to === port && route.good === good && !route.paused))) {
         result = applyCommand(scenario, result, { type: "setFleetMotorization", countryId: id, stateId: port, enabled: true });
       }
+      const armyOrder = chooseBattalionOrder(result, settled.lastEconomy, id);
+      if (armyOrder) result = applyCommand(scenario, result, armyOrder);
       const n = result.nations[id];
       const pending = techs.filter((t) => availableTech(n, t));
       if (!n.research && pending.length)
@@ -435,6 +440,8 @@ function applyCommand(
     case "declineTreaty":
     case "endTreaty":
       return applyForeignCommand(state, cmd);
+    case "reorganizeBattalion":
+      return applyBattalionOrder(state, cmd);
     case "negotiateLocalUnrest":
       return negotiateLocalUnrest(state, cmd);
     case "queueConstruction": {

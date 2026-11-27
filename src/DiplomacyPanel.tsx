@@ -24,6 +24,7 @@ import { diplomaticGiftCost, diplomaticTrust, foreignCommandError, influenceBudg
   treatyBetween, treatyKinds, treatyNames } from "./game/foreign-relations.ts";
 import { countryDisplayName } from "./game/constitution.ts";
 import { silver } from "./format.ts";
+import { battalionDetails, battalionKinds, battalionOrderError, battalionSize, battalionsAt } from "./game/military.ts";
 interface Props {
   scenario: Scenario;
   game: GameState;
@@ -45,6 +46,43 @@ function peaceSummary(goals: Goal[], commercial: boolean) {
   const terms = goals.map((goal) => goalNames[goal]);
   if (commercial) terms.push("开放通商");
   return terms.join("、") || "维持现状";
+}
+
+function ArmyRoster({ scenario, game, playerId, busy, send, selectedId }: Omit<Props, "report">) {
+  const [district, setDistrict] = useState("");
+  const sites = holdings(scenario, game, playerId).filter((site) => game.societies[site.id].barracks > 0);
+  const active = sites.find((site) => site.id === district) ?? sites.find((site) => site.id === selectedId) ?? sites[0];
+  if (!active) return null;
+  const roster = battalionsAt(game, active.id);
+  return (
+    <details>
+      <summary>常备陆军</summary>
+      <label>驻军州{" "}
+        <select value={active.id} onChange={(event) => setDistrict(event.target.value)}>
+          {sites.map((site) => <option key={site.id} value={site.id}>{site.name}</option>)}
+        </select>
+      </label>
+      {roster.length === 0 && <p>当前可征募人口不足。</p>}
+      {roster.map((unit) => (
+        <div key={unit.slot} className="control-block">
+          <p>第 {unit.slot + 1} 营 · {battalionDetails[unit.kind].name} · {unit.personnel} / {battalionSize} 人
+            {unit.trained < unit.personnel && ` · 已训练 ${unit.trained} 人 · 最迟 ${unit.readyDay - game.elapsedDays} 天后完成`}
+          </p>
+          <div className="diplomacy-actions">
+            {battalionKinds.filter((kind) => kind !== unit.kind).map((kind) => {
+              const command = { type: "reorganizeBattalion", countryId: playerId, stateId: active.id, slot: unit.slot, kind } as const;
+              const error = battalionOrderError(game, command);
+              return (
+                <button key={kind} className="build" disabled={busy || !!error} title={error} onClick={() => send(command)}>
+                  改编为{battalionDetails[kind].name}
+                </button>
+              );
+            })}
+          </div>
+        </div>
+      ))}
+    </details>
+  );
 }
 
 function PeaceNegotiation({ game, dispute, id, busy, send }: {
@@ -163,6 +201,7 @@ export function DiplomacyPanel({ scenario, game, playerId: id, report, busy, sen
             {d && <span>{phases[d.phase]}</span>}
           </header>
           <div className="control-block">
+            <ArmyRoster scenario={scenario} game={game} playerId={id} busy={busy} send={send} selectedId={selectedId} />
             {d && (
               <p role="status">
                 {countries[d.claimantId].name} → {countries[d.defenderId].name} ·{" "}

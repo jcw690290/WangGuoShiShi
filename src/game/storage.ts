@@ -20,6 +20,7 @@ import { isTradeLaw, tradeLaws } from "./trade-policy.ts";
 import { startingStateForm } from "./constitution.ts";
 import { industryOwnershipSchema, ownershipAmountsSchema, ownershipKinds, ownershipSchema } from "./ownership.ts";
 import { foreignPairKey, foreignRelationSchema, foreignTreatySchema, treatyOfferSchema } from "./foreign-relations.ts";
+import { barracksCapacity, battalionSize, battalionTrainingDays } from "./military.ts";
 import { buildingCapacity, militaryProcurementCost, projects, unusedPrepaidConstruction } from "./economy.ts";
 import { constructionMaintenanceSchema, constructionReportSchema, constructionStockSchema, constructionSpending, constructionWage } from "./construction.ts";
 import { nationSchema, siteSocialSchema, projectTypes } from "./society.ts";
@@ -217,6 +218,7 @@ const industry = z.object({ employed: uint, output: uint, wages: uint, sold: uin
 const issue = z.object({ demand: uint, delivered: uint }).refine((i) => i.delivered <= i.demand);
 const military = z.object({
   regulars: uint,
+  trainedRegulars: uint.optional(),
   conscripts: uint,
   grainDemand: uint,
   grainDrawn: uint,
@@ -225,7 +227,7 @@ const military = z.object({
   procurement: z.object({ grain: uint, cloth: uint, arms: uint.optional(), ammo: uint.optional() }).optional(),
   equipment: z.object({ weapons: issue, ammunition: issue, uniforms: issue }),
   readiness: fraction,
-});
+}).refine((force) => force.trainedRegulars === undefined || force.trainedRegulars <= force.regulars);
 const countryReport = z.object({
   market: z.object({ grain: market, cloth: market, ...byIndustrialGood((good) =>
     market.default({ supply: 0, demand: 0, price: industries[good].basePrice })) }),
@@ -572,7 +574,13 @@ export function parseSave(scenario: Scenario, save: unknown): GameState {
   }
   for (const [id, local] of Object.entries(state.stateEconomies)) {
     const owner = state.ownerByStateId[id],
-      { pops, governance, stability } = state.societies[id];
+      { pops, governance, stability, barracks, barracksTraining, battalionOrders } = state.societies[id];
+    const latestTrainingDay = state.elapsedDays + battalionTrainingDays;
+    if (battalionOrders?.some((order) => order.slot >= Math.ceil(barracks * barracksCapacity / battalionSize) ||
+        order.readyDay > latestTrainingDay)) invalid();
+    if (barracksTraining && (barracksTraining.reduce((sum, group) => sum + group.levels, 0) > barracks ||
+        barracksTraining.some((group, index) => group.readyDay > latestTrainingDay ||
+          (index > 0 && group.readyDay <= barracksTraining[index - 1].readyDay)))) invalid();
     if (governance?.integration && governance.integration.startedAtTick > elapsedTicks(state)) invalid();
     if (stability && Object.values(stability.lastIncident).some((day) => day > state.elapsedDays)) invalid();
     if (!local.industrial && goods.some((good) => local.buildings[good] > 0)) invalid();

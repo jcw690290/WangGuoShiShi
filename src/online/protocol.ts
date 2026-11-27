@@ -10,6 +10,7 @@ import { institutionCommands, institutionLevelSchema } from "../game/institution
 import { exciseGoodsSchema, taxBandSchema } from "../game/taxation.ts";
 import { tariffBandSchema } from "../game/trade-policy.ts";
 import { industrySubsidyLimit } from "../game/industrial.ts";
+import { battalionKinds, battalionSlotSchema } from "../game/military.ts";
 import { treatyKindSchema } from "../game/foreign-relations.ts";
 import { tradeLimit, tradeModes } from "../game/trade.ts";
 import { parseSave } from "../game/storage.ts";
@@ -41,6 +42,7 @@ const commandSchema = z.discriminatedUnion("type", [
   z.strictObject({ type: z.literal("setTariffBand"), countryId: id, band: tariffBandSchema }),
   z.strictObject({ type: z.literal("setTradePartner"), countryId: id, partnerId: id, allowed: z.boolean() }),
   z.strictObject({ type: z.literal("setIndustrySubsidy"), countryId: id, stateId: id, limit: industrySubsidyLimit }),
+  z.strictObject({ type: z.literal("reorganizeBattalion"), countryId: id, stateId: id, slot: battalionSlotSchema, kind: z.enum(battalionKinds) }),
   z.strictObject({ type: z.literal("setGovernment"), countryId: id, government: z.array(z.enum(groups)).max(groups.length) }),
   z.strictObject({ type: z.literal("proposeLaw"), countryId: id, law: z.enum(laws) }),
   z.strictObject({ type: z.literal("startResearch"), countryId: id, tech: z.enum(techs) }),
