@@ -161,6 +161,7 @@ export function expectedTrade(state: GameState) {
 }
 
 type Orders = Record<string, ByGood<number>>;
+type NavalTradeRestrictions = { portAccess: ReadonlyMap<string, number>; blockadedPorts: ReadonlySet<string> };
 export function settleTrade(
   state: GameState,
   supplies: Orders,
@@ -168,8 +169,8 @@ export function settleTrade(
   sites: Record<string, { localPrices: ByGood<number> }>,
   fills: ByGood<Record<string, MarketFill>>,
   militaryCargo: ReadonlyMap<string, number>,
-  blockadedPorts: ReadonlySet<string>,
   militaryPortUse: ReadonlyMap<string, number>,
+  naval?: NavalTradeRestrictions,
 ) {
   const transfers = new Map<string, {
     sent: ByGood<number>; received: ByGood<number>; producerPayment: ByGood<number>;
@@ -193,7 +194,7 @@ export function settleTrade(
     const empty = { from, to, good, mode, quantity: 0, purchase: 0, freight: 0, tariff: 0, sales: 0, profit: 0 };
     const restriction = tradeRouteBlock(state, route);
     if (restriction) return { ...empty, status: restriction };
-    if (mode === "sea" && (blockadedPorts.has(from) || blockadedPorts.has(to)))
+    if (mode === "sea" && (naval?.blockadedPorts.has(from) || naval?.blockadedPorts.has(to)))
       return { ...empty, status: "blockaded" };
     const source = at(from), target = at(to);
     const sourceSite = state.societies[from], targetSite = state.societies[to];
@@ -211,11 +212,13 @@ export function settleTrade(
       Math.floor(route.toCapacity * rail * targetTransport) - railTo,
     ));
     const usedAtSea = seaCargo.get(importer) ?? 0;
-    const spaceAtSea = effectiveConvoyCapacity(state.nations[importer]) - (militaryCargo.get(importer) ?? 0) - usedAtSea;
+    const fromAccess = naval?.portAccess.get(from) ?? 1, toAccess = naval?.portAccess.get(to) ?? 1;
+    const seaLimit = Math.floor(effectiveConvoyCapacity(state.nations[importer]) * Math.min(fromAccess, toAccess));
+    const spaceAtSea = seaLimit - (militaryCargo.get(importer) ?? 0) - usedAtSea;
     const freightFrom = portFreight.get(from) ?? 0, freightTo = portFreight.get(to) ?? 0;
     const transport = mode === "sea" ? Math.min(
-      portCapacity(route.fromCapacity, sourceSite) - (militaryPortUse.get(from) ?? 0) - freightFrom,
-      portCapacity(route.toCapacity, targetSite) - (militaryPortUse.get(to) ?? 0) - freightTo,
+      Math.floor(portCapacity(route.fromCapacity, sourceSite) * fromAccess) - (militaryPortUse.get(from) ?? 0) - freightFrom,
+      Math.floor(portCapacity(route.toCapacity, targetSite) * toAccess) - (militaryPortUse.get(to) ?? 0) - freightTo,
       Math.floor(spaceAtSea / cargoCost),
     ) : roadSpace + railSpace;
     const quantity = Math.min(

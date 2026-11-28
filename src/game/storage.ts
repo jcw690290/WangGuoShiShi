@@ -666,6 +666,10 @@ export function parseSave(scenario: Scenario, save: unknown): GameState {
       if (!parties.includes(id) || (d.phase !== "war" && d.phase !== "resolved") ||
           (order.objective !== null && !objectives.includes(order.objective))) invalid();
     }
+    for (const [id, mission] of Object.entries(d.navalMissions ?? {})) {
+      if (!parties.includes(id) || d.raid.includes(id) || (d.phase !== "war" && d.phase !== "resolved") ||
+          !scenario.states[mission.portId]?.coastal) invalid();
+    }
     const transferred = d.outcome === "victory" && (executed.includes("cession") || executed.includes("annex"));
     if (state.ownerByStateId[d.targetStateId] !== (transferred ? d.claimantId : d.defenderId)) invalid();
     for (const [id, order] of Object.entries(d.mobilization ?? {})) {

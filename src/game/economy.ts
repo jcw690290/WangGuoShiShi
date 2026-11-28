@@ -451,14 +451,16 @@ function fleetPlans(state: GameState, holdings: Record<string, string[]>, scenar
     const buffer = fleet.stores <= need * 2 ? need * 8 : need;
     const fuelDemand = fleet.motorized + refits;
     const merchantDemand = port === null ? 0 : Math.max(0, buffer + berths * shipGoodsPerConvoy + refits * shipGoodsPerMotor - fleet.stores);
-    const navalMaintenance = port === null ? 0 : Math.max(0, navyMaintenance(navy.warships) - navy.stores);
-    const navalDemand = port === null ? 0 : Math.max(0, navyMaintenance(navy.warships) + navalBerths * shipGoodsPerWarship - navy.stores);
+    const engaged = state.borderDispute?.phase === "war" && state.borderDispute.navalMissions?.[owner] !== undefined;
+    const navalUpkeep = navyMaintenance(navy.warships) * (engaged ? 2 : 1);
+    const navalMaintenance = port === null ? 0 : Math.max(0, navalUpkeep - navy.stores);
+    const navalDemand = port === null ? 0 : Math.max(0, navalUpkeep + navalBerths * shipGoodsPerWarship - navy.stores);
     const requested = {
       shipGoods: merchantDemand + navalDemand,
       oil: port === null || fleet.oil >= fuelDemand ? 0 : Math.max(0, fuelDemand * 4 - fleet.oil),
       rubber: Math.max(0, refits * rubberPerMotor - fleet.rubber),
     };
-    return [owner, { port, berths, refits, navalBerths, navalMaintenance, merchantDemand, requested, ordered: byFleetGood(() => 0),
+    return [owner, { port, berths, refits, navalBerths, navalUpkeep, navalMaintenance, merchantDemand, requested, ordered: byFleetGood(() => 0),
       delivered: byFleetGood(() => 0), spending: byFleetGood(() => 0) }];
   }));
 }
@@ -806,7 +808,6 @@ function projectSettlement(state: GameState, war?: WarPlan, closingTick?: number
   const militaryCargo = new Map<string, number>();
   const militaryPortUse = new Map<string, number>();
   const militaryReceipts = new Map<string, ByGood<number>>();
-  const blockadedPorts = new Set<string>();
   for (const [owner, ids] of Object.entries(holdings)) {
     const c = report.countries[owner],
       route = war?.routes[owner];
@@ -842,19 +843,15 @@ function projectSettlement(state: GameState, war?: WarPlan, closingTick?: number
         militaryCargo.set(owner, cargo);
         for (const terminals of route.maritimeTerminals ?? []) {
           let remaining = cargo;
-          if (route.raided && terminals.length > 0) blockadedPorts.add(terminals[0].stateId);
           for (const { stateId, capacity } of terminals) {
             if (remaining === 0) break;
             const handled = Math.min(remaining, capacity);
             militaryPortUse.set(stateId, handled);
             report.states[stateId].portMilitaryCargo = handled;
-            if (route.raided) blockadedPorts.add(stateId);
             remaining -= handled;
           }
         }
       }
-      if (route.raided && route.maritimeTerminals === undefined)
-        for (const stateId of route.recruitmentStates) blockadedPorts.add(stateId);
       // Rear garrisons draw from the remaining domestic output, outside the front's transport limit.
       if (rearRegulars > 0)
         issueSupplies(m, contract, supplies, rear, rearRegulars, equipmentNeeds(rear.flatMap((id) => rosters[id]), 0, false), Infinity, 1);
@@ -917,7 +914,7 @@ function projectSettlement(state: GameState, war?: WarPlan, closingTick?: number
     });
   }
   const trade = state.tradeRoutes?.length
-    ? settleTrade(state, supplies, demands, report.states, fills, militaryCargo, blockadedPorts, militaryPortUse)
+    ? settleTrade(state, supplies, demands, report.states, fills, militaryCargo, militaryPortUse, war?.naval)
     : undefined;
   if (trade) {
     report.trade = trade.deliveries;
@@ -1186,7 +1183,7 @@ function projectSettlement(state: GameState, war?: WarPlan, closingTick?: number
     const navalOrdered = navalMaterials(plan.ordered.shipGoods);
     const navalDelivered = navalMaterials(plan.delivered.shipGoods);
     const navalSpending = plan.delivered.shipGoods > 0 ? Math.floor(plan.spending.shipGoods * navalDelivered / plan.delivered.shipGoods) : 0;
-    const naval = closeNavy(navy, navalDelivered, plan.port, plan.navalBerths);
+    const naval = closeNavy(navy, navalDelivered, plan.port, plan.navalBerths, plan.navalUpkeep);
     const { maintenanceDue, maintained, commissioned, converted, ...closing } =
       closeFleet(convoys, fleet, { ...plan.delivered, shipGoods: plan.delivered.shipGoods - navalDelivered },
         plan.port, plan.berths, plan.refits);

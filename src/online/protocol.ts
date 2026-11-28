@@ -11,6 +11,7 @@ import { exciseGoodsSchema, taxBandSchema } from "../game/taxation.ts";
 import { tariffBandSchema } from "../game/trade-policy.ts";
 import { industrySubsidyLimit } from "../game/industrial.ts";
 import { battalionKinds, battalionSlotSchema } from "../game/military.ts";
+import { navalMissionSchema } from "../game/naval-operations.ts";
 import { treatyKindSchema } from "../game/foreign-relations.ts";
 import { tradeLimit, tradeModes } from "../game/trade.ts";
 import { parseSave } from "../game/storage.ts";
@@ -59,6 +60,7 @@ const commandSchema = z.discriminatedUnion("type", [
   z.strictObject({ type: z.literal(["offerTreaty", "acceptTreaty", "declineTreaty", "endTreaty"]),
     countryId: id, partnerId: id, kind: treatyKindSchema }),
   z.strictObject({ type: z.literal("setFrontOrder"), countryId: id, objective: id.nullable(), priority: z.enum(supplyPriorities) }),
+  z.strictObject({ type: z.literal("setNavalMission"), countryId: id, mission: navalMissionSchema.nullable() }),
   z.strictObject({ type: z.literal(["backDown", "mobilize", "orderAdvance", "orderDefend", "orderRetreat", "raid", "signTreaty", "armistice", "promoteGeneral", "leaveUnion"]), countryId: id }),
 ]);
 export const memberSchema = z.object({ user: z.uuid(), country: id.nullable() });
