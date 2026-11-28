@@ -1,6 +1,9 @@
 import { useEffect, useRef, useState } from "react";
 import { count, silver } from "./format.ts";
-import { difficultyNames } from "./game/settings.ts";
+import { difficultyLevels, difficultyNames, difficultySchema } from "./game/settings.ts";
+import { interfaceVolumeSchema, playbackSpeedSchema, tickRates } from "./launcher-preferences.ts";
+import type { LauncherPreferences } from "./launcher-preferences.ts";
+import { version } from "../package.json";
 import { defaultEndYear, guideSteps } from "./game/campaign.ts";
 import type { Campaign, EndingRecord } from "./game/campaign.ts";
 import { listAchievements, listEndings } from "./game/storage.ts";
@@ -13,7 +16,8 @@ import { remainingProjectPoints } from "./game/economy.ts";
 import { industries, isGood } from "./game/industry.ts";
 import { facilityNames } from "./game/society.ts";
 
-export function StartMenu({ saveCount, busy, hasCurrent, newGame, resume, gallery, returnToGame, notice }: {
+export function StartMenu({ saveCount, busy, hasCurrent, newGame, resume, gallery, returnToGame, notice,
+  preferences, updatePreferences, previewSound }: {
   saveCount: number | null;
   busy: boolean;
   hasCurrent: boolean;
@@ -22,6 +26,9 @@ export function StartMenu({ saveCount, busy, hasCurrent, newGame, resume, galler
   gallery: () => void;
   returnToGame: () => void;
   notice: string;
+  preferences: LauncherPreferences;
+  updatePreferences: (value: LauncherPreferences) => void;
+  previewSound: () => void;
 }) {
   return <section className="launcher" aria-labelledby="launcher-title">
     <h1 id="launcher-title">万国史诗</h1>
@@ -35,6 +42,30 @@ export function StartMenu({ saveCount, busy, hasCurrent, newGame, resume, galler
     {saveCount === 0 && <small>暂无存档</small>}
     {saveCount === null && !notice && <small>正在检查存档</small>}
     {hasCurrent && <button className="launcher-secondary" onClick={returnToGame}>返回当前战役</button>}
+    <details className="launcher-settings">
+      <summary>设置</summary>
+      <label>新游戏默认难度
+        <select value={preferences.difficulty} onChange={(event) =>
+          updatePreferences({ ...preferences, difficulty: difficultySchema.parse(event.target.value) })}>
+          {difficultyLevels.map((level) => <option key={level} value={level}>{difficultyNames[level]}</option>)}
+        </select>
+      </label>
+      <label>新游戏默认速度
+        <select value={preferences.speed} onChange={(event) =>
+          updatePreferences({ ...preferences, speed: playbackSpeedSchema.parse(Number(event.target.value)) })}>
+          {tickRates.map((rate) => <option key={rate} value={rate}>{rate} tick／秒</option>)}
+          <option value={5}>最高速度</option>
+        </select>
+      </label>
+    </details>
+    <div className="launcher-volume">
+      <label>提示音 {preferences.volume}%
+        <input type="range" min={0} max={100} value={preferences.volume}
+          onChange={(event) => updatePreferences({ ...preferences, volume: interfaceVolumeSchema.parse(Number(event.target.value)) })} />
+      </label>
+      <button type="button" className="launcher-secondary" disabled={preferences.volume === 0} onClick={previewSound}>试听</button>
+    </div>
+    <small>版本 {version}</small>
     {notice && <p role="status">{notice}</p>}
   </section>;
 }

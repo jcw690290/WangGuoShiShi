@@ -695,6 +695,14 @@ input:not([type="checkbox"]) {
   text-align: left;
 }
 .site-chip small { display: block; margin-top: 2px; color: var(--muted); }
+.launcher-settings { margin-top: 8px; }
+.launcher-settings summary { padding: 10px 0; cursor: pointer; }
+.launcher-settings label, .launcher-volume, .launcher-volume label {
+  display: flex; align-items: center; gap: 8px; flex-wrap: wrap;
+}
+.launcher-settings label { justify-content: space-between; margin-bottom: 5px; }
+.launcher-volume { margin: 4px 0; }
+.launcher-volume input { width: 7rem; }
 .map-government-menu, .treasury-status {
   position: absolute;
   right: max(12px, env(safe-area-inset-right));
