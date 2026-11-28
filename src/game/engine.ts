@@ -49,6 +49,7 @@ import { recoverMilitaryInjuries } from "./military-health.ts";
 import { applyNavalConstruction, warshipMaterials } from "./navy.ts";
 import type { NavalConstructionCommand } from "./navy.ts";
 import { opiumLaw } from "./opium.ts";
+import type { OpiumLoss } from "./opium.ts";
 export { DAY_MS, elapsedTicks, TICKS_PER_DAY } from "./time.ts";
 
 export interface GameState {
@@ -75,6 +76,7 @@ export interface GameState {
   foreignObligations?: ForeignObligation[];
   territorialClaims?: TerritorialClaim[];
   territorialSettlements?: TerritorialSettlement[];
+  opiumLosses?: OpiumLoss[];
   tradeRoutes?: TradeRoute[];
   occupation?: Occupation;
 }

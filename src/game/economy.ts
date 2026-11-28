@@ -51,7 +51,7 @@ import type { Battalion, BattalionOrder } from "./military.ts";
 import { activeReplacements, fitWorkforce, injuredPersonnel } from "./military-health.ts";
 import { closeNavy, navyMaintenance, warshipMaterials } from "./navy.ts";
 import type { NavyReport } from "./navy.ts";
-import { advanceOpiumBurden, opiumCommerceAllowed, opiumLaw, planOpium } from "./opium.ts";
+import { advanceOpiumBurden, opiumCommerceAllowed, opiumLaw, planOpium, recordOpiumLosses } from "./opium.ts";
 import type { OpiumReport, OpiumSmuggling } from "./opium.ts";
 
 export { marketOf } from "./market.ts";
@@ -1627,5 +1627,8 @@ export function settleEconomy(state: GameState, war?: WarPlan, fractionOfYear = 
     country.queue = complete(country.queue, construction.public.points, false, nation);
     nation.privateQueue = complete(nation.privateQueue, construction.private.points, true, nation);
   }
-  return { ...state, stateEconomies, countryEconomies, societies, nations, lastEconomy: production };
+  const opiumLosses = recordOpiumLosses(state, production.opiumSmuggling ?? []);
+  const { opiumLosses: _previousLosses, ...world } = state;
+  return { ...world, stateEconomies, countryEconomies, societies, nations,
+    ...(opiumLosses ? { opiumLosses } : {}), lastEconomy: production };
 }

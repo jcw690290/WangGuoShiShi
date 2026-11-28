@@ -22,9 +22,9 @@ import { fleetPower, navalMissionSchema, navalMissionTargets, planNavalOperation
 import type { NavalMissionCommand } from "./naval-operations.ts";
 import { recognizeTerritorialClaim, reconcileTerritorialPlans, settlementAt, territorialClaim, territorialClaimError } from "./territory.ts";
 import type { TerritorialClaimCommand } from "./territory.ts";
-import { opiumEffects } from "./opium.ts";
+import { minOpiumClaim, opiumEffects, recentOpiumLosses } from "./opium.ts";
 
-export const goals = ["cession", "reparations", "puppet", "vassal", "protectorate", "annex", "recognition", "haltSettlement"] as const;
+export const goals = ["cession", "reparations", "puppet", "vassal", "protectorate", "annex", "recognition", "haltSettlement", "opiumCompensation"] as const;
 export type Goal = (typeof goals)[number];
 export const goalNames = {
   cession: "割让争端州",
@@ -35,6 +35,7 @@ export const goalNames = {
   annex: "吞并附属国",
   recognition: "承认领土宣称",
   haltSettlement: "终止领土项目",
+  opiumCompensation: "赔偿鸦片贸易损失",
 };
 export function subjectGoal(g: Goal): g is "puppet" | "vassal" | "protectorate" {
   return g === "puppet" || g === "vassal" || g === "protectorate";
@@ -48,7 +49,7 @@ const transfersLand = (goal: Goal) => goal === "cession" || goal === "annex";
 
 export function canDemandGoal(state: GameState, claimantId: string, defenderId: string, goal: Goal, targetStateId: string) {
   return (
-    goal !== "haltSettlement" &&
+    goal !== "haltSettlement" && goal !== "opiumCompensation" &&
     !treatyBetween(state, claimantId, defenderId, "defensive") &&
     (goal !== "annex" || state.nations[defenderId].overlord === claimantId) &&
     (goal !== "recognition" || unrecognizedClaim(state, claimantId, defenderId, targetStateId)) &&
@@ -69,7 +70,7 @@ export function canAddGoal(state: GameState, dispute: BorderDispute, goal: Goal)
 function demandInfamy(state: GameState, claimantId: string, defenderId: string, targetStateId: string, goal: Goal) {
   if (goal === "annex") return 3;
   if (goal === "recognition") return 4;
-  if (goal === "haltSettlement") return 6;
+  if (goal === "haltSettlement" || goal === "opiumCompensation") return 6;
   if (goal === "cession" && territorialClaim(state, claimantId, targetStateId)?.recognizedBy.includes(defenderId)) return 6;
   return 12;
 }
@@ -102,6 +103,8 @@ type FrontOrder = z.infer<typeof frontOrderSchema>;
 export const disputeSchema = z.object({
   targetStateId: z.string(),
   settlementStateId: z.string().optional(),
+  opiumClaim: z.object({ loss: z.int().min(minOpiumClaim), paid: z.int().nonnegative().optional() })
+    .refine((claim) => claim.paid === undefined || claim.paid <= claim.loss).optional(),
   claimantId: z.string(),
   defenderId: z.string(),
   phase: z.enum(["escalation", "bargaining", "countdown", "war", "resolved"]),
@@ -146,6 +149,7 @@ export type BorderCommand =
   | { type: "endDiplomaticTie"; countryId: string; partnerId: string }
   | { type: "joinContainment"; countryId: string }
   | { type: "challengeTerritorialSettlement"; countryId: string; stateId: string }
+  | { type: "demandOpiumCompensation"; countryId: string; stateId: string }
   | {
       type:
         | "backDown"
@@ -195,7 +199,17 @@ export function settlementChallengeError(scenario: Scenario, state: GameState, c
   if (treatyBetween(state, countryId, project.countryId, "defensive")) return "防御盟国之间不能发起异议";
 }
 
-function openDispute(state: GameState, id: string, target: string, goal: Goal, settlementStateId?: string): GameState {
+export function opiumDemandError(scenario: Scenario, state: GameState, countryId: string, stateId: string) {
+  if (state.borderDispute && state.borderDispute.phase !== "resolved") return "当前已有地区博弈";
+  if ((recentOpiumLosses(state, countryId).get(stateId) ?? 0) < minOpiumClaim) return "近期实际贸易损失不足";
+  const partner = state.ownerByStateId[stateId];
+  if (state.nations[countryId].overlord || !canReach(scenario, state, countryId, stateId) ||
+      !interested(scenario, state, countryId, stateId)) return "需要独立且在可达的目标州拥有地区利益";
+  if (treatyBetween(state, countryId, partner, "defensive")) return "防御盟国之间不能提出该赔偿要求";
+}
+
+function openDispute(state: GameState, id: string, target: string, goal: Goal,
+  context: Pick<BorderDispute, "settlementStateId" | "opiumClaim"> = {}): GameState {
   const defender = state.ownerByStateId[target], nation = state.nations[id];
   const defenders = new Set(Object.keys(state.nations).filter((countryId) =>
     countryId !== id && countryId !== defender &&
@@ -215,7 +229,7 @@ function openDispute(state: GameState, id: string, target: string, goal: Goal, s
     } },
     borderDispute: {
       phase: "escalation", claimantId: id, defenderId: defender, targetStateId: target,
-      ...(settlementStateId !== undefined ? { settlementStateId } : {}),
+      ...context,
       since: state.elapsedDays, goals: [goal], maneuvers: 2, allies, promises: [], defenders: [...defenders],
       mobilized: [], advance: [], raid: [], progress: 0, lastChange: null, outcome: null,
     },
@@ -274,6 +288,7 @@ const withoutPeaceOffer = ({ peaceOffer: _offer, ...dispute }: BorderDispute) =>
 function treaty(state: GameState, d: BorderDispute, victory: boolean, withdrawal = false, terms = d.goals): GameState {
   const { occupation: released, ...world } = state;
   let diplomaticState: GameState = world;
+  let opiumClaim = d.opiumClaim;
   const ownerByStateId = { ...state.ownerByStateId },
     countryEconomies = { ...state.countryEconomies },
     nations = { ...state.nations },
@@ -321,6 +336,13 @@ function treaty(state: GameState, d: BorderDispute, victory: boolean, withdrawal
       countryEconomies[b] = { ...countryEconomies[b], treasury: countryEconomies[b].treasury - amount };
       countryEconomies[a] = { ...countryEconomies[a], treasury: countryEconomies[a].treasury + amount };
     }
+    if (terms.includes("opiumCompensation")) {
+      const loss = opiumClaim!.loss;
+      const paid = Math.min(loss, Math.max(0, countryEconomies[b].treasury));
+      countryEconomies[b] = { ...countryEconomies[b], treasury: countryEconomies[b].treasury - paid };
+      countryEconomies[a] = { ...countryEconomies[a], treasury: countryEconomies[a].treasury + paid };
+      opiumClaim = { loss, paid };
+    }
     if (terms.includes("recognition"))
       diplomaticState = adjustForeignRelation(recognizeTerritorialClaim(diplomaticState, a, b, d.targetStateId), b, a, 4, 5);
     if (terms.includes("haltSettlement"))
@@ -364,6 +386,7 @@ function treaty(state: GameState, d: BorderDispute, victory: boolean, withdrawal
     lastEconomy: null,
     borderDispute: {
       ...withoutPeaceOffer(d),
+      ...(opiumClaim ? { opiumClaim } : {}),
       phase: "resolved",
       since: state.elapsedDays,
       outcome: victory ? "victory" : withdrawal ? "withdrawal" : "statusQuo",
@@ -410,6 +433,8 @@ function acceptsPeace(state: GameState, d: BorderDispute, offer: PeaceOffer, cou
   if (peaceTermsError(state, d, offer.goals, offer.commercial)) return false;
   const costs: Record<Goal, number> = {
     cession: 28, reparations: 12, puppet: 42, vassal: 36, protectorate: 28, annex: 100, recognition: 8, haltSettlement: 14,
+    opiumCompensation: d.opiumClaim
+      ? Math.min(45, 6 + 100 * d.opiumClaim.loss / Math.max(1, state.countryEconomies[d.defenderId].treasury)) : 0,
   };
   const concessions = offer.goals.reduce((sum, goal) => sum + costs[goal], 0);
   const willingness = warWillingness(state, d, countryId);
@@ -461,7 +486,16 @@ export function applyBorderCommand(scenario: Scenario, state: GameState, cmd: Bo
   if (cmd.type === "challengeTerritorialSettlement") {
     const error = settlementChallengeError(scenario, state, id, cmd.stateId);
     if (error) throw new GameRuleError(error);
-    return openDispute(state, id, settlementAt(state, cmd.stateId)!.anchorId, "haltSettlement", cmd.stateId);
+    return openDispute(state, id, settlementAt(state, cmd.stateId)!.anchorId, "haltSettlement", { settlementStateId: cmd.stateId });
+  }
+  if (cmd.type === "demandOpiumCompensation") {
+    const error = opiumDemandError(scenario, state, id, cmd.stateId);
+    if (error) throw new GameRuleError(error);
+    const loss = recentOpiumLosses(state, id).get(cmd.stateId)!;
+    const partner = state.ownerByStateId[cmd.stateId];
+    const filing = { ...state, opiumLosses: state.opiumLosses!.filter((entry) =>
+      entry.exporter !== id || entry.importer !== partner || entry.stateId !== cmd.stateId) };
+    return openDispute(filing, id, cmd.stateId, "opiumCompensation", { opiumClaim: { loss } });
   }
   if (cmd.type === "declareInterest" || cmd.type === "demandBorder") {
     const target = cmd.targetStateId,
@@ -835,6 +869,13 @@ export function aiDiplomacy(
 ): (BorderCommand | TerritorialClaimCommand)[] {
   const d = state.borderDispute;
   if (!d || d.phase === "resolved") {
+    const exporters = new Set((state.opiumLosses ?? []).map((loss) => loss.exporter));
+    for (const countryId of exporters) {
+      if (humanCountries.has(countryId) || !Object.values(state.ownerByStateId).includes(countryId)) continue;
+      for (const [stateId, loss] of recentOpiumLosses(state, countryId))
+        if (loss >= 2 * minOpiumClaim && !opiumDemandError(scenario, state, countryId, stateId))
+          return [{ type: "demandOpiumCompensation", countryId, stateId }];
+    }
     // Limit AI plays to one at a time, with at least four opening weeks for the player.
     const { aiAggression } = ruleTuning(state.settings);
     const interval = Math.max(4, Math.round(8 / aiAggression)) * 7;

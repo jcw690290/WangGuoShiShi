@@ -12,6 +12,7 @@ import {
   holdings,
   infamyLevel,
   interested,
+  opiumDemandError,
   participants,
   peaceTermsError,
   swayCost,
@@ -35,6 +36,7 @@ import { injuredPersonnel } from "./game/military-health.ts";
 import { maxWarshipOrder, warshipMaterials, warshipModels } from "./game/navy.ts";
 import { fleetPower, navalMissionTargets, navalTaskNames, navalTasks } from "./game/naval-operations.ts";
 import type { NavalMission } from "./game/naval-operations.ts";
+import { recentOpiumLosses } from "./game/opium.ts";
 interface Props {
   scenario: Scenario;
   game: GameState;
@@ -280,6 +282,7 @@ export function DiplomacyPanel({ scenario, game, playerId: id, report, busy, sen
   const foreignCountries = live.filter((countryId) => countryId !== id);
   const foreignPartner = foreignCountries.includes(foreignChoice) ? foreignChoice : foreignCountries[0];
   const relation = foreignPartner ? relationBetween(game, id, foreignPartner) : undefined;
+  const opiumLosses = recentOpiumLosses(game, id);
   const influence = influenceBudget(game, id);
   const incoming = game.treatyOffers?.filter((offer) => offer.to === id) ?? [];
   const outgoing = game.treatyOffers?.filter((offer) => offer.from === id) ?? [];
@@ -346,6 +349,8 @@ export function DiplomacyPanel({ scenario, game, playerId: id, report, busy, sen
                 {countries[d.claimantId].name} → {countries[d.defenderId].name} ·{" "}
                 {scenario.states[d.targetStateId].name} · 核心要求 {goalNames[d.goals[0]]}
                 {d.settlementStateId && ` · 涉案项目 ${scenario.states[d.settlementStateId].name}`}
+                {d.opiumClaim && ` · 核定损失 ${silver(d.opiumClaim.loss)}`}
+                {d.opiumClaim?.paid !== undefined && ` · 实付赔偿 ${silver(d.opiumClaim.paid)}`}
                 {d.goals.length > 1 && ` · 追加 ${d.goals.slice(1).map((g) => goalNames[g]).join("、")}`}
                 {d.phase === "resolved" &&
                   " · " +
@@ -360,6 +365,17 @@ export function DiplomacyPanel({ scenario, game, playerId: id, report, busy, sen
             )}
             {!!d?.containment?.length && <p>地区防御联合 · {d.containment.map((countryId) => countries[countryId].name).join("、")}</p>}
             {canJoinContainment && btn("加入地区防御联合", { type: "joinContainment", countryId: id })}
+            {opiumLosses.size > 0 && <details>
+              <summary>近期鸦片贸易损失</summary>
+              {[...opiumLosses].map(([stateId, amount]) => {
+                const problem = opiumDemandError(scenario, game, id, stateId);
+                return <div key={stateId} className="diplomacy-actions">
+                  <p>{scenario.states[stateId].name} · 查缉损失 {silver(amount)}</p>
+                  <button className="build" disabled={busy || !!problem} title={problem}
+                    onClick={() => send({ type: "demandOpiumCompensation", countryId: id, stateId })}>提出赔偿要求</button>
+                </div>;
+              })}
+            </details>}
             {(!d || d.phase === "resolved") &&
               (target ? (
                 <>
@@ -380,7 +396,7 @@ export function DiplomacyPanel({ scenario, game, playerId: id, report, busy, sen
                   <label>
                     外交要求
                     <select value={goal} onChange={(e) => setGoal(e.target.value as Goal)}>
-                      {goals.filter((g) => g !== "haltSettlement").map((g) => (
+                      {goals.filter((g) => g !== "haltSettlement" && g !== "opiumCompensation").map((g) => (
                         <option key={g} value={g} disabled={!canDemandGoal(game, id, game.ownerByStateId[target.id], g, target.id)}>
                           {goalNames[g]}
                         </option>

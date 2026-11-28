@@ -39,7 +39,7 @@ import { diplomaticTieSchema } from "./diplomatic-ties.ts";
 import { routeTransport, tradeDeliverySchema, tradeRouteKey, tradeRouteSchema } from "./trade.ts";
 import { fleetReportSchema, fleetSpending, maximumConvoyCapacity } from "./fleet.ts";
 import { navyReportSchema } from "./navy.ts";
-import { opiumReportSchema, opiumSmugglingSchema } from "./opium.ts";
+import { opiumLossKey, opiumLossSchema, opiumReportSchema, opiumSmugglingSchema } from "./opium.ts";
 import { achievementKey, achievementRecordSchema } from "./achievements.ts";
 import type { AchievementRecord } from "./achievements.ts";
 const storeName = "saves";
@@ -373,6 +373,7 @@ export function parseSave(scenario: Scenario, save: unknown): GameState {
     foreignObligations: z.array(foreignObligationSchema).optional(),
     territorialClaims: z.array(territorialClaimSchema).optional(),
     territorialSettlements: z.array(territorialSettlementSchema).optional(),
+    opiumLosses: z.array(opiumLossSchema).optional(),
     tradeRoutes: z.array(tradeRouteSchema.extend({ from: sites, to: sites, exporter: countries, importer: countries })).optional(),
     occupation: z.object({ stateId: sites, controllerId: countries }).optional(),
     lastEconomy: z
@@ -540,6 +541,14 @@ export function parseSave(scenario: Scenario, save: unknown): GameState {
         (project.sea ? !site.coastal || !anchor.coastal || seaVoyageCargoCost(site.label, anchor.label) > 2 :
           !site.neighbors.includes(anchor.id))) invalid();
     settlementKeys.add(site.id);
+  }
+  const opiumLossKeys = new Set<string>();
+  for (const entry of state.opiumLosses ?? []) {
+    const key = opiumLossKey(entry);
+    if (opiumLossKeys.has(key) || !Object.hasOwn(scenario.states, entry.stateId) ||
+        !Object.hasOwn(state.nations, entry.exporter) || !Object.hasOwn(state.nations, entry.importer) ||
+        entry.day > state.elapsedDays) invalid();
+    opiumLossKeys.add(key);
   }
   if (data.version !== saveVersion && migrateCommercialProduction(state) && campaign?.outcome?.baseline && campaign.ending === null) {
     const fresh = openingMetrics(createGame(scenario, 1820, state.settings.difficulty), state.playerCountryId!);
@@ -717,6 +726,11 @@ export function parseSave(scenario: Scenario, save: unknown): GameState {
     )
       invalid();
     const executed = d.agreedPeace?.goals ?? d.goals;
+    if (d.opiumClaim) {
+      if (d.goals[0] !== "opiumCompensation" ||
+          (d.opiumClaim.paid !== undefined) !== (d.phase === "resolved" && d.outcome === "victory" &&
+            executed.includes("opiumCompensation"))) invalid();
+    } else if (d.goals.includes("opiumCompensation")) invalid();
     if (d.settlementStateId !== undefined) {
       if (!Object.hasOwn(scenario.states, d.settlementStateId) || d.goals[0] !== "haltSettlement") invalid();
       if (d.phase !== "resolved") {
