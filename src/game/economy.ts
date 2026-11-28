@@ -47,6 +47,7 @@ import { byFleetGood, closeFleet, fleetGoods, fleetMaintenance, fleetSpending, i
 import type { FleetGood, FleetReport } from "./fleet.ts";
 import { bondedRuralWorkers, laborProtection, recruitableMilitaryWorkers, ruralPopulation, workForce } from "./labor.ts";
 import { exciseOn, settleIncomeTax, taxPolicy } from "./taxation.ts";
+import { domesticFreight } from "./domestic-market.ts";
 import type { HouseholdIncome, TaxSystem } from "./taxation.ts";
 import { civicPolicy, civicStanding } from "./civic-policy.ts";
 import { allocateIndustrialSurplus, economicLaw, economicOwnershipRules, emptyOwnershipAmounts, openingOwnership,
@@ -285,6 +286,7 @@ export interface CountryReport {
   navy?: NavyReport;
 }
 export interface EconomyReport {
+  marketCalibration?: { rounds: number; limitedSites: string[] };
   states: Record<string, SiteReport>;
   countries: Record<string, CountryReport>;
   trade?: TradeDelivery[];
@@ -598,7 +600,25 @@ export function projectEconomy(state: GameState, war?: WarPlan, scenario?: Scena
   return projectSettlement(state, war, undefined, scenario).report;
 }
 
+type OperatingLimits = Record<string, Partial<ByProductiveBuilding<number>>>;
+
 function projectSettlement(state: GameState, war?: WarPlan, closingTick?: number, scenario?: Scenario) {
+  let limits: OperatingLimits = {};
+  for (let round = 1; ; round++) {
+    const result = settlementPass(state, war, closingTick, scenario, limits);
+    const limitedSites = Object.keys(result.nextOperatingLimits);
+    if (!scenario) return result;
+    if (limitedSites.length === 0 || round === 3) {
+      result.report.marketCalibration = { rounds: round, limitedSites };
+      return result;
+    }
+    limits = { ...limits };
+    for (const id of limitedSites) limits[id] = { ...limits[id], ...result.nextOperatingLimits[id] };
+  }
+}
+
+function settlementPass(state: GameState, war: WarPlan | undefined, closingTick: number | undefined,
+  scenario: Scenario | undefined, limits: OperatingLimits) {
   const released = Object.fromEntries(Object.keys(state.nations).map((id) => [id, { wages: 0, personTicks: 0 }]));
   const releasedWorkers: Record<string, number> = {};
   for (const { payer, site, people, ticks } of state.reserveDischarges ?? []) {
@@ -883,6 +903,7 @@ function projectSettlement(state: GameState, war?: WarPlan, closingTick?: number
         workers,
         hiring,
         orderedJobs,
+        limits[id]?.[g] ?? Infinity,
         trainedLabourCapacity(g, technicians, spec),
         affordableIndustryWorkers(g, payrollBudget, spec, ceilings.electricity, ordinaryWage),
       );
@@ -1095,6 +1116,7 @@ function projectSettlement(state: GameState, war?: WarPlan, closingTick?: number
   const referenceQuotes: Record<string, ByGood<number>> = {};
   const localQuotes: Record<string, ByGood<number>> = {};
   const expected = expectedTrade(state);
+  const hasRoutes = (state.tradeRoutes?.length ?? 0) > 0;
   for (const [marketId, market] of Object.entries(markets)) {
     const sites = marketSites[marketId];
     const flow = expected.markets.get(marketId);
@@ -1105,40 +1127,72 @@ function projectSettlement(state: GameState, war?: WarPlan, closingTick?: number
       const quote = nextPrice(state.countryEconomies[marketId].referenceQuotes?.[g] ?? base, target);
       good.targetPrice = Math.round(target);
       good.price = Math.round(quote);
-      const clearing = clearMarket(sites.map((id) => ({
-        supply: supplies[id][g], demand: demands[id][g], access: isLocalGood(g) ? 0 : report.states[id].access,
-      })));
-      good.traded = clearing.traded;
-      sites.forEach((id, index) => { fills[g][id] = clearing.fills[index]; });
+      if (!scenario || hasRoutes) {
+        const clearing = clearMarket(sites.map((id) => ({
+          supply: supplies[id][g], demand: demands[id][g], access: scenario || isLocalGood(g) ? 0 : report.states[id].access,
+        })));
+        good.traded = clearing.traded;
+        sites.forEach((id, index) => { fills[g][id] = clearing.fills[index]; });
+      }
       return quote;
     });
   }
-  for (const [id, site] of Object.entries(report.states)) {
-    const market = markets[marketOf(state, state.ownerByStateId[id])];
-    const flow = expected.sites.get(id);
-    localQuotes[id] = byGood((g) => {
-      const base = industries[g].basePrice;
-      const requested = g === "electricity" ? site.power?.requested ?? 0 : demands[id][g];
-      const target = targetPrice(base, supplies[id][g] + (flow?.[g].incoming ?? 0), requested + (flow?.[g].outgoing ?? 0));
-      return nextPrice(state.stateEconomies[id].localQuotes?.[g] ?? base, target);
-    });
-    site.localPrices = byGood((g) => {
-      const marketShare = isLocalGood(g) ? 0 : site.access;
-      return Math.round(marketShare * market[g].price + (1 - marketShare) * Math.round(localQuotes[id][g]));
-    });
+  function updateLocalPrices(domesticCleared: boolean, trade?: ReturnType<typeof settleTrade>) {
+    for (const [id, site] of Object.entries(report.states)) {
+      const market = markets[marketOf(state, state.ownerByStateId[id])];
+      const flow = expected.sites.get(id);
+      const actual = trade?.transfers.get(id);
+      localQuotes[id] = byGood((g) => {
+        const base = industries[g].basePrice;
+        const requested = g === "electricity" ? site.power?.requested ?? 0 : demands[id][g];
+        const localFill = fills[g][id];
+        const incoming = domesticCleared ? (actual?.received[g] ?? 0) + localFill.poolBought : flow?.[g].incoming ?? 0;
+        const outgoing = domesticCleared ? (actual?.sent[g] ?? 0) + localFill.poolSold : flow?.[g].outgoing ?? 0;
+        const target = targetPrice(base, supplies[id][g] + incoming, requested + outgoing);
+        return nextPrice(state.stateEconomies[id].localQuotes?.[g] ?? base, target);
+      });
+      site.localPrices = byGood((g) => {
+        const localFill = fills[g][id];
+        const netOrders = demands[id][g] + supplies[id][g] - 2 * localFill.local;
+        const shipped = localFill.poolBought + localFill.poolSold;
+        const marketShare = isLocalGood(g) ? 0 : site.access * (domesticCleared && netOrders > 0 ? shipped / netOrders : 1);
+        return Math.round(marketShare * market[g].price + (1 - marketShare) * Math.round(localQuotes[id][g]));
+      });
+    }
   }
+  if (!scenario || hasRoutes) updateLocalPrices(false);
   const illicitOrders = new Map<string, { quantity: number; budget: number }>();
   for (const [id, plan] of opiumPlans)
     if (plan.illicit > 0) illicitOrders.set(id, { quantity: plan.illicit, budget: plan.householdReserve });
-  const trade = state.tradeRoutes?.length
+  const trade = hasRoutes
     ? settleTrade(state, supplies, demands, report.states, fills, militaryCargo, militaryPortUse, war?.naval, illicitOrders)
     : undefined;
+  const domestic = scenario && domesticFreight(scenario, state, marketSites, militaryCargo, militaryPortUse, war?.naval, trade?.freight);
+  if (domestic) {
+    for (const [market, ids] of Object.entries(marketSites)) {
+      for (const good of goods) {
+        const orders = ids.map((id) => ({
+          supply: supplies[id][good] - (trade?.transfers.get(id)?.sent[good] ?? 0) -
+            (good === "opium" ? trade?.illicitExports.get(id)?.attempted ?? 0 : 0),
+          demand: demands[id][good] - (trade?.transfers.get(id)?.received[good] ?? 0),
+        }));
+        const clearing = domestic.clear(ids, orders, isLocalGood(good));
+        markets[market][good].traded = clearing.traded;
+        ids.forEach((id, index) => { fills[good][id] = clearing.fills[index]; });
+      }
+    }
+    for (const [id, site] of Object.entries(report.states)) site.access *= domestic.access.get(id)!;
+    updateLocalPrices(true, trade);
+    for (const [id, cargo] of domestic.used.sea) report.countries[id].tradeSeaCargo = cargo;
+    for (const [id, cargo] of domestic.used.port) report.states[id].portTradeCargo = cargo;
+  }
   if (trade) {
     report.trade = trade.deliveries;
     if (trade.smuggling.length > 0) report.opiumSmuggling = trade.smuggling;
-    for (const [id, cargo] of trade.seaCargo) report.countries[id].tradeSeaCargo = cargo;
-    for (const [id, cargo] of trade.portFreight) report.states[id].portTradeCargo = cargo;
+    for (const [id, cargo] of trade.seaCargo) report.countries[id].tradeSeaCargo = cargo + (domestic?.used.sea.get(id) ?? 0);
+    for (const [id, cargo] of trade.portFreight) report.states[id].portTradeCargo = cargo + (domestic?.used.port.get(id) ?? 0);
   }
+  const nextOperatingLimits: OperatingLimits = {};
   for (const [owner, ids] of Object.entries(holdings)) {
     const c = report.countries[owner],
       nation = state.nations[owner];
@@ -1333,6 +1387,15 @@ function projectSettlement(state: GameState, war?: WarPlan, closingTick?: number
         industrialClosing[id] = { capital, stocks };
         s.industrial = { ...industrialClosing[id], bought, used: byIndustrialGood((g) => account.stocks[g] - remaining[g]),
           spent: inputCost, sales: industrialSales, distributed: surplus, skilledWages };
+        if (scenario) for (const good of productiveBuildings) {
+          const activity = productiveBuildingActivity(s, good);
+          const materials = Object.keys(methods[good].recipe) as IndustrialGood[];
+          if (!activity.unsold || activity.employed < 2 || activity.output === 0 ||
+              !materials.some((material) => bought[material] < restock[material])) continue;
+          const soldShare = Math.max(0.75, 1 - activity.unsold / activity.output);
+          const feasible = Math.ceil(activity.employed * soldShare);
+          if (feasible < activity.employed) (nextOperatingLimits[id] ??= {})[good] = feasible;
+        }
       }
       if (transfer) {
         earnings.PRIVATE += transfer.profit;
@@ -1466,7 +1529,7 @@ function projectSettlement(state: GameState, war?: WarPlan, closingTick?: number
     return [owner, { ...closing, navy: naval.navy }];
   }));
   return { report, referenceQuotes, localQuotes, industrialClosing, constructionClosing, constructionSchedules,
-    fleetClosing, netHouseholdIncome, taxBurden, completedRefits };
+    fleetClosing, netHouseholdIncome, taxBurden, completedRefits, nextOperatingLimits };
 }
 export function buildingCapacity(site: Scenario["states"][string], local: StateEconomy, good: ProductiveBuilding) {
   if (good === "cashCrops") return Math.floor((local.cropland ?? 0) / productiveDefinitions.cashCrops.jobs);
