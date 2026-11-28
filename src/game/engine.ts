@@ -4,7 +4,7 @@ import type { Difficulty, GameSettings, RuleTuning } from "./settings.ts";
 import type { Scenario } from "../scenario/scenario.ts";
 import { advanceFront, aiDiplomacy, applyBorderCommand, attacking, participants, planWar, tickDiplomacy } from "./diplomacy.ts";
 import type { BorderCommand, BorderDispute } from "./diplomacy.ts";
-import { chooseConstruction, chooseElectrification, chooseIndustrialRetrofit, choosePort, chooseRailway, chooseUniversity, constructionError,
+import { chooseAdministrativeArchive, chooseConstruction, chooseElectrification, chooseIndustrialRetrofit, choosePort, chooseRailway, chooseUniversity, constructionError,
   initialStateEconomy, projectDeposit, projectOpeningCapital, projects, settleEconomy } from "./economy.ts";
 import type { Building, CountryEconomy, EconomyReport, StateEconomy } from "./economy.ts";
 import { advancePolitics, applyPolitics, availableTech, ownedSocieties, politicsError } from "./politics.ts";
@@ -338,6 +338,7 @@ export function advanceTick(
       const settlement = chooseTerritorialSettlement(scenario, result, id);
       if (settlement) result = applyCommand(scenario, result, settlement);
       const job = chooseUniversity(scenario, result, id) ?? chooseRailway(scenario, result, id, settled.lastEconomy) ??
+        chooseAdministrativeArchive(scenario, result, id, settled.lastEconomy) ??
         choosePort(scenario, result, id, settled.lastEconomy) ?? chooseElectrification(scenario, result, id) ??
         chooseIndustrialRetrofit(scenario, result, id, settled.lastEconomy) ??
         chooseConstruction(scenario, result, id, market);

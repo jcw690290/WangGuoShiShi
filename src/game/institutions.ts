@@ -20,6 +20,7 @@ const institutionTechnologies: Record<Institution, Partial<Record<number, Tech>>
   education: { 2: "公共教育", 3: "高等教育" },
 };
 export const institutionRequiredTech = (kind: Institution, level: number) => institutionTechnologies[kind][level];
+export const technologyName = (tech: Tech) => tech === "高等教育" ? "专业大学" : tech;
 
 export const institutionLawKinds = ["education", "healthcare", "welfare"] as const;
 type InstitutionLawKind = typeof institutionLawKinds[number];
@@ -42,7 +43,7 @@ export function institutionLawLimit(laws: readonly string[], kind: Institution) 
 
 export function institutionLevelError(kind: Institution, level: number, laws: readonly string[], knowledge: Record<Tech, number>) {
   const technology = institutionRequiredTech(kind, level);
-  if (technology && knowledge[technology] !== 100) return `需要掌握${technology}技术`;
+  if (technology && knowledge[technology] !== 100) return `需要掌握${technologyName(technology)}技术`;
   const limit = institutionLawLimit(laws, kind);
   if (kind !== "policing" && level > limit)
     return `《${institutionLawOptions[kind][limit - 1]}》允许最高 ${limit} 级`;

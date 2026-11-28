@@ -299,6 +299,7 @@ function StateIndustry({
         <div className="diplomacy-actions">
           {facilityTypes.filter((g) => {
             if (g === "port") return site.coastal;
+            if (g === "administrativeArchive") return society.bureaucracy > 0;
             if (isIndustrialRetrofit(g)) return local.buildings[industrialRetrofits[g].good] > 0;
             return true;
           }).map((g) => {
@@ -310,8 +311,8 @@ function StateIndustry({
               disabled={!isOwnState || busy || problem !== undefined}
               onClick={() => send({ type: "queueConstruction", countryId: playerId, stateId, good: g })}
             >
-              {isIndustrialRetrofit(g)
-                ? `${facilityNames[g]}${society[g] ? " · 已投产" : ""}`
+              {isIndustrialRetrofit(g) || g === "administrativeArchive"
+                ? `${facilityNames[g]}${society[g] ? " · 已启用" : ""}`
                 : `${facilityNames[g]} ${society[g]} 级 · 扩建`}
               <small>
                 {problem ?? `按周实付 · ${projectPoints(g)} 施工点`}

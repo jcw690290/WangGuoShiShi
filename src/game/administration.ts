@@ -6,6 +6,9 @@ import type { Difficulty } from "./settings.ts";
 import type { Law, SiteSocial } from "./society.ts";
 
 const staffPerLevel = 100;
+const archiveStaffPerLevel = 50;
+export const officeStaffCapacity = (offices: number, archive: boolean) =>
+  offices * (staffPerLevel + (archive ? archiveStaffPerLevel : 0));
 const wage = 150;
 const materialsPerLevel = { paper: 8, services: 2 };
 const maximumPrice = {
@@ -46,8 +49,8 @@ function reserveFor(staff: number) {
   return inputs.wages + inputs.paperDemand * maximumPrice.paper + inputs.serviceDemand * maximumPrice.services;
 }
 
-export function planOffice(need: number, offices: number, specialists: number, treasury: number) {
-  const capacity = Math.min(Math.ceil(need), offices * staffPerLevel, specialists);
+export function planOffice(need: number, offices: number, specialists: number, treasury: number, archive = false) {
+  const capacity = Math.min(Math.ceil(need), officeStaffCapacity(offices, archive), specialists);
   let affordable = 0, upper = capacity;
   while (affordable < upper) {
     const mid = Math.ceil((affordable + upper) / 2);
