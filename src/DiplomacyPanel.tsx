@@ -25,7 +25,7 @@ import type { BorderDispute, Goal } from "./game/diplomacy.ts";
 import type { EconomyReport } from "./game/economy.ts";
 import type { GameCommand, GameState } from "./game/engine.ts";
 import type { Scenario } from "./scenario/scenario.ts";
-import { tieNames, tiePartner } from "./game/diplomatic-ties.ts";
+import { diplomaticTieCommandError, diplomaticTieKinds, tieNames, tiePartner } from "./game/diplomatic-ties.ts";
 import { diplomaticAidCost, diplomaticGiftCost, diplomaticTrust, foreignCommandError, influenceBudget, obligationBetween, relationBetween,
   treatyBetween, treatyKinds, treatyNames } from "./game/foreign-relations.ts";
 import { countryDisplayName } from "./game/constitution.ts";
@@ -291,6 +291,7 @@ export function DiplomacyPanel(
   const outgoing = game.treatyOffers?.filter((offer) => offer.from === id) ?? [];
   const incomingAid = game.aidOffers?.filter((offer) => offer.to === id) ?? [];
   const outgoingAid = game.aidOffers?.filter((offer) => offer.from === id) ?? [];
+  const tieOffers = game.diplomaticTieOffers?.filter((offer) => offer.from === id || offer.to === id) ?? [];
   const leaders = live.filter((x) => x !== id && !game.nations[x].marketLeader);
   const leader = leaders.includes(union) ? union : leaders[0];
   const ties = game.diplomaticTies?.flatMap((tie) => {
@@ -581,6 +582,28 @@ export function DiplomacyPanel(
                   {btn("拒绝", { ...accept, type: "declineTreaty" })}
                 </div>;
               })}
+              <div className="diplomacy-actions">
+                {diplomaticTieKinds.map((kind) => {
+                  const command = { type: "offerDiplomaticTie", countryId: id, partnerId: foreignPartner, kind } as const;
+                  const problem = diplomaticTieCommandError(game, command);
+                  return <div key={kind}>
+                    {btn(`提议${tieNames[kind]}`, command, problem !== undefined)}
+                    {problem && <small>{problem}</small>}
+                  </div>;
+                })}
+              </div>
+              {tieOffers.map((offer) => {
+                const incoming = offer.to === id;
+                const partnerId = incoming ? offer.from : offer.to;
+                const command = { type: "acceptDiplomaticTie", countryId: id, partnerId, kind: offer.kind } as const;
+                return <div key={partnerId} className="diplomacy-actions">
+                  <p>{countries[partnerId].name} · {tieNames[offer.kind]} · {incoming ? "收到提案" : "待回复"}</p>
+                  {incoming ? <>
+                    {btn("接受关系", command, diplomaticTieCommandError(game, command) !== undefined)}
+                    {btn("拒绝关系", { ...command, type: "declineDiplomaticTie" })}
+                  </> : btn("撤回提案", { ...command, type: "withdrawDiplomaticTie" })}
+                </div>;
+              })}
             </details>}
             <p>当前市场 · {countries[n.marketLeader ?? id].name}</p>
             <p>
@@ -599,7 +622,7 @@ export function DiplomacyPanel(
               的税收。宗主国保护附属国，傀儡和封臣随宗主国参战。
             </p>
             {!!ties?.length && <details>
-              <summary>开局外交关系</summary>
+              <summary>宗藩、朝贡与共主关系</summary>
               <p>这些关系保留独立市场和国库。与对方开战时关系解除。</p>
               <ul>
                 {ties.map(({ kind, partnerId }) => (

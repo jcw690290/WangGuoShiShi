@@ -4,6 +4,7 @@ import { test } from "node:test";
 import { scenario, atlas, borderScenario } from "../src/scenario/scenario.ts";
 import { advanceDay, createGame, dispatch } from "../src/game/engine.ts";
 import { diplomaticTie } from "../src/game/diplomatic-ties.ts";
+import { tradeRestriction, isTradeLaw } from "../src/game/trade-policy.ts";
 import { applyPlayerCommand, decodeSnapshot, encodeSnapshot } from "../src/online/protocol.ts";
 import { landBorder } from "../src/game/diplomacy.ts";
 import { settleEconomy, weeklyBudgets } from "../src/game/economy.ts";
@@ -38,6 +39,32 @@ test("1820 年开局宗藩、朝贡贸易和共主关系保有独立主权与财
   assert.deepEqual(await decodeSnapshot(scenario, await encodeSnapshot(scenario, independent)), independent);
   const duplicate = { ...initial, diplomaticTies: [...initial.diplomaticTies!, initial.diplomaticTies![0]] };
   assert.throws(() => parseSave(scenario, { version: saveVersion, scenarioId: scenario.id, state: duplicate }), /无效/);
+
+  const local = dispatch(borderScenario, createGame(borderScenario), { type: "selectCountry", countryId: qing });
+  for (const nation of Object.values(local.nations))
+    nation.laws = [...nation.laws.filter((law) => !isTradeLaw(law)), "许可贸易"];
+  assert.equal(tradeRestriction(local, qing, vietnam), "exportPolicy");
+  const offer = { type: "offerDiplomaticTie", countryId: qing, partnerId: vietnam, kind: "tributeTrade" } as const;
+  const opened = dispatch(borderScenario, local, offer);
+  assert.equal(diplomaticTie(opened, qing, vietnam), undefined);
+  assert.throws(() => dispatch(borderScenario, opened, offer), /待处理/);
+  const reloaded = await decodeSnapshot(borderScenario, await encodeSnapshot(borderScenario, opened));
+  const accepted = applyPlayerCommand(borderScenario, reloaded, vietnam,
+    { type: "acceptDiplomaticTie", countryId: vietnam, partnerId: qing, kind: "tributeTrade" });
+  assert.equal(diplomaticTie(accepted, qing, vietnam)?.kind, "tributeTrade");
+  assert.equal(tradeRestriction(accepted, qing, vietnam), undefined);
+  assert.deepEqual(accepted.countryEconomies, local.countryEconomies);
+  assert.equal(accepted.nations[vietnam].overlord, null);
+  assert.equal(accepted.nations[vietnam].marketLeader, null);
+  const afterWithdrawal = dispatch(borderScenario, opened, { ...offer, type: "withdrawDiplomaticTie" });
+  assert.deepEqual(afterWithdrawal.diplomaticTieOffers, []);
+
+  const union = dispatch(borderScenario, local, { ...offer, kind: "personalUnion" });
+  const joined = applyPlayerCommand(borderScenario, union, vietnam,
+    { type: "acceptDiplomaticTie", countryId: vietnam, partnerId: qing, kind: "personalUnion" });
+  assert.equal(diplomaticTie(joined, qing, vietnam)?.senior, qing);
+  joined.nations[vietnam].laws = [...joined.nations[vietnam].laws, "共和制"];
+  assert.equal(diplomaticTie(advanceDay(borderScenario, joined), qing, vietnam), undefined);
 });
 
 test("宗藩关系不随争端自动解散，双方进入战争时解除", () => {

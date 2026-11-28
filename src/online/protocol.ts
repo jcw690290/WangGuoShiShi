@@ -16,6 +16,7 @@ import { battalionEquipment, battalionKinds, battalionSlotSchema } from "../game
 import { navalMissionSchema } from "../game/naval-operations.ts";
 import { warshipModels } from "../game/navy.ts";
 import { treatyKindSchema } from "../game/foreign-relations.ts";
+import { diplomaticTieKindSchema } from "../game/diplomatic-ties.ts";
 import { tradeLimit, tradeModes } from "../game/trade.ts";
 import { parseSave } from "../game/storage.ts";
 import type { Scenario } from "../scenario/scenario.ts";
@@ -68,6 +69,8 @@ const commandSchema = z.discriminatedUnion("type", [
   z.strictObject({ type: z.literal("sway"), countryId: id, allyId: id, useObligation: z.boolean().optional() }),
   z.strictObject({ type: z.literal("joinUnion"), countryId: id, leaderId: id }),
   z.strictObject({ type: z.literal("endDiplomaticTie"), countryId: id, partnerId: id }),
+  z.strictObject({ type: z.literal(["offerDiplomaticTie", "acceptDiplomaticTie", "declineDiplomaticTie", "withdrawDiplomaticTie"]),
+    countryId: id, partnerId: id, kind: diplomaticTieKindSchema }),
   z.strictObject({ type: z.literal("joinContainment"), countryId: id }),
   z.strictObject({ type: z.literal("challengeTerritorialSettlement"), countryId: id, stateId: id }),
   z.strictObject({ type: z.literal("demandOpiumCompensation"), countryId: id, stateId: id }),

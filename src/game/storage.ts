@@ -41,7 +41,7 @@ import { campaignSchema, endingId, endingSchema } from "./campaign.ts";
 import type { EndingRecord } from "./campaign.ts";
 import { fiscalAccountSchema } from "./fiscal.ts";
 import { syncOccupation } from "./occupation.ts";
-import { diplomaticTieSchema } from "./diplomatic-ties.ts";
+import { diplomaticTieOfferSchema, diplomaticTieSchema } from "./diplomatic-ties.ts";
 import { routeTransport, tradeDeliverySchema, tradeRouteKey, tradeRouteSchema } from "./trade.ts";
 import { fleetReportSchema, fleetSpending, maximumConvoyCapacity } from "./fleet.ts";
 import { navyReportSchema } from "./navy.ts";
@@ -412,6 +412,7 @@ export function parseSave(baseScenario: Scenario, save: unknown): GameState {
     nations: z.record(countries, nationSchema),
     borderDispute: disputeSchema.nullable(),
     diplomaticTies: z.array(diplomaticTieSchema.extend({ senior: countries, partner: countries })).optional(),
+    diplomaticTieOffers: z.array(diplomaticTieOfferSchema).optional(),
     foreignRelations: z.array(foreignRelationSchema).optional(),
     foreignTreaties: z.array(foreignTreatySchema).optional(),
     treatyOffers: z.array(treatyOfferSchema).optional(),
@@ -614,12 +615,18 @@ export function parseSave(baseScenario: Scenario, save: unknown): GameState {
     campaign.outcome = { ...campaign.outcome, metrics: {}, lossSince: null, victorySince: null, genericSince: null,
       baseline: { ...fresh, army: campaign.outcome.baseline.army } };
   }
-  if (state.diplomaticTies) {
+  if (state.diplomaticTies || state.diplomaticTieOffers) {
     const live = new Set(Object.values(state.ownerByStateId));
     const pairs = new Set<string>();
-    for (const { senior, partner } of state.diplomaticTies) {
+    for (const { senior, partner, signedDay } of state.diplomaticTies ?? []) {
       const pair = [senior, partner].sort().join("/");
-      if (senior === partner || pairs.has(pair) || !live.has(senior) || !live.has(partner)) invalid();
+      if (senior === partner || pairs.has(pair) || !live.has(senior) || !live.has(partner) ||
+          (signedDay !== undefined && signedDay > state.elapsedDays)) invalid();
+      pairs.add(pair);
+    }
+    for (const { from, to, offeredDay } of state.diplomaticTieOffers ?? []) {
+      const pair = [from, to].sort().join("/");
+      if (pairs.has(pair) || !live.has(from) || !live.has(to) || offeredDay > state.elapsedDays) invalid();
       pairs.add(pair);
     }
   }
