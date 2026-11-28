@@ -87,13 +87,27 @@ export function applyMilitaryLoss(state: GameState, stateId: string, loss: Milit
     injuries: [...(site.militaryHealth?.injuries ?? [])],
     replacements: activeReplacements(site, state.elapsedDays),
   };
-  if (injured > 0) militaryHealth.injuries.push({
-    people: injured, regulars: loss.regularInjured, conscripts: loss.conscriptInjured,
-    recovery: recoveryWeeks, sufferedDay: state.elapsedDays,
-  });
-  if (dead > 0) militaryHealth.replacements.push({
-    regulars: loss.regularDead, conscripts: loss.conscriptDead, readyDay: state.elapsedDays + replacementTrainingDays,
-  });
+  if (injured > 0) {
+    const roster = militaryHealth.injuries;
+    const index = roster.findIndex((group) => group.sufferedDay === state.elapsedDays);
+    const existing = roster[index];
+    const group = { people: (existing?.people ?? 0) + injured,
+      regulars: (existing?.regulars ?? 0) + loss.regularInjured,
+      conscripts: (existing?.conscripts ?? 0) + loss.conscriptInjured,
+      recovery: recoveryWeeks, sufferedDay: state.elapsedDays };
+    if (index < 0) roster.push(group);
+    else roster[index] = group;
+  }
+  if (dead > 0) {
+    const roster = militaryHealth.replacements;
+    const readyDay = state.elapsedDays + replacementTrainingDays;
+    const index = roster.findIndex((group) => group.readyDay === readyDay);
+    const existing = roster[index];
+    const group = { regulars: (existing?.regulars ?? 0) + loss.regularDead,
+      conscripts: (existing?.conscripts ?? 0) + loss.conscriptDead, readyDay };
+    if (index < 0) roster.push(group);
+    else roster[index] = group;
+  }
   state.societies[stateId] = { ...site, pops, militaryHealth };
   if (dead > 0) state.stateEconomies[stateId] = { ...local, population: local.population - dead };
 }

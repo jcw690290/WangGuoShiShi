@@ -36,6 +36,7 @@ import { injuredPersonnel } from "./game/military-health.ts";
 import { maxWarshipOrder, warshipMaterials, warshipModels } from "./game/navy.ts";
 import { fleetPower, navalMissionTargets, navalTaskNames, navalTasks } from "./game/naval-operations.ts";
 import type { NavalMission } from "./game/naval-operations.ts";
+import { elapsedTicks } from "./game/time.ts";
 import { recentOpiumLosses } from "./game/opium.ts";
 interface Props {
   scenario: Scenario;
@@ -485,10 +486,13 @@ export function DiplomacyPanel(
                   const orders = d.mobilization?.[x];
                   const remaining = orders ? Math.max(0, orders.readyDay - game.elapsedDays) : 0;
                   const losses = d.losses?.[x];
+                  const deployment = d.frontDeployments?.[x];
+                  const marching = deployment && Object.values(deployment.arrivals).filter((tick) => tick > elapsedTicks(game)).length;
                   return (
                     <p key={x}>
                       {countries[x].name} · {attacking(d, x) ? "提出方" : "防守方"} ·{" "}
                       {d.retreating?.includes(x) ? "撤至后方" : d.advance.includes(x) ? "推进" : "防御"} ·
+                      {marching ? ` ${marching} 处兵源行军中 ·` : ""}
                       全国常备 {m.regulars} · 征召 {m.conscripts} ·
                       {remaining > 0 ? ` 动员准备剩 ${remaining} 天 ·` : ` 已部署征召兵 ${m.deployedConscripts ?? m.conscripts} ·`}
                       全军军粮 {m.grainDrawn} / {m.grainDemand} · 武器 {m.equipment.weapons.delivered}/

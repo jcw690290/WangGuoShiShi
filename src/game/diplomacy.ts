@@ -3,7 +3,7 @@ import { attachForeignTheater, foreignTheaterView, inCivilTheater, separateTheat
 import { z } from "zod";
 import { diplomaticTie, removeDiplomaticTies } from "./diplomatic-ties.ts";
 import { localGovernanceRule, newFrontier } from "./governance.ts";
-import { connectedRailway, convoyCargoCapacity, portCapacity } from "./transport.ts";
+import { connectedRailway, convoyCargoCapacity, portCapacity, seaVoyageCargoCost } from "./transport.ts";
 import { effectiveConvoyCapacity } from "./fleet.ts";
 import type { MaritimeTerminal } from "./transport.ts";
 import { unrestEffects } from "./unrest.ts";
@@ -109,6 +109,16 @@ export const supplyPriorityDetails = {
 } as const;
 const frontOrderSchema = z.object({ objective: z.string().nullable(), priority: z.enum(supplyPriorities) });
 type FrontOrder = z.infer<typeof frontOrderSchema>;
+const frontDeploymentSchema = z.object({
+  objective: z.string(),
+  advancing: z.boolean(),
+  arrivals: z.record(z.string(), z.int().nonnegative()),
+});
+const frontLossCarrySchema = z.object({
+  regularDead: z.number().min(0).lt(1), regularInjured: z.number().min(0).lt(1),
+  conscriptDead: z.number().min(0).lt(1), conscriptInjured: z.number().min(0).lt(1),
+  conscriptsLost: z.int().nonnegative(),
+});
 
 export const disputeSchema = z.object({
   targetStateId: z.string(),
@@ -135,6 +145,9 @@ export const disputeSchema = z.object({
   advance: z.array(z.string()),
   retreating: z.array(z.string()).optional(),
   frontOrders: z.record(z.string(), frontOrderSchema).optional(),
+  frontDeployments: z.record(z.string(), frontDeploymentSchema).optional(),
+  frontLossCarry: z.record(z.string(), frontLossCarrySchema).optional(),
+  frontProgressCarry: z.number().gt(-1).lt(1).optional(),
   raid: z.array(z.string()),
   navalMissions: z.record(z.string(), navalMissionSchema).optional(),
   progress: z.int().min(0).max(100),
@@ -718,6 +731,7 @@ interface SupplyRoute {
   mobilized: boolean;
   mobilizedAtTick?: number;
   overseas: boolean;
+  marchDays: Map<string, number>;
   maritimeTerminals?: MaritimeTerminal[][];
 }
 export interface WarPlan {
@@ -779,14 +793,17 @@ function planWarInTheater(scenario: Scenario, state: GameState): WarPlan | undef
     const fronts = sites.filter((s) => id === d.defenderId ? defenseLine.has(s.id) : s.neighbors.includes(objective));
     const starts = fronts.length > 0 ? fronts : ports.slice(0, 1).map((port) => scenario.states[port.stateId]);
     const recruitmentStates = new Set(starts.map((site) => site.id));
-    function connected(seeds: Iterable<string>) {
-      const reachable = new Set(seeds);
-      for (const site of reachable)
+    function distances(seeds: Iterable<string>) {
+      const reachable = new Map([...seeds].map((site) => [site, 0]));
+      for (const [site, distance] of reachable)
         for (const next of scenario.states[site].neighbors)
-          if (state.ownerByStateId[next] === id && state.occupation?.stateId !== next) reachable.add(next);
+          if (!reachable.has(next) && state.ownerByStateId[next] === id && state.occupation?.stateId !== next)
+            reachable.set(next, distance + 1);
       return reachable;
     }
-    const connectedStates = connected(recruitmentStates);
+    const frontDistances = distances(recruitmentStates);
+    const connectedStates = new Set(frontDistances.keys());
+    const marchDays = new Map(frontDistances);
     // Supplies from a disconnected front must cross the sea. The home depot is the
     // most populous original state still held; an occupation never relocates that depot.
     const homeland =
@@ -817,11 +834,16 @@ function planWarInTheater(scenario: Scenario, state: GameState): WarPlan | undef
       const frontPorts = ports.filter((port) => connectedStates.has(port.stateId));
       maritimeTerminals = [frontPorts];
       if (fronts.length > 0) {
-        const home = connected(state.occupation?.stateId === homeland.id ? [] : [homeland.id]);
+        const home = distances(state.occupation?.stateId === homeland.id ? [] : [homeland.id]);
         const homePorts = ports.filter((port) => home.has(port.stateId));
         maritimeTerminals.unshift(homePorts);
         if (homePorts.length > 0 && frontPorts.length > 0) {
-          for (const site of home) connectedStates.add(site);
+          const departure = homePorts[0].stateId, arrival = frontPorts[0].stateId;
+          const voyage = seaVoyageCargoCost(scenario.states[departure].label, scenario.states[arrival].label);
+          for (const [site, distance] of distances([departure])) {
+            connectedStates.add(site);
+            if (!marchDays.has(site)) marchDays.set(site, distance + voyage + frontDistances.get(arrival)!);
+          }
         }
       }
       const portAccess = (port: MaritimeTerminal) => naval.portAccess.get(port.stateId) ?? 1;
@@ -846,42 +868,62 @@ function planWarInTheater(scenario: Scenario, state: GameState): WarPlan | undef
     if (d.retreating?.includes(id)) {
       routes[id] = {
         objective, priorityShare, recruitmentStates: new Set(), connectedStates: new Set(),
-        draftOrigins, draftReady, deployedDrafts: new Set(), grainTransport: 0, mobilized, overseas: false, ...scheduled,
+        draftOrigins, draftReady, deployedDrafts: new Set(), grainTransport: 0, mobilized, overseas: false,
+        marchDays: new Map(), ...scheduled,
       };
     } else {
       const deployedDrafts = new Set(draftReady ? [...draftOrigins].filter((siteId) => connectedStates.has(siteId)) : []);
+      const finalLeg = fronts.length === 0 && starts.length > 0
+        ? seaVoyageCargoCost(starts[0].label, scenario.states[objective].label)
+        : Number(d.advance.includes(id) && id !== d.defenderId);
+      for (const [site, days] of marchDays) marchDays.set(site, days + finalLeg);
       routes[id] = { objective, priorityShare, recruitmentStates, connectedStates, draftOrigins, draftReady, deployedDrafts,
-        grainTransport, mobilized, overseas, ...scheduled, ...(maritimeTerminals ? { maritimeTerminals } : {}) };
+        grainTransport, mobilized, overseas, marchDays, ...scheduled, ...(maritimeTerminals ? { maritimeTerminals } : {}) };
     }
   }
   return { ...scenario.borderDispute, routes, naval };
 }
-export function advanceFront(scenario: Scenario, state: GameState, report: EconomyReport): GameState {
-  const d = state.borderDispute;
-  if (d?.phase !== "war") return state;
+export function advanceFront(scenario: Scenario, state: GameState, plan: WarPlan, report: EconomyReport | null,
+  settledThisTick: boolean): GameState {
+  const d = state.borderDispute!;
   const frontWidth = (target: string) =>
     ({ 山地: 180, 森林: 350, 平原: 650 } as const)[scenario.states[target].terrain ?? "平原"] * state.societies[target].infrastructure;
   const width = frontWidth(frontLine(scenario, state, d)[0].id);
-  const plan = planWar(scenario, state)!;
+  const now = elapsedTicks(state);
+  const frontDeployments: NonNullable<BorderDispute["frontDeployments"]> = {};
+  const frontLossCarry = { ...d.frontLossCarry };
+  if (settledThisTick) for (const [site, carry] of Object.entries(frontLossCarry))
+    frontLossCarry[site] = { ...carry, conscriptsLost: 0 };
   const randomFraction = (key: string) => ((Math.imul(state.rng ^ hash(key), 1664525) + 1013904223) >>> 0) / 2 ** 32;
   const deployed = (id: string) => {
     const route = plan.routes[id];
-    const role = d.advance.includes(id) ? "attack" : "defense";
-    const origins = [...new Set([...route.recruitmentStates, ...route.deployedDrafts])].map((siteId) => {
-      const district = report.states[siteId];
-      const roster = route.recruitmentStates.has(siteId) ? battalionsAt(state, siteId, district.regulars) : [];
-      const conscripts = district.deployedConscripts!;
+    const advancing = d.advance.includes(id);
+    const role = advancing ? "attack" : "defense";
+    const prior = d.frontDeployments?.[id];
+    const sameOrder = prior?.objective === route.objective && prior.advancing === advancing;
+    const arrivals: Record<string, number> = {};
+    frontDeployments[id] = { objective: route.objective, advancing, arrivals };
+    const departure = Math.max(now - 1, d.since * TICKS_PER_DAY);
+    const origins = [...new Set([...route.recruitmentStates, ...route.deployedDrafts])].flatMap((siteId) => {
+      const travelTicks = route.marchDays.get(siteId)! * TICKS_PER_DAY;
+      const arrives = (sameOrder ? prior.arrivals[siteId] : undefined) ?? departure + travelTicks;
+      if (travelTicks > 0 && route.overseas && route.grainTransport === 0) return [];
+      arrivals[siteId] = arrives;
+      if (arrives > now) return [];
+      const roster = route.recruitmentStates.has(siteId) ? battalionsAt(state, siteId) : [];
+      const conscripts = route.deployedDrafts.has(siteId) ? Math.max(0,
+        (report?.states[siteId]?.deployedConscripts ?? 0) - (frontLossCarry[siteId]?.conscriptsLost ?? 0)) : 0;
       const regulars = roster.reduce((sum, unit) => sum + unit.trained, 0);
       const effective = roster.reduce((sum, unit) =>
         sum + unit.trained * battalionDetails[unit.kind][role] * equipmentDetails[unit.equipment][role] / 10, conscripts) *
         opiumEffects(state.societies[siteId].opiumBurden).military;
       const mobile = roster.reduce((sum, unit) =>
         sum + (unit.kind === "cavalry" || unit.equipment === "mechanized" ? unit.trained : 0), 0);
-      return { siteId, regulars, conscripts, effective, mobile };
+      return [{ siteId, regulars, conscripts, effective, mobile }];
     });
     const soldiers = origins.reduce((sum, x) => sum + x.regulars + x.conscripts, 0);
     const effective = origins.reduce((sum, x) => sum + x.effective, 0);
-    const nation = state.nations[id], military = report.countries[id].military;
+    const nation = state.nations[id], military = report?.countries[id]?.military;
     const available = Math.min(soldiers, commandCapacity(nation), frontWidth(route.objective));
     const support = plan.naval.landing.get(id);
     const navalBonus = support?.portId === route.objective ? 0.35 * support.power / (1 + support.power) : 0;
@@ -889,9 +931,9 @@ export function advanceFront(scenario: Scenario, state: GameState, report: Econo
     const logistics = nation.knowledge["野战后勤"] === 100 ? 1.25 : 1;
     const random = 0.9 + randomFraction(id) * 0.2;
     const power = soldiers === 0 ? 0 :
-      available * effective / soldiers * military.readiness * (nation.morale / 100) * landing * logistics * random;
+      available * effective / soldiers * (military?.readiness ?? 0) * (nation.morale / 100) * landing * logistics * random;
     const mobility = soldiers === 0 ? 0 : origins.reduce((sum, x) => sum + x.mobile, 0) / soldiers;
-    return { id, origins, soldiers, available, power, mobility, supply: military.supplyRatio! };
+    return { id, origins, soldiers, available, power, mobility, supply: military?.supplyRatio ?? 0 };
   };
   const left = [d.claimantId, ...d.allies],
     right = [d.defenderId, ...d.defenders];
@@ -903,6 +945,7 @@ export function advanceFront(scenario: Scenario, state: GameState, report: Econo
     return { forces, committed, frontage, mobility, power: forces.reduce((sum, force) => sum + force.power, 0) * frontage };
   };
   const attackers = side(left), defenders = side(right);
+  if (!report) return { ...state, borderDispute: { ...d, frontDeployments } };
   const diff = attackers.power - defenders.power;
   const offensive = d.advance.some((id) => left.includes(id) || right.includes(id));
   let delta = 0;
@@ -921,13 +964,24 @@ export function advanceFront(scenario: Scenario, state: GameState, report: Econo
       const battleLoss = contested ? (losing ? 0.018 : 0.010) * coalition.frontage * force.available / force.soldiers : 0;
       const attrition = Math.max(0, (0.5 - force.supply) / 0.5) * 0.012;
       for (const origin of force.origins) {
-        const take = (personnel: number, corps: string) => {
-          const dead = Math.floor(personnel * (battleLoss * 0.30 + attrition * 0.15) + randomFraction(origin.siteId + corps + "dead"));
-          const injured = Math.min(personnel - dead, Math.floor(
-            personnel * (battleLoss * 0.70 + attrition * 0.85) + randomFraction(origin.siteId + corps + "injured")));
-          return { dead, injured };
+        const carry = frontLossCarry[origin.siteId] ?? {
+          regularDead: 0, regularInjured: 0, conscriptDead: 0, conscriptInjured: 0, conscriptsLost: 0,
+        };
+        const take = (personnel: number, corps: "regular" | "conscript") => {
+          const deadKey = `${corps}Dead` as const, injuredKey = `${corps}Injured` as const;
+          const deathTotal = carry[deadKey] + personnel * (battleLoss * 0.30 + attrition * 0.15) / TICKS_PER_WEEK;
+          const injuryTotal = carry[injuredKey] + personnel * (battleLoss * 0.70 + attrition * 0.85) / TICKS_PER_WEEK;
+          const dead = Math.floor(deathTotal);
+          const injured = Math.floor(injuryTotal);
+          return { dead, injured: Math.min(personnel - dead, injured), deathCarry: deathTotal - dead,
+            injuryCarry: injuryTotal - injured };
         };
         const regular = take(origin.regulars, "regular"), conscript = take(origin.conscripts, "conscript");
+        frontLossCarry[origin.siteId] = {
+          regularDead: regular.deathCarry, regularInjured: regular.injuryCarry,
+          conscriptDead: conscript.deathCarry, conscriptInjured: conscript.injuryCarry,
+          conscriptsLost: carry.conscriptsLost + conscript.dead + conscript.injured,
+        };
         const dead = regular.dead + conscript.dead, injured = regular.injured + conscript.injured;
         if (dead + injured === 0) continue;
         applyMilitaryLoss(result, origin.siteId, {
@@ -939,8 +993,14 @@ export function advanceFront(scenario: Scenario, state: GameState, report: Econo
       }
     }
   }
-  const progress = Math.max(0, Math.min(100, d.progress + delta));
-  return syncOccupation(scenario, { ...result, borderDispute: { ...d, losses, progress, lastChange: progress - d.progress } });
+  const progressTotal = (d.frontProgressCarry ?? 0) + delta / TICKS_PER_WEEK;
+  const change = Math.trunc(progressTotal);
+  const progress = Math.max(0, Math.min(100, d.progress + change));
+  const remainder = progressTotal - change;
+  const frontProgressCarry = progress === 0 && remainder < 0 || progress === 100 && remainder > 0 ? 0 : remainder;
+  const lastChange = attackers.committed + defenders.committed === 0 ? d.lastChange : progress - d.progress;
+  return syncOccupation(scenario, { ...result, borderDispute: { ...d, losses, progress, lastChange,
+    frontDeployments, frontLossCarry, frontProgressCarry } });
 }
 export function aiDiplomacy(
   scenario: Scenario,

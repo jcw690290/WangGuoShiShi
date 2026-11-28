@@ -319,6 +319,16 @@ function chooseOpiumLaw(state: GameState, countryId: string): PoliticsCommand | 
   if (!politicsError(state, proposal)) return proposal;
 }
 
+function advanceWarTick(scenario: Scenario, state: GameState, settled = false, plan = planWar(scenario, state)) {
+  if (!plan) return state;
+  let battle = state.borderDispute?.phase === "war"
+    ? advanceFront(scenario, state, plan, state.lastEconomy, settled) : state;
+  if (battle.foreignTheater?.dispute.phase === "war")
+    battle = attachForeignTheater(battle,
+      advanceFront(scenario, foreignTheaterView(battle), plan, state.lastEconomy, settled));
+  return battle;
+}
+
 export function advanceTick(
   baseScenario: Scenario,
   state: GameState,
@@ -334,14 +344,18 @@ export function advanceTick(
     humanCountries = actors;
   }
   const tickInDay = state.tickInDay + 1;
-  if (tickInDay < TICKS_PER_DAY) return { ...state, tickInDay };
   const scenario = scenarioWithCivilWar(baseScenario, war);
+  if (tickInDay < TICKS_PER_DAY) {
+    const running = advanceWarTick(scenario, { ...state, tickInDay });
+    return running.civilWar ? advanceCivilWar(baseScenario, running) : running;
+  }
   let next = tickDiplomacy(scenario, { ...state, elapsedDays: state.elapsedDays + 1, tickInDay: 0 }, humanCountries);
   if (next.foreignTheater) next = attachForeignTheater(next, tickDiplomacy(scenario, foreignTheaterView(next), humanCountries));
   const date = getGameDate(scenario, next);
   const monthly = isPopulationMonth(scenario, next);
   if (next.elapsedDays % 7 !== 0) {
-    const result = monthly ? settlePopulationMonth(scenario, next, date) : next;
+    const moving = advanceWarTick(scenario, monthly ? settlePopulationMonth(scenario, next, date) : next);
+    const result = moving.civilWar ? advanceCivilWar(baseScenario, moving) : moving;
     return finalizeCampaign(scenario, advanceAchievements(state, result, date), date,
       monthly || result.borderDispute !== state.borderDispute || result.ownerByStateId !== state.ownerByStateId);
   }
@@ -349,9 +363,7 @@ export function advanceTick(
   const warPlan = planWar(scenario, next);
   const weekly = settleEconomy(next, warPlan, yearFraction, scenario);
   const settled = monthly ? settlePopulationMonth(scenario, weekly, date) : weekly;
-  let battle = advanceFront(scenario, settled, settled.lastEconomy);
-  if (battle.foreignTheater)
-    battle = attachForeignTheater(battle, advanceFront(scenario, foreignTheaterView(battle), settled.lastEconomy));
+  const battle = advanceWarTick(scenario, settled, true, warPlan);
   let recovered = recoverMilitaryInjuries(battle, settled.lastEconomy);
   if (recovered.elapsedDays % 28 === 0) {
     const routes = chooseAITradeRoutes(scenario, recovered, settled.lastEconomy, humanCountries, warPlan?.naval);
