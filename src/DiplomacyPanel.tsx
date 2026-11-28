@@ -29,6 +29,7 @@ import { countryDisplayName } from "./game/constitution.ts";
 import { silver } from "./format.ts";
 import { battalionDetails, battalionKinds, battalionOrderError, battalionSize, battalionsAt } from "./game/military.ts";
 import { injuredPersonnel } from "./game/military-health.ts";
+import { maxWarshipOrder, shipGoodsPerWarship } from "./game/navy.ts";
 interface Props {
   scenario: Scenario;
   game: GameState;
@@ -115,6 +116,44 @@ function FrontOrders({ scenario, game, dispute, playerId, busy, send }: Omit<Pro
         </select>
       </label>
     </div>
+  );
+}
+
+function NavalYard({ scenario, game, report, playerId, busy, send }: Omit<Props, "selectedId">) {
+  const [selectedPort, setPort] = useState("");
+  const navy = game.nations[playerId].navy;
+  const ports = holdings(scenario, game, playerId).filter((site) => site.coastal);
+  if (!ports.length && navy.warships === 0) return null;
+  const order = navy.order;
+  const port = ports.find((site) => site.id === selectedPort) ?? ports.find((site) => site.id === order?.stateId) ?? ports[0];
+  const week = report.countries[playerId].navy;
+  const canBuild = port && game.occupation?.stateId !== port.id;
+  return (
+    <details>
+      <summary>海军与造舰</summary>
+      <p>军舰 {navy.warships} 艘 · 舰况 {navy.condition}% · 库存船材 {navy.stores}</p>
+      {week && <p>周维护船材 {week.maintained} / {week.maintenanceDue} · 周采购 {week.delivered} / {week.ordered} · 已付 {silver(week.spending)}</p>}
+      {port && <div className="control-block">
+        <label>造舰港口{" "}
+          <select disabled={busy} value={port.id} onChange={(event) => setPort(event.target.value)}>
+            {ports.map((site) => <option key={site.id} value={site.id}>{site.name}</option>)}
+          </select>
+        </label>
+        {order && <p>{scenario.states[order.stateId].name}待交付 {order.remaining} 艘</p>}
+        <div className="diplomacy-actions">
+          <button className="build" disabled={busy || !canBuild || !!(order && (order.stateId !== port.id || order.remaining >= maxWarshipOrder))}
+            onClick={() => send({ type: "setWarshipOrder", countryId: playerId, stateId: port.id, operation: "add" })}>
+            增订一艘（{shipGoodsPerWarship} 船材）
+          </button>
+          {order && <>
+            <button className="build" disabled={busy || !canBuild || order.stateId === port.id}
+              onClick={() => send({ type: "setWarshipOrder", countryId: playerId, stateId: port.id, operation: "move" })}>转移订单</button>
+            <button className="build" disabled={busy}
+              onClick={() => send({ type: "setWarshipOrder", countryId: playerId, stateId: order.stateId, operation: "cancel" })}>取消造舰</button>
+          </>}
+        </div>
+      </div>}
+    </details>
   );
 }
 
@@ -236,6 +275,7 @@ export function DiplomacyPanel({ scenario, game, playerId: id, report, busy, sen
           </header>
           <div className="control-block">
             <ArmyRoster scenario={scenario} game={game} playerId={id} busy={busy} send={send} selectedId={selectedId} />
+            <NavalYard scenario={scenario} game={game} playerId={id} report={report} busy={busy} send={send} />
             {d && (
               <p role="status">
                 {countries[d.claimantId].name} → {countries[d.defenderId].name} ·{" "}

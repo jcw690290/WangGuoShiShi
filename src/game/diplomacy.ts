@@ -196,12 +196,13 @@ function treaty(state: GameState, d: BorderDispute, victory: boolean, withdrawal
         ...(subsidies ? { industrySubsidies: Object.fromEntries(Object.entries(subsidies)
           .filter(([stateId]) => ownerByStateId[stateId] === b)) } : {}),
       };
-      const fleet = nations[b].fleet;
+      const { fleet, navy } = nations[b];
       const motorizationPort = fleet.motorizationPort;
       nations[b] = {
         ...nations[b],
         fleet: { ...fleet, order: fleet.order && ownerByStateId[fleet.order.stateId] === b ? fleet.order : null,
           motorizationPort: motorizationPort !== null && ownerByStateId[motorizationPort] === b ? motorizationPort : null },
+        navy: { ...navy, order: navy.order && ownerByStateId[navy.order.stateId] === b ? navy.order : null },
         investment: nations[b].investment + nations[b].privateQueue.reduce((sum, p) =>
           sum + (ownerByStateId[p.stateId] === b ? 0 : projectOpeningCapital(p)), 0),
         privateQueue: nations[b].privateQueue.filter((p) => ownerByStateId[p.stateId] === b),

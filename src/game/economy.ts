@@ -49,6 +49,8 @@ import type { IndustryOwnership, Ownership, OwnershipAmounts } from "./ownership
 import { battalionsAt, equipmentNeeds, garrisonHeadcount, inTraining, trainNewBarracks } from "./military.ts";
 import type { Battalion } from "./military.ts";
 import { activeReplacements, fitWorkforce, injuredPersonnel } from "./military-health.ts";
+import { closeNavy, navyMaintenance, shipGoodsPerWarship } from "./navy.ts";
+import type { NavyReport } from "./navy.ts";
 
 export { marketOf } from "./market.ts";
 
@@ -230,6 +232,7 @@ export interface CountryReport {
   tradeTariff?: number;
   tradeSeaCargo?: number;
   fleet?: FleetReport;
+  navy?: NavyReport;
 }
 export interface EconomyReport {
   states: Record<string, SiteReport>;
@@ -423,28 +426,39 @@ function issueSupplies(
 
 function fleetPlans(state: GameState, holdings: Record<string, string[]>, scenario?: Scenario) {
   return Object.fromEntries(Object.entries(holdings).map(([owner, ids]) => {
-    const { fleet, convoys } = state.nations[owner];
+    const { fleet, convoys, navy } = state.nations[owner];
     const ports = ids.filter((id) => state.occupation?.stateId !== id && (scenario
       ? scenario.states[id].coastal : state.stateEconomies[id].buildings.shipGoods > 0 || state.societies[id].port > 0));
     const order = fleet.order;
-    const port = order && ids.includes(order.stateId) && state.occupation?.stateId !== order.stateId ? order.stateId :
+    const scheduledPort = order && ids.includes(order.stateId) && state.occupation?.stateId !== order.stateId ? order.stateId :
       fleet.motorizationPort && ids.includes(fleet.motorizationPort) && state.occupation?.stateId !== fleet.motorizationPort
-        ? fleet.motorizationPort :
+        ? fleet.motorizationPort : null;
+    const navalPort = navy.order && ids.includes(navy.order.stateId) && state.occupation?.stateId !== navy.order.stateId
+      ? navy.order.stateId : null;
+    const navyFirst = navalPort !== null && Math.floor(state.elapsedDays / 7) % 2 === 1;
+    const port = (navyFirst ? navalPort : scheduledPort ?? navalPort) ??
       ports.sort((a, b) => state.stateEconomies[b].buildings.shipGoods - state.stateEconomies[a].buildings.shipGoods ||
         state.societies[b].port - state.societies[a].port || state.stateEconomies[b].population - state.stateEconomies[a].population)[0] ?? null;
     const risk = state.countryEconomies[owner].fiscal?.week.risk;
     const places = port !== null && risk !== "restricted" && risk !== "defaulted" ? 1 + state.societies[port].port : 0;
-    const berths = order && port === order.stateId ? Math.min(order.remaining, places) : 0;
-    const refits = port !== null && port === fleet.motorizationPort ? Math.min(convoys - fleet.motorized, places - berths) : 0;
+    const navalOrders = navy.order && navalPort !== null && port === navalPort ? navy.order.remaining : 0;
+    const reserved = navyFirst ? Math.min(navalOrders, places) : 0;
+    const berths = order && port === order.stateId ? Math.min(order.remaining, places - reserved) : 0;
+    const refits = port !== null && port === fleet.motorizationPort
+      ? Math.min(convoys - fleet.motorized, places - reserved - berths) : 0;
+    const navalBerths = Math.min(navalOrders, places - berths - refits);
     const need = fleetMaintenance(convoys);
     const buffer = fleet.stores <= need * 2 ? need * 8 : need;
     const fuelDemand = fleet.motorized + refits;
+    const merchantDemand = port === null ? 0 : Math.max(0, buffer + berths * shipGoodsPerConvoy + refits * shipGoodsPerMotor - fleet.stores);
+    const navalMaintenance = port === null ? 0 : Math.max(0, navyMaintenance(navy.warships) - navy.stores);
+    const navalDemand = port === null ? 0 : Math.max(0, navyMaintenance(navy.warships) + navalBerths * shipGoodsPerWarship - navy.stores);
     const requested = {
-      shipGoods: port === null ? 0 : Math.max(0, buffer + berths * shipGoodsPerConvoy + refits * shipGoodsPerMotor - fleet.stores),
+      shipGoods: merchantDemand + navalDemand,
       oil: port === null || fleet.oil >= fuelDemand ? 0 : Math.max(0, fuelDemand * 4 - fleet.oil),
       rubber: Math.max(0, refits * rubberPerMotor - fleet.rubber),
     };
-    return [owner, { port, berths, refits, requested, ordered: byFleetGood(() => 0),
+    return [owner, { port, berths, refits, navalBerths, navalMaintenance, merchantDemand, requested, ordered: byFleetGood(() => 0),
       delivered: byFleetGood(() => 0), spending: byFleetGood(() => 0) }];
   }));
 }
@@ -1167,15 +1181,28 @@ function projectSettlement(state: GameState, war?: WarPlan, closingTick?: number
     if (nation.subjectType) c.tribute = Math.floor(c.tax * tributeRate[nation.subjectType]);
   }
   const fleetClosing = Object.fromEntries(Object.entries(fleets).map(([owner, plan]) => {
-    const { convoys, fleet } = state.nations[owner];
+    const { convoys, fleet, navy } = state.nations[owner];
+    const navalMaterials = (amount: number) => amount - Math.min(plan.merchantDemand, Math.max(0, amount - plan.navalMaintenance));
+    const navalOrdered = navalMaterials(plan.ordered.shipGoods);
+    const navalDelivered = navalMaterials(plan.delivered.shipGoods);
+    const navalSpending = plan.delivered.shipGoods > 0 ? Math.floor(plan.spending.shipGoods * navalDelivered / plan.delivered.shipGoods) : 0;
+    const naval = closeNavy(navy, navalDelivered, plan.port, plan.navalBerths);
     const { maintenanceDue, maintained, commissioned, converted, ...closing } =
-      closeFleet(convoys, fleet, plan.delivered, plan.port, plan.berths, plan.refits);
+      closeFleet(convoys, fleet, { ...plan.delivered, shipGoods: plan.delivered.shipGoods - navalDelivered },
+        plan.port, plan.berths, plan.refits);
     const cargo = (good: FleetGood) => ({ ordered: plan.ordered[good], delivered: plan.delivered[good], spending: plan.spending[good] });
-    report.countries[owner].fleet = { port: plan.port, ...cargo("shipGoods"), maintenanceDue, maintained, commissioned,
+    report.countries[owner].fleet = { port: plan.port, ordered: plan.ordered.shipGoods - navalOrdered,
+      delivered: plan.delivered.shipGoods - navalDelivered, spending: plan.spending.shipGoods - navalSpending,
+      maintenanceDue, maintained, commissioned,
       ...(fleet.motorizationPort || fleet.motorized > 0 ? { motorization: {
         converted, fueled: closing.fleet.fueled, oil: cargo("oil"), rubber: cargo("rubber"),
       } } : {}) };
-    return [owner, closing];
+    report.countries[owner].navy = {
+      port: plan.port, warships: naval.navy.warships, condition: naval.navy.condition,
+      ordered: navalOrdered, delivered: navalDelivered, spending: navalSpending,
+      maintenanceDue: naval.maintenanceDue, maintained: naval.maintained, commissioned: naval.commissioned,
+    };
+    return [owner, { ...closing, navy: naval.navy }];
   }));
   return { report, referenceQuotes, localQuotes, industrialClosing, constructionClosing, fleetClosing, privateIncomes };
 }
@@ -1331,7 +1358,7 @@ export function settleEconomy(state: GameState, war?: WarPlan, fractionOfYear = 
     const construction = c.construction!;
     const prepaidUpkeep = c.officeUpkeep! + institutions.reduce((sum, kind) => sum + c[`${kind}Upkeep`]!, 0) +
       militaryProcurementCost(c.military.procurement) +
-      constructionSpending(construction.public) + constructionSpending(c.constructionMaintenance!) + fleetSpending(c.fleet!);
+      constructionSpending(construction.public) + constructionSpending(c.constructionMaintenance!) + fleetSpending(c.fleet!) + c.navy!.spending;
     const closing = settleFiscal({
       day: state.elapsedDays, treasury: country.treasury, fiscal: country.fiscal,
       tax: c.tax, receipts: budgets[id].balance + c.upkeep, upkeep: c.upkeep,

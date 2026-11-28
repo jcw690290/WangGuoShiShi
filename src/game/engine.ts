@@ -45,6 +45,8 @@ import type { ForeignCommand, ForeignRelation, ForeignTreaty, TreatyOffer } from
 import { applyBattalionOrder, chooseBattalionOrder } from "./military.ts";
 import type { BattalionCommand } from "./military.ts";
 import { recoverMilitaryInjuries } from "./military-health.ts";
+import { applyNavalConstruction, shipGoodsPerWarship } from "./navy.ts";
+import type { NavalConstructionCommand } from "./navy.ts";
 export { DAY_MS, elapsedTicks, TICKS_PER_DAY } from "./time.ts";
 
 export interface GameState {
@@ -93,6 +95,7 @@ export type GameCommand =
   | TradePolicyCommand
   | ForeignCommand
   | BattalionCommand
+  | NavalConstructionCommand
   | LocalUnrestCommand
   | BorderCommand;
 
@@ -306,6 +309,12 @@ export function advanceTick(
         result = applyCommand(scenario, result, { type: "setConvoyOrder", countryId: id, stateId: port, operation: "add" });
       }
       const fleetNation = result.nations[id];
+      if (result.elapsedDays % 28 === 0 && port && result.occupation?.stateId !== port && !fleetNation.navy.order &&
+          fleetNation.navy.warships < 1 + Math.floor(fleetNation.convoys / 6) &&
+          result.countryEconomies[id].treasury >= shipGoodsPerWarship * industries.shipGoods.basePrice * 2 &&
+          report.market.shipGoods.supply >= shipGoodsPerWarship) {
+        result = applyCommand(scenario, result, { type: "setWarshipOrder", countryId: id, stateId: port, operation: "add" });
+      }
       if (result.elapsedDays % 28 === 0 && port && result.occupation?.stateId !== port &&
           fleetNation.knowledge["内燃机"] === 100 && fleetNation.convoys > fleetNation.fleet.motorized &&
           fleetNation.fleet.motorizationPort === null && occupiedCargo > 0 &&
@@ -445,6 +454,8 @@ function applyCommand(
       return applyForeignCommand(state, cmd);
     case "reorganizeBattalion":
       return applyBattalionOrder(state, cmd);
+    case "setWarshipOrder":
+      return applyNavalConstruction(scenario, state, cmd);
     case "negotiateLocalUnrest":
       return negotiateLocalUnrest(state, cmd);
     case "queueConstruction": {

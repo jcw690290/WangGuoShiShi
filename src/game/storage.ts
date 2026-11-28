@@ -36,6 +36,7 @@ import { syncOccupation } from "./occupation.ts";
 import { diplomaticTieSchema } from "./diplomatic-ties.ts";
 import { routeTransport, tradeDeliverySchema, tradeRouteKey, tradeRouteSchema } from "./trade.ts";
 import { fleetReportSchema, fleetSpending, maximumConvoyCapacity } from "./fleet.ts";
+import { navyReportSchema } from "./navy.ts";
 import { achievementKey, achievementRecordSchema } from "./achievements.ts";
 import type { AchievementRecord } from "./achievements.ts";
 const storeName = "saves";
@@ -265,13 +266,14 @@ const countryReport = z.object({
   tradeTariff: uint.optional(),
   tradeSeaCargo: uint.optional(),
   fleet: fleetReportSchema.optional(),
+  navy: navyReportSchema.optional(),
 }).refine((country) => country.taxReceipts === undefined ||
   country.taxReceipts.income + country.taxReceipts.excise + (country.tradeTariff ?? 0) === country.tax
 ).refine((country) => (country.officeUpkeep ?? 0) + (country.healthcareUpkeep ?? 0) + (country.policingUpkeep ?? 0) +
   (country.welfareUpkeep ?? 0) + (country.educationUpkeep ?? 0) + militaryProcurementCost(country.military.procurement) +
   (country.construction === undefined ? 0 : constructionSpending(country.construction.public)) +
   (country.constructionMaintenance === undefined ? 0 : constructionSpending(country.constructionMaintenance)) +
-  (country.fleet === undefined ? 0 : fleetSpending(country.fleet)) <= country.upkeep);
+  (country.fleet === undefined ? 0 : fleetSpending(country.fleet)) + (country.navy?.spending ?? 0) <= country.upkeep);
 const siteReport = z.object({
   industries: z.object({ grain: industry, cloth: industry, ...byIndustrialGood(() =>
     industry.default({ employed: 0, output: 0, wages: 0 })) }),
@@ -570,14 +572,15 @@ export function parseSave(scenario: Scenario, save: unknown): GameState {
       account.treasury += account.queue.reduce((sum, project) => sum + unusedPrepaidConstruction(project), 0);
       n.investment += n.privateQueue.reduce((sum, project) => sum + unusedPrepaidConstruction(project), 0);
     }
-    const order = n.fleet.order;
-    if (order && (state.ownerByStateId[order.stateId] !== id || !scenario.states[order.stateId]?.coastal)) invalid();
+    for (const order of [n.fleet.order, n.navy.order])
+      if (order && (state.ownerByStateId[order.stateId] !== id || !scenario.states[order.stateId]?.coastal)) invalid();
     const motorizationPort = n.fleet.motorizationPort;
     if (n.fleet.motorized > n.convoys || (motorizationPort !== null &&
         (state.ownerByStateId[motorizationPort] !== id || !scenario.states[motorizationPort]?.coastal))) invalid();
     if (state.lastEconomy) {
-      const { military: m, tradeSeaCargo, fleet } = state.lastEconomy.countries[id];
-      if (fleet?.port && !scenario.states[fleet.port]?.coastal) invalid();
+      const { military: m, tradeSeaCargo, fleet, navy } = state.lastEconomy.countries[id];
+      for (const port of [fleet?.port, navy?.port])
+        if (port && !scenario.states[port]?.coastal) invalid();
       if (m.grainDrawn > Math.min(m.grainDemand, m.grainTransport)) invalid();
       if ((m.seaCargoUsed ?? 0) + (tradeSeaCargo ?? 0) > maximumConvoyCapacity(n)) invalid();
     }

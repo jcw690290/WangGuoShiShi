@@ -18,6 +18,7 @@ import { constitutionalFormSchema, constitutionalLaws, constitutionalMandate, co
 import { economicLaws, isEconomicLaw, ownershipSchema } from "./ownership.ts";
 import { barracksTrainingSchema, battalionOrdersSchema } from "./military.ts";
 import { militaryHealthSchema } from "./military-health.ts";
+import { initialNavy, navySchema } from "./navy.ts";
 
 export const occupations = ["农民", "劳工", "工程师", "军官", "教士", "店主", "资本家", "贵族"] as const;
 export type Occupation = (typeof occupations)[number];
@@ -198,6 +199,7 @@ export const nationSchema = z.object({
   prestige: z.int(),
   convoys: z.int().nonnegative(),
   fleet: merchantFleetSchema.default(initialFleet),
+  navy: navySchema.default(() => initialNavy()),
   morale: percent,
   generalRank: z.int().min(1).max(5),
 });
@@ -250,8 +252,12 @@ export function initSiteSociety(site: Scenario["states"][string]): SiteSocial {
 export function initSociety(scenario: Scenario) {
   const societies: Record<string, SiteSocial> = {};
   const nations: Record<string, Nation> = {};
-  for (const site of Object.values(scenario.states))
-    if (site.ownerId !== null) societies[site.id] = initSiteSociety(site);
+  const coastalByOwner: Record<string, number> = {};
+  for (const site of Object.values(scenario.states)) {
+    if (site.ownerId === null) continue;
+    societies[site.id] = initSiteSociety(site);
+    if (site.coastal) coastalByOwner[site.ownerId] = (coastalByOwner[site.ownerId] ?? 0) + 1;
+  }
   for (const id of Object.keys(scenario.countries)) {
     nations[id] = {
       startingStateForm: startingStateForm(id),
@@ -277,6 +283,7 @@ export function initSociety(scenario: Scenario) {
       prestige: 100,
       convoys: 4,
       fleet: initialFleet(),
+      navy: initialNavy(coastalByOwner[id]),
       generalRank: 1,
       morale: 100,
     };
