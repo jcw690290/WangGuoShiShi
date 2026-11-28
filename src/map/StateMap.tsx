@@ -242,7 +242,8 @@ async function mountMap(
   return {
     draw(game: GameState, owners: GameState["ownerByStateId"], cells: Props["cells"], selectedId: string | null, preview: string | null) {
       const scenario = scenarioWithCivilWar(baseScenario, game.civilWar);
-      const occupation = game.occupation?.stateId ?? null;
+      const occupied = [game.occupation?.stateId ?? null, game.foreignTheater?.occupation?.stateId ?? null];
+      const occupation = occupied.join("|");
       let namesChanged = false;
       if (previousNations !== game.nations && previousOwners === owners) {
         for (const { text, owner } of nationTexts) {
@@ -331,7 +332,7 @@ async function mountMap(
       }
       selection.clear();
       occupationHighlight.clear();
-      for (const id of new Set([occupation, selectedId]))
+      for (const id of new Set([...occupied, selectedId]))
         if (id !== null) {
           const selected = id === selectedId;
           const highlight = selected ? selection : occupationHighlight;

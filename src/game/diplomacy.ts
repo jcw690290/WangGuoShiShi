@@ -1,4 +1,5 @@
 import { GameRuleError } from "./rules.ts";
+import { attachForeignTheater, foreignTheaterView, inCivilTheater, separateTheaters } from "./conflict-state.ts";
 import { z } from "zod";
 import { diplomaticTie, removeDiplomaticTies } from "./diplomatic-ties.ts";
 import { localGovernanceRule, newFrontier } from "./governance.ts";
@@ -473,6 +474,21 @@ function acceptsPeace(state: GameState, d: BorderDispute, offer: PeaceOffer, cou
   return offer.goals.includes(d.goals[0]) || concessions + (offer.commercial ? 8 : 0) >= willingness - 20;
 }
 export function applyBorderCommand(scenario: Scenario, state: GameState, cmd: BorderCommand): GameState {
+  if (!state.civilWar) return applyBorderCommandInTheater(scenario, state, cmd);
+  if (inCivilTheater(state, cmd.countryId)) {
+    const { foreignTheater, ...civil } = state;
+    const updated = applyBorderCommandInTheater(scenario, civil, cmd);
+    if (!foreignTheater) return updated;
+    if (updated.civilWar) return { ...updated, foreignTheater };
+    return { ...updated, borderDispute: foreignTheater.dispute,
+      ...(foreignTheater.occupation ? { occupation: foreignTheater.occupation } : {}) };
+  }
+  const foreign = applyBorderCommandInTheater(scenario, foreignTheaterView(state), cmd);
+  if (!separateTheaters(state, foreign.borderDispute)) throw new GameRuleError("内战阵营已投入本国战线");
+  return attachForeignTheater(state, foreign);
+}
+
+function applyBorderCommandInTheater(scenario: Scenario, state: GameState, cmd: BorderCommand): GameState {
   const id = cmd.countryId,
     n = state.nations[id],
     d = state.borderDispute;
@@ -730,6 +746,18 @@ export function frontObjectives(scenario: Scenario, state: GameState, d: BorderD
     (site.coastal && departurePort));
 }
 export function planWar(scenario: Scenario, state: GameState): WarPlan | undefined {
+  const primary = planWarInTheater(scenario, state);
+  if (!state.foreignTheater) return primary;
+  const foreign = planWarInTheater(scenario, foreignTheaterView(state));
+  if (!primary || !foreign) return primary ?? foreign;
+  return { ...primary, routes: { ...primary.routes, ...foreign.routes }, naval: {
+    portAccess: new Map([...primary.naval.portAccess, ...foreign.naval.portAccess]),
+    blockadedPorts: new Set([...primary.naval.blockadedPorts, ...foreign.naval.blockadedPorts]),
+    landing: new Map([...primary.naval.landing, ...foreign.naval.landing]),
+  } };
+}
+
+function planWarInTheater(scenario: Scenario, state: GameState): WarPlan | undefined {
   const d = state.borderDispute;
   if (d?.phase !== "war") return;
   const routes: Record<string, SupplyRoute> = {};

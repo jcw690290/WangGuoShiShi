@@ -265,8 +265,9 @@ function PeaceNegotiation({ game, dispute, id, busy, send }: {
 }
 
 export function DiplomacyPanel(
-  { view, scenario, game, playerId: id, report, busy, send, selectedId }: Props & { view: "diplomacy" | "military" },
+  { view, scenario, game: world, playerId: id, report, busy, send, selectedId }: Props & { view: "diplomacy" | "military" },
 ) {
+  const game = world.civilWar && !inCivilTheater(world, id) ? foreignTheaterView(world) : world;
   const military = view === "military";
   const n = game.nations[id],
     d = game.borderDispute,
@@ -661,3 +662,4 @@ export function DiplomacyPanel(
     </section>
   );
 }
+import { foreignTheaterView, inCivilTheater } from "./game/conflict-state.ts";

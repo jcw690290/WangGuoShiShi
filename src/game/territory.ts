@@ -1,3 +1,4 @@
+import { currentDisputes, occupationAt } from "./conflict-state.ts";
 import { z } from "zod";
 import { recordImmediateTransfer, treasuryAccount } from "./finance-journal.ts";
 import { GameRuleError } from "./rules.ts";
@@ -30,7 +31,7 @@ export type TerritorialSettlementCommand =
 export const settlementAt = (state: GameState, stateId: string) =>
   state.territorialSettlements?.find((project) => project.stateId === stateId);
 export const settlementContested = (state: GameState, stateId: string) =>
-  state.borderDispute?.settlementStateId === stateId && state.borderDispute.phase !== "resolved";
+  currentDisputes(state).some((dispute) => dispute.settlementStateId === stateId && dispute.phase !== "resolved");
 export const territorialClaimSchema = z.object({
   stateId: z.string(), claimantId: z.string(), declaredDay: z.int().nonnegative(), recognizedBy: z.array(z.string()),
 }).refine((claim) => !claim.recognizedBy.includes(claim.claimantId) &&
@@ -48,9 +49,8 @@ export function territorialClaimError(scenario: Scenario, state: GameState, cmd:
   const claim = territorialClaim(state, countryId, stateId);
   if (cmd.type === "renounceTerritorialClaim") {
     if (!claim) return "本国没有登记该宣称";
-    const dispute = state.borderDispute;
-    if (dispute && dispute.phase !== "resolved" && dispute.claimantId === countryId &&
-        (dispute.settlementStateId === stateId || (dispute.targetStateId === stateId && dispute.goals.includes("recognition"))))
+    if (currentDisputes(state).some((dispute) => dispute.phase !== "resolved" && dispute.claimantId === countryId &&
+        (dispute.settlementStateId === stateId || (dispute.targetStateId === stateId && dispute.goals.includes("recognition")))))
       return "进行中的地区博弈需要保留该宣称";
     return;
   }
@@ -61,7 +61,7 @@ export function territorialClaimError(scenario: Scenario, state: GameState, cmd:
     return "只有独立且拥有领土的国家可宣称";
   const adjacent = site.neighbors.some((id) => state.ownerByStateId[id] === countryId);
   const overseas = site.coastal && Object.values(scenario.states)
-    .some((port) => port.coastal && state.ownerByStateId[port.id] === countryId && state.occupation?.stateId !== port.id);
+    .some((port) => port.coastal && state.ownerByStateId[port.id] === countryId && !occupationAt(state, port.id));
   if (!adjacent && !overseas) return "需要陆地接壤或沿海通达";
   if (influenceBudget(state, countryId).available < 1) return "可用外交影响力不足";
 }
@@ -101,7 +101,7 @@ export function reconcileTerritorialPlans(state: GameState): GameState {
 function anchorFor(scenario: Scenario, state: GameState, stateId: string, countryId: string) {
   const target = scenario.states[stateId];
   const candidates = Object.values(scenario.states).filter((site) => state.ownerByStateId[site.id] === countryId &&
-    state.occupation?.stateId !== site.id && state.societies[site.id].bureaucracy > 0);
+    !occupationAt(state, site.id) && state.societies[site.id].bureaucracy > 0);
   const best = candidates.sort((a, b) => state.societies[b.id].bureaucracy - state.societies[a.id].bureaucracy ||
     state.stateEconomies[b.id].population - state.stateEconomies[a.id].population);
   const land = best.find((site) => target.neighbors.includes(site.id));
@@ -194,7 +194,7 @@ export function advanceTerritorialSettlements(scenario: Scenario, state: GameSta
   for (const project of state.territorialSettlements) {
     const { countryId, anchorId, stateId, mode, sea, startedDay } = project;
     const laws = state.nations[countryId].laws;
-    if (state.ownerByStateId[anchorId] !== countryId || state.occupation?.stateId === anchorId ||
+    if (state.ownerByStateId[anchorId] !== countryId || !!occupationAt(state, anchorId) ||
         !governanceModeAllowed(mode, laws) || state.elapsedDays === startedDay || settlementContested(state, stateId)) {
       uncompleted.push(project);
       continue;

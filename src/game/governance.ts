@@ -1,3 +1,4 @@
+import { occupationAt } from "./conflict-state.ts";
 import { z } from "zod";
 import type { GameState } from "./engine.ts";
 import { elapsedTicks, TICKS_PER_DAY } from "./time.ts";
@@ -69,7 +70,7 @@ export type GovernanceCommand =
 export function governanceError(state: GameState, cmd: GovernanceCommand) {
   const { stateId, countryId } = cmd;
   if (state.ownerByStateId[stateId] !== countryId) return "只能管理本国领土";
-  if (state.occupation?.stateId === stateId) return "州处于军事占领中";
+  if (!!occupationAt(state, stateId)) return "州处于军事占领中";
   const current = governanceOf(state.societies[stateId]);
   if (cmd.type === "setLocalGovernance") {
     const laws = state.nations[countryId].laws;

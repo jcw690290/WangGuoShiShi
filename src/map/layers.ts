@@ -58,7 +58,8 @@ export function mapLayerCells(scenario: Scenario, game: GameState, layer: MapLay
     for (const id of [shipment.from, shipment.to]) tradeCounts.set(id, (tradeCounts.get(id) ?? 0) + 1);
   }
   const war = layer === "supply" ? planWar(scenario, game) : undefined;
-  const frontline = war ? new Set(frontLine(scenario, game, game.borderDispute!).map(({ id }) => id)) : undefined;
+  const frontline = war ? new Set(currentDisputes(game).flatMap((dispute) => dispute.phase === "war" ?
+    frontLine(scenario, dispute === game.borderDispute ? game : foreignTheaterView(game), dispute).map(({ id }) => id) : [])) : undefined;
   if (war) for (const route of Object.values(war.routes)) frontline!.add(route.objective);
   const percent = (share: number) => Math.round(share * 100) + "%";
 
@@ -97,3 +98,4 @@ export function mapLayerCells(scenario: Scenario, game: GameState, layer: MapLay
     return [id, cell];
   }));
 }
+import { currentDisputes, foreignTheaterView } from "../game/conflict-state.ts";

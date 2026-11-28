@@ -62,6 +62,8 @@ import {
   advanceCivilWar, chooseCivilWarSide, controlledCivilCountry, mustChooseCivilSide, oppositionId, scenarioWithCivilWar,
 } from "./civil-war.ts";
 import type { CivilWar, CivilWarCommand, CivilWarResult } from "./civil-war.ts";
+import { attachForeignTheater, foreignTheaterView, occupationAt, separateTheaters } from "./conflict-state.ts";
+import type { ForeignTheater } from "./conflict-state.ts";
 import { militaryServiceLaw } from "./military-service.ts";
 import { publicPayBandSchema } from "./public-pay.ts";
 import type { PublicPayBand } from "./public-pay.ts";
@@ -98,6 +100,7 @@ export interface GameState {
   constitutionalCrises?: Record<string, ConstitutionalCrisis>;
   civilWar?: CivilWar;
   lastCivilWar?: CivilWarResult;
+  foreignTheater?: ForeignTheater;
   tradeRoutes?: TradeRoute[];
   occupation?: Occupation;
 }
@@ -216,7 +219,7 @@ function chooseInstitutionUpgrade(state: GameState, report: EconomyReport, count
   const treasury = state.countryEconomies[countryId].treasury;
   const market = report.countries[countryId].market;
   return Object.entries(state.societies).flatMap(([stateId, site]) => {
-    if (state.ownerByStateId[stateId] !== countryId || state.occupation?.stateId === stateId || site[kind] === 3) return [];
+    if (state.ownerByStateId[stateId] !== countryId || !!occupationAt(state, stateId) || site[kind] === 3) return [];
     const level = site[kind] + 1;
     if (institutionLevelError(kind, level, nation.laws, nation.knowledge)) return [];
     const local = report.states[stateId];
@@ -333,7 +336,8 @@ export function advanceTick(
   const tickInDay = state.tickInDay + 1;
   if (tickInDay < TICKS_PER_DAY) return { ...state, tickInDay };
   const scenario = scenarioWithCivilWar(baseScenario, war);
-  const next = tickDiplomacy(scenario, { ...state, elapsedDays: state.elapsedDays + 1, tickInDay: 0 }, humanCountries);
+  let next = tickDiplomacy(scenario, { ...state, elapsedDays: state.elapsedDays + 1, tickInDay: 0 }, humanCountries);
+  if (next.foreignTheater) next = attachForeignTheater(next, tickDiplomacy(scenario, foreignTheaterView(next), humanCountries));
   const date = getGameDate(scenario, next);
   const monthly = isPopulationMonth(scenario, next);
   if (next.elapsedDays % 7 !== 0) {
@@ -345,7 +349,9 @@ export function advanceTick(
   const warPlan = planWar(scenario, next);
   const weekly = settleEconomy(next, warPlan, yearFraction, scenario);
   const settled = monthly ? settlePopulationMonth(scenario, weekly, date) : weekly;
-  const battle = advanceFront(scenario, settled, settled.lastEconomy);
+  let battle = advanceFront(scenario, settled, settled.lastEconomy);
+  if (battle.foreignTheater)
+    battle = attachForeignTheater(battle, advanceFront(scenario, foreignTheaterView(battle), settled.lastEconomy));
   let recovered = recoverMilitaryInjuries(battle, settled.lastEconomy);
   if (recovered.elapsedDays % 28 === 0) {
     const routes = chooseAITradeRoutes(scenario, recovered, settled.lastEconomy, humanCountries, warPlan?.naval);
@@ -403,20 +409,20 @@ export function advanceTick(
       const report = settled.lastEconomy.countries[id];
       const port = report.fleet?.port;
       const occupiedCargo = (report.military.seaCargoUsed ?? 0) + (report.tradeSeaCargo ?? 0);
-      if (result.elapsedDays % 28 === 0 && port && result.occupation?.stateId !== port && !result.nations[id].fleet.order &&
+      if (result.elapsedDays % 28 === 0 && port && !occupationAt(result, port) && !result.nations[id].fleet.order &&
           occupiedCargo > 0 && occupiedCargo >= effectiveConvoyCapacity(next.nations[id]) * 0.8 &&
           result.countryEconomies[id].treasury >= shipGoodsPerConvoy * industries.shipGoods.basePrice * 1.75) {
         result = applyCommand(scenario, result, { type: "setConvoyOrder", countryId: id, stateId: port, operation: "add" });
       }
       const fleetNation = result.nations[id];
       const model = fleetNation.knowledge["装甲舰艇"] === 100 ? "armored" : "standard";
-      if (result.elapsedDays % 28 === 0 && port && result.occupation?.stateId !== port && !fleetNation.navy.order &&
+      if (result.elapsedDays % 28 === 0 && port && !occupationAt(result, port) && !fleetNation.navy.order &&
           fleetNation.navy.warships < 1 + Math.floor(fleetNation.convoys / 6) &&
           result.countryEconomies[id].treasury >= warshipMaterials[model] * industries.shipGoods.basePrice * 2 &&
           report.market.shipGoods.supply >= warshipMaterials[model]) {
         result = applyCommand(scenario, result, { type: "setWarshipOrder", countryId: id, stateId: port, operation: "add", model });
       }
-      if (result.elapsedDays % 28 === 0 && port && result.occupation?.stateId !== port &&
+      if (result.elapsedDays % 28 === 0 && port && !occupationAt(result, port) &&
           fleetNation.knowledge["内燃机"] === 100 && fleetNation.convoys > fleetNation.fleet.motorized &&
           fleetNation.fleet.motorizationPort === null && occupiedCargo > 0 &&
           (["oil", "rubber"] as const).every((good) =>
@@ -464,6 +470,16 @@ export function advanceTick(
       });
   }
   for (const cmd of aiDiplomacy(scenario, result, humanCountries)) result = applyCommand(scenario, result, cmd);
+  if (result.civilWar) {
+    let foreign = foreignTheaterView(result);
+    const home = result.borderDispute!;
+    const reserved = new Set([...humanCountries, home.claimantId, home.defenderId]);
+    for (const cmd of aiDiplomacy(scenario, foreign, reserved)) {
+      const proposal = applyCommand(scenario, foreign, cmd);
+      if (separateTheaters(result, proposal.borderDispute)) foreign = proposal;
+    }
+    result = attachForeignTheater(result, foreign);
+  }
   result = settleAiForeignOffers(result, humanCountries);
   result = settleAiDiplomaticTieOffers(result, humanCountries);
   result = advanceTerritorialSettlements(scenario, result, settled.lastEconomy);
@@ -555,7 +571,7 @@ function applyCommand(
       const { countryId, stateId, limit } = cmd;
       if (state.ownerByStateId[stateId] !== countryId) throw new GameRuleError("只能补贴本国州的产业");
       if (!industrySubsidyLimit.safeParse(limit).success) throw new GameRuleError("产业补贴上限须为非负整数");
-      if (limit > 0 && (!state.stateEconomies[stateId].industrial || state.occupation?.stateId === stateId))
+      if (limit > 0 && (!state.stateEconomies[stateId].industrial || !!occupationAt(state, stateId)))
         throw new GameRuleError("现有产业可在本国实际控制时申请补贴");
       const country = state.countryEconomies[countryId];
       const industrySubsidies = { ...country.industrySubsidies };
@@ -658,7 +674,7 @@ function applyCommand(
       const { countryId: id, stateId, operation } = cmd;
       if (state.ownerByStateId[stateId] !== id || !scenario.states[stateId]?.coastal)
         throw new GameRuleError("只能在本国沿海州安排商船");
-      if (operation !== "cancel" && state.occupation?.stateId === stateId) throw new GameRuleError("该港口处于军事占领中");
+      if (operation !== "cancel" && !!occupationAt(state, stateId)) throw new GameRuleError("该港口处于军事占领中");
       const nation = state.nations[id];
       const current = nation.fleet.order;
       if (operation === "move" && current === null || operation === "cancel" && current?.stateId !== stateId)
@@ -677,7 +693,7 @@ function applyCommand(
       if (enabled) {
         if (nation.knowledge["内燃机"] !== 100) throw new GameRuleError("需要掌握内燃机技术");
         if (nation.convoys <= nation.fleet.motorized) throw new GameRuleError("没有待改装的商船");
-        if (state.occupation?.stateId === stateId) throw new GameRuleError("该港口处于军事占领中");
+        if (!!occupationAt(state, stateId)) throw new GameRuleError("该港口处于军事占领中");
       } else if (nation.fleet.motorizationPort !== stateId) throw new GameRuleError("该港口没有商船改装计划");
       const fleet = { ...nation.fleet, motorizationPort: enabled ? stateId : null };
       return { ...state, nations: { ...state.nations, [id]: { ...nation, fleet } } };
@@ -693,7 +709,7 @@ function applyCommand(
       const site = state.societies[stateId];
       if (level === site[kind]) return state;
       if (level > site[kind]) {
-        if (state.occupation?.stateId === stateId) throw new GameRuleError("该州处于军事占领中");
+        if (!!occupationAt(state, stateId)) throw new GameRuleError("该州处于军事占领中");
         const nation = state.nations[countryId];
         const error = institutionLevelError(kind, level, nation.laws, nation.knowledge);
         if (error) throw new GameRuleError(error);

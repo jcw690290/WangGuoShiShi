@@ -1,3 +1,4 @@
+import { occupationAt } from "./conflict-state.ts";
 import { z } from "zod";
 import type { GameState } from "./engine.ts";
 import type { Scenario } from "../scenario/scenario.ts";
@@ -57,7 +58,7 @@ export function applyNavalConstruction(scenario: Scenario, state: GameState, cmd
   const { countryId, stateId, operation } = cmd;
   if (state.ownerByStateId[stateId] !== countryId || !scenario.states[stateId].coastal)
     throw new GameRuleError("只能在本国沿海州安排造舰");
-  if (operation !== "cancel" && state.occupation?.stateId === stateId) throw new GameRuleError("该港口处于军事占领中");
+  if (operation !== "cancel" && !!occupationAt(state, stateId)) throw new GameRuleError("该港口处于军事占领中");
   const nation = state.nations[countryId], current = nation.navy.order;
   if (operation === "cancel" && current?.stateId !== stateId || operation === "move" && current === null)
     throw new GameRuleError("该造舰订单已变更");

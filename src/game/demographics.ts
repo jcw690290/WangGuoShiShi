@@ -1,3 +1,4 @@
+import { currentDisputes, occupationAt } from "./conflict-state.ts";
 import type { GameState } from "./engine.ts";
 import { civicPolicy, civicStanding } from "./civic-policy.ts";
 import { advanceGroupLeadership, literacyOf, livingStandardOf } from "./society.ts";
@@ -37,17 +38,18 @@ export function settlePopulationMonth<T extends GameState>(scenario: Scenario, s
   const changes: Record<string, number> = {};
   const educationBySite: Record<string, number> = {};
   const rights = Object.fromEntries(Object.entries(state.nations).map(([id, nation]) => [id, civicPolicy(nation.laws)]));
-  const dispute = state.borderDispute;
-  const war = dispute?.phase === "war" ? dispute : undefined;
-  const warParties = new Set(war ? participants(war) : []);
-  const frontline = new Set(war ? [war.targetStateId, ...scenario.states[war.targetStateId].neighbors]
-    .filter((id) => warParties.has(state.ownerByStateId[id])) : []);
+  const frontline = new Set(currentDisputes(state).flatMap((war) => {
+    if (war.phase !== "war") return [];
+    const parties = new Set(participants(war));
+    return [war.targetStateId, ...scenario.states[war.targetStateId].neighbors]
+      .filter((id) => parties.has(state.ownerByStateId[id]));
+  }));
 
   for (const [siteId, owner] of Object.entries(state.ownerByStateId)) {
     const economy = stateEconomies[siteId];
     const site = societies[siteId];
     const population = economy.population;
-    const occupied = state.occupation?.stateId === siteId;
+    const occupied = !!occupationAt(state, siteId);
     const latest = state.lastEconomy?.states[siteId];
     const food = latest?.foodFulfillment ?? 1;
     const additionalMortality = severeFoodShortageMortality * Math.max(0, 1 - food / 0.8);

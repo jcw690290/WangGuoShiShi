@@ -3,6 +3,7 @@ import type { Scenario } from "../scenario/scenario.ts";
 import type { EndingMetrics } from "../scenario/endingRules.ts";
 import { culturalAffinityOf } from "./culture.ts";
 import { participants } from "./diplomacy.ts";
+import { currentDisputes, occupationAt } from "./conflict-state.ts";
 import { productiveBuildingActivity, projectEconomy, weeklyBudgets, workForce } from "./economy.ts";
 import type { EconomyReport } from "./economy.ts";
 import type { GameState } from "./engine.ts";
@@ -81,7 +82,7 @@ export function measureCampaign(
     const owner = state.ownerByStateId[site.id];
     if (site.ownerId === countryId) {
       core += site.population;
-      const controller = state.occupation?.stateId === site.id ? state.occupation.controllerId : owner;
+      const controller = occupationAt(state, site.id)?.controllerId ?? owner;
       if (controller === countryId) coreControlled += site.population;
     } else if (owner !== undefined && owner !== countryId &&
         (culturalAffinityOf(state.societies[site.id])[countryId] ?? 0) >= 60) {
@@ -162,8 +163,8 @@ export function measureCampaign(
     return total;
   }, { required: military.seaCargoRequired ?? 0, delivered: military.seaCargoRequired === undefined ? 0 : military.seaCargoUsed! });
   if (sea.required > 0) metrics.SEA = sea.delivered / sea.required;
-  const dispute = state.borderDispute;
-  if (dispute?.phase === "war" && participants(dispute).includes(countryId) && (military.fieldPersonnel ?? 1) > 0)
+  if (currentDisputes(state).some((dispute) => dispute.phase === "war" && participants(dispute).includes(countryId)) &&
+      (military.fieldPersonnel ?? 1) > 0)
     metrics.SUP = military.supplyRatio ?? military.readiness;
   if (fiscal && metrics.FISCAL_RATIO !== undefined)
     metrics.SUSTAINABLE_FISCAL = fiscal.week.risk === "stable" && metrics.FISCAL_RATIO < 0.6 &&

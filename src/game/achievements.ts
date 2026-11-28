@@ -91,10 +91,12 @@ export function advanceAchievements(before: GameState, game: GameState, date: Da
       (culturalAffinityOf(before.societies[site])[countryId] ?? 0) < 60,
     ));
   }
-  const dispute = game.borderDispute;
-  award("diplomacy", !!dispute && dispute.phase === "resolved" && dispute.outcome === "victory" &&
-    dispute.claimantId === countryId && before.borderDispute?.phase !== "resolved");
-  const atWar = dispute?.phase === "war" && participants(dispute).includes(countryId);
+  const disputes = currentDisputes(game);
+  const previousDisputes = currentDisputes(before);
+  award("diplomacy", disputes.some((dispute) => dispute.phase === "resolved" && dispute.outcome === "victory" &&
+    dispute.claimantId === countryId && previousDisputes.some((previous) => previous.phase !== "resolved" &&
+      previous.claimantId === dispute.claimantId && previous.targetStateId === dispute.targetStateId)));
+  const atWar = disputes.some((dispute) => dispute.phase === "war" && participants(dispute).includes(countryId));
   const peaceSince = atWar ? null : progress.peaceSince ?? game.elapsedDays;
   if (peaceSince !== null && !earned.has("peace") && game.elapsedDays - peaceSince >= 3650) {
     const anniversary = new Date(date.getTime() - (game.elapsedDays - peaceSince) * DAY_MS);
@@ -108,3 +110,4 @@ export function advanceAchievements(before: GameState, game: GameState, date: Da
   }))] : progress.records;
   return { ...game, campaign: { ...campaign, achievements: { records, peaceSince, creditCrisis } } };
 }
+import { currentDisputes } from "./conflict-state.ts";

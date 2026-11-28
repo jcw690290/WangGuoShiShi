@@ -1,3 +1,4 @@
+import { occupationAt } from "./conflict-state.ts";
 import { z } from "zod";
 import type { GameState } from "./engine.ts";
 import type { EconomyReport } from "./economy.ts";
@@ -45,7 +46,7 @@ export function recoverMilitaryInjuries(state: GameState, report: EconomyReport)
   const societies = { ...state.societies };
   for (const [id, site] of Object.entries(societies)) {
     if (!site.militaryHealth) continue;
-    const coverage = state.occupation?.stateId === id ? 0 : report.states[id].healthcare?.coverage ?? 0;
+    const coverage = !!occupationAt(state, id) ? 0 : report.states[id].healthcare?.coverage ?? 0;
     const injuries = site.militaryHealth.injuries.map((group) => ({
       ...group, recovery: group.recovery - (group.sufferedDay < state.elapsedDays ? 1 + coverage : 0),
     })).filter((group) => group.recovery > 0);

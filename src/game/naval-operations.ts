@@ -1,3 +1,4 @@
+import { occupationAt } from "./conflict-state.ts";
 import { z } from "zod";
 import type { BorderDispute } from "./diplomacy.ts";
 import type { GameState } from "./engine.ts";
@@ -25,7 +26,7 @@ export function navalMissionTargets(scenario: Scenario, state: GameState, disput
   const attacking = claimants.includes(countryId);
   const friendly = attacking ? claimants : defenders;
   const opposing = attacking ? defenders : claimants;
-  const coast = Object.values(scenario.states).filter((site) => site.coastal && state.occupation?.stateId !== site.id);
+  const coast = Object.values(scenario.states).filter((site) => site.coastal && !occupationAt(state, site.id));
   const bases = coast.filter((site) => state.ownerByStateId[site.id] === countryId);
   const eligible = task === "escort" ? friendly : opposing;
   const target = scenario.states[dispute.targetStateId];
