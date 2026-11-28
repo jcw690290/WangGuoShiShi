@@ -264,6 +264,7 @@ function StateIndustry({
           {snapshot.opium.recoverySupport !== undefined && <p>实付教育、救助及医疗支持 {Math.round(snapshot.opium.recoverySupport * 100)}%</p>}
           <p>医疗采购 {count(snapshot.opium.medical.delivered)} / {count(snapshot.opium.medical.ordered)} · 机构实付 {silver(snapshot.opium.medical.spending)}</p>
           <p>非医疗消费 {count(snapshot.opium.nonMedical.consumed)} / {count(snapshot.opium.nonMedical.ordered)} · 家庭实付 {silver(snapshot.opium.nonMedical.spending)}</p>
+          {snapshot.opium.illicit && <p>非法流量尝试 {count(snapshot.opium.illicit.attempted)} · 查缉 {count(snapshot.opium.illicit.seized)} · 到货 {count(snapshot.opium.illicit.delivered)}</p>}
         </details>}
         {snapshot.industrial && <details>
           <summary>工业库存与周转资金</summary>

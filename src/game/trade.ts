@@ -12,7 +12,8 @@ import { connectedRailway, portCapacity, seaVoyageCargoCost } from "./transport.
 import { effectiveConvoyCapacity } from "./fleet.ts";
 import { unrestEffects } from "./unrest.ts";
 import { tariffRate, tradeRestriction } from "./trade-policy.ts";
-import { opiumCommerceAllowed } from "./opium.ts";
+import { opiumCommerceAllowed, opiumLaw } from "./opium.ts";
+import type { OpiumSmuggling } from "./opium.ts";
 
 const units = z.int().nonnegative();
 export const tradeLimit = z.int().positive().max(100_000);
@@ -105,6 +106,15 @@ export function tradeRouteBlock(state: GameState, route: TradeRoute) {
   return foreignTradeStatus(state, exporter, importer, route.good);
 }
 
+export function illicitOpiumEligible(state: GameState, route: TradeRoute) {
+  const { from, to, exporter, importer } = route;
+  return route.good === "opium" && !route.paused &&
+    state.ownerByStateId[from] === exporter && state.ownerByStateId[to] === importer &&
+    state.occupation?.stateId !== from && state.occupation?.stateId !== to &&
+    marketOf(state, exporter) !== marketOf(state, importer) && !foreignTradeStatus(state, exporter, importer) &&
+    opiumCommerceAllowed(state.nations[exporter].laws) && opiumLaw(state.nations[importer].laws) !== "鸦片许可经营";
+}
+
 export function applyTradeCommand(scenario: Scenario, state: GameState, cmd: TradeCommand): GameState {
   if (isLocalGood(cmd.good)) throw new GameRuleError(`${cmd.good === "services" ? "服务" : industries[cmd.good].goodName}只能在本州成交`);
   const routes = state.tradeRoutes ?? [];
@@ -175,6 +185,7 @@ export function settleTrade(
   militaryCargo: ReadonlyMap<string, number>,
   militaryPortUse: ReadonlyMap<string, number>,
   naval?: NavalTradeRestrictions,
+  illicitOrders?: ReadonlyMap<string, { quantity: number; budget: number }>,
 ) {
   const transfers = new Map<string, {
     sent: ByGood<number>; received: ByGood<number>; producerPayment: ByGood<number>;
@@ -193,14 +204,10 @@ export function settleTrade(
   const railUse = new Map<string, number>();
   const seaCargo = new Map<string, number>();
   const portFreight = new Map<string, number>();
-  const deliveries = (state.tradeRoutes ?? []).map((route): TradeDelivery => {
-    const { from, to, importer, good, mode, cargoCost } = route;
-    const empty = { from, to, good, mode, quantity: 0, purchase: 0, freight: 0, tariff: 0, sales: 0, profit: 0 };
-    const restriction = tradeRouteBlock(state, route);
-    if (restriction) return { ...empty, status: restriction };
-    if (mode === "sea" && (naval?.blockadedPorts.has(from) || naval?.blockadedPorts.has(to)))
-      return { ...empty, status: "blockaded" };
-    const source = at(from), target = at(to);
+  const blockedAtSea = ({ mode, from, to }: TradeRoute) => mode === "sea" &&
+    (naval?.blockadedPorts.has(from) || naval?.blockadedPorts.has(to));
+  function corridor(route: TradeRoute) {
+    const { from, to, mode, importer, cargoCost } = route;
     const sourceSite = state.societies[from], targetSite = state.societies[to];
     const sourceTransport = unrestEffects(sourceSite.stability).transport;
     const targetTransport = unrestEffects(targetSite.stability).transport;
@@ -225,6 +232,31 @@ export function settleTrade(
       Math.floor(portCapacity(route.toCapacity, targetSite) * toAccess) - (militaryPortUse.get(to) ?? 0) - freightTo,
       Math.floor(spaceAtSea / cargoCost),
     ) : roadSpace + railSpace;
+    function book(quantity: number) {
+      if (mode === "sea") {
+        seaCargo.set(importer, usedAtSea + quantity * cargoCost);
+        portFreight.set(from, freightFrom + quantity);
+        portFreight.set(to, freightTo + quantity);
+      } else {
+        const shippedByRail = Math.min(quantity, railSpace);
+        roadUse.set(from, roadFrom + quantity - shippedByRail);
+        roadUse.set(to, roadTo + quantity - shippedByRail);
+        if (shippedByRail > 0) {
+          railUse.set(from, railFrom + shippedByRail);
+          railUse.set(to, railTo + shippedByRail);
+        }
+      }
+    }
+    return { transport, book };
+  }
+  const deliveries = (state.tradeRoutes ?? []).map((route): TradeDelivery => {
+    const { from, to, importer, good, mode, cargoCost } = route;
+    const empty = { from, to, good, mode, quantity: 0, purchase: 0, freight: 0, tariff: 0, sales: 0, profit: 0 };
+    const restriction = tradeRouteBlock(state, route);
+    if (restriction) return { ...empty, status: restriction };
+    if (blockedAtSea(route)) return { ...empty, status: "blockaded" };
+    const source = at(from), target = at(to);
+    const { transport, book } = corridor(route);
     const quantity = Math.min(
       route.limit, transport,
       supplies[from][good] - fills[good][from].local - fills[good][from].poolSold - source.sent[good],
@@ -232,9 +264,9 @@ export function settleTrade(
     );
     if (quantity <= 0) return { ...empty, status: "noVolume" };
     const ask = sites[from].localPrices[good], bid = sites[to].localPrices[good];
-    const affinity = culturalAffinityOf(targetSite);
+    const affinity = culturalAffinityOf(state.societies[to]);
     let familiarity = 0;
-    for (const [culture, share] of cultureShares(sourceSite.pops))
+    for (const [culture, share] of cultureShares(state.societies[from].pops))
       if (Object.hasOwn(affinity, culture)) familiarity += affinity[culture] * share;
     const purchase = ask * quantity, sales = bid * quantity;
     const standardFreight = Math.ceil(purchase * 0.05 * cargoCost);
@@ -242,19 +274,7 @@ export function settleTrade(
     const tariff = Math.floor(purchase * tariffRate(state.nations[importer]) / 100);
     const profit = sales - purchase - freight - tariff;
     if (profit <= 0) return { ...empty, status: "unprofitable" };
-    if (mode === "sea") {
-      seaCargo.set(importer, usedAtSea + quantity * cargoCost);
-      portFreight.set(from, freightFrom + quantity);
-      portFreight.set(to, freightTo + quantity);
-    } else {
-      const shippedByRail = Math.min(quantity, railSpace);
-      roadUse.set(from, roadFrom + quantity - shippedByRail);
-      roadUse.set(to, roadTo + quantity - shippedByRail);
-      if (shippedByRail > 0) {
-        railUse.set(from, railFrom + shippedByRail);
-        railUse.set(to, railTo + shippedByRail);
-      }
-    }
+    book(quantity);
     source.sent[good] += quantity;
     target.received[good] += quantity;
     source.producerPayment[good] += purchase;
@@ -263,5 +283,32 @@ export function settleTrade(
     target.tariff += tariff;
     return { from, to, good, mode, quantity, status: "shipped", purchase, freight, tariff, sales, profit };
   });
-  return { transfers, deliveries, seaCargo, portFreight };
+  const smuggling: OpiumSmuggling[] = [];
+  const illicitImports = new Map<string, { attempted: number; seized: number; delivered: number; spending: number }>();
+  const illicitExports = new Map<string, { attempted: number; delivered: number; receipts: number }>();
+  for (const route of state.tradeRoutes ?? []) {
+    const { from, to, importer, exporter } = route;
+    const order = illicitOrders?.get(to);
+    if (!order || !illicitOpiumEligible(state, route) || blockedAtSea(route)) continue;
+    const received = illicitImports.get(to) ?? { attempted: 0, seized: 0, delivered: 0, spending: 0 };
+    const sent = illicitExports.get(from) ?? { attempted: 0, delivered: 0, receipts: 0 };
+    const { transport, book } = corridor(route);
+    const unitPrice = sites[from].localPrices.opium;
+    const legalSupply = fills.opium[from];
+    const stock = supplies[from].opium - legalSupply.local - legalSupply.poolSold - at(from).sent.opium - sent.attempted;
+    const attempted = Math.min(route.limit, transport, stock, order.quantity - received.attempted,
+      Math.floor((order.budget - received.spending) / unitPrice));
+    if (attempted <= 0) continue;
+    const customs = state.lastEconomy?.states[to];
+    const patrol = 0.3 * (customs?.office?.coverage ?? 0) + 0.7 * (customs?.policing?.coverage ?? 0);
+    const law = opiumLaw(state.nations[importer].laws);
+    const seized = Math.round(attempted * patrol * (law === "鸦片禁令" ? 1 : 0.75));
+    const delivered = attempted - seized, spending = delivered * unitPrice;
+    book(attempted);
+    illicitImports.set(to, { attempted: received.attempted + attempted, seized: received.seized + seized,
+      delivered: received.delivered + delivered, spending: received.spending + spending });
+    illicitExports.set(from, { attempted: sent.attempted + attempted, delivered: sent.delivered + delivered, receipts: sent.receipts + spending });
+    smuggling.push({ from, to, importer, exporter, mode: route.mode, attempted, seized, delivered, spending, lostValue: seized * unitPrice });
+  }
+  return { transfers, deliveries, seaCargo, portFreight, smuggling, illicitImports, illicitExports };
 }
