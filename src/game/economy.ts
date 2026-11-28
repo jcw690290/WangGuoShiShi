@@ -455,11 +455,11 @@ function planArmamentOrders(state: GameState, holdings: Record<string, string[]>
       assign(owner, ids, equipmentNeeds(ids.flatMap((id) => rosters[id]), 0, false));
     }
     const suppliers = ids.filter((id) => id !== state.occupation?.stateId);
-    if (released[owner] > 0) assign(owner, suppliers, equipmentNeeds([], released[owner], false));
     for (const id of suppliers)
       for (const unit of rosters[id]) {
         if (unit.pendingEquipment) assign(owner, suppliers, refitOrder(unit));
       }
+    if (released[owner] > 0) assign(owner, suppliers, equipmentNeeds([], released[owner], false));
   }
   return orders;
 }
@@ -1055,8 +1055,6 @@ function projectSettlement(state: GameState, war?: WarPlan, closingTick?: number
       m.readiness = issueSupplies(m, contract, supplies, ids, m.regulars, equipmentNeeds(ids.flatMap((id) => rosters[id]), 0, false), Infinity, 1);
     }
     const suppliers = ids.filter((id) => id !== state.occupation?.stateId);
-    if (releasedSupply[owner] > 0)
-      issueSupplies(m, contract, supplies, suppliers, releasedSupply[owner], equipmentNeeds([], releasedSupply[owner], false), Infinity, 1);
     for (const id of suppliers) {
       if (!rosters[id].some((unit) => unit.pendingEquipment)) continue;
       const readyDay = state.elapsedDays + trainingDays(state.nations[owner]);
@@ -1072,6 +1070,8 @@ function projectSettlement(state: GameState, war?: WarPlan, closingTick?: number
       }
       if (shipped.size > 0) completedRefits[id] = state.societies[id].battalionOrders!.map((order) => shipped.get(order.slot) ?? order);
     }
+    if (releasedSupply[owner] > 0)
+      issueSupplies(m, contract, supplies, suppliers, releasedSupply[owner], equipmentNeeds([], releasedSupply[owner], false), Infinity, 1);
     m.procurement = contract.spending;
     m.payroll!.due += released[owner].wages;
     c.upkeep += released[owner].wages;
