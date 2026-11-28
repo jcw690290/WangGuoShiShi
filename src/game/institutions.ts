@@ -1,6 +1,8 @@
 import { z } from "zod";
 import type { ByGood } from "./industry.ts";
 import type { Pop, Tech } from "./society.ts";
+import { publicSalary } from "./public-pay.ts";
+import type { PublicPayBand } from "./public-pay.ts";
 
 export const institutionLevelSchema = z.int().min(0).max(3);
 export const institutions = ["healthcare", "policing", "welfare", "education"] as const;
@@ -68,18 +70,20 @@ export const institutionStaffNeed = (people: number, level: number) => Math.ceil
 const materialSchema = z.object({ paper: count, tools: count, services: count });
 const institutionReport = z.object({
   level: institutionLevelSchema, needed: count, staff: count, wages: count, spending: count,
+  wageRate: count.positive().optional(),
   orders: materialSchema, delivered: materialSchema, coverage: z.number().min(0).max(1),
 });
 export const institutionReportSchema = byInstitution((kind) => institutionReport.refine((r) =>
-  r.staff <= r.needed && r.wages === r.staff * wages[kind] &&
+  r.staff <= r.needed && r.wages === r.staff * (r.wageRate ?? wages[kind]) &&
   institutionGoods.every((good) => r.delivered[good] <= r.orders[good])));
 export type InstitutionReport = z.infer<typeof institutionReport>;
 const recipients = z.object({ 农民: count, 劳工: count });
 export const welfareReliefSchema = z.object({ eligible: recipients, paid: recipients });
 export type WelfareRelief = z.infer<typeof welfareReliefSchema>;
 
-export function planInstitution(kind: Institution, population: number, level: number, available: number, cash: number, ceilings: ByGood<number>) {
-  const wage = wages[kind];
+export function planInstitution(kind: Institution, population: number, level: number, available: number, cash: number,
+  ceilings: ByGood<number>, band: PublicPayBand = "standard") {
+  const wage = publicSalary(wages[kind], band);
   const needed = institutionStaffNeed(population, level);
   const ordersFor = (staff: number) => byInstitutionGood((good) => Math.ceil(staff * inputsPerTen[kind][good] / 10));
   const cost = (staff: number, orders = ordersFor(staff)) =>
@@ -91,16 +95,18 @@ export function planInstitution(kind: Institution, population: number, level: nu
     else high = staff - 1;
   }
   const staff = low, orders = ordersFor(staff);
-  return { level, needed, staff, orders, wages: staff * wage, reserved: cost(staff, orders) };
+  return { level, needed, staff, orders, wages: staff * wage, reserved: cost(staff, orders),
+    ...(band === "standard" ? {} : { wageRate: wage }) };
 }
 
 export function deliverInstitution(plan: ReturnType<typeof planInstitution>, delivered: InstitutionReport["delivered"],
   spending: number, administration: number,
 ): InstitutionReport {
-  const { level, needed, staff, orders, wages } = plan;
+  const { level, needed, staff, orders, wages, wageRate } = plan;
   const supplied = staff > 0 ? Math.min(...institutionGoods.map((good) => delivered[good] / orders[good])) : 0;
   const coverage = needed > 0 ? level / 3 * staff / needed * supplied * (0.75 + 0.25 * administration) : 0;
-  return { level, needed, staff, orders, delivered, coverage, wages, spending };
+  return { level, needed, staff, orders, delivered, coverage, wages, spending,
+    ...(wageRate === undefined ? {} : { wageRate }) };
 }
 
 export function deliverInstitutionOrders(orders: Record<Institution, number>, totalOrders: number, goods: number, cost: number) {

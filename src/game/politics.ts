@@ -288,6 +288,10 @@ export function advancePolitics(state: GameState, report: EconomyReport, year: n
       knowledge: { ...previous.knowledge },
       diffusion: { ...previous.diffusion },
     };
+    if (nation.pendingPublicPay) {
+      nation.publicPay = nation.pendingPublicPay;
+      delete nation.pendingPublicPay;
+    }
     const sites = locals[id],
       people = sites.flatMap((s) => s.pops);
     if (people.length) {

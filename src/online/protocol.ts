@@ -3,6 +3,7 @@ import { disputeSchema, goals, peaceGoalsSchema, supplyPriorities } from "../gam
 import { dispatch } from "../game/engine.ts";
 import type { GameState } from "../game/engine.ts";
 import { civilSides, controlledCivilCountry } from "../game/civil-war.ts";
+import { publicPayBandSchema } from "../game/public-pay.ts";
 import { GameRuleError } from "../game/rules.ts";
 import { groups, laws, projectTypes, techs } from "../game/society.ts";
 import { governanceModes } from "../game/governance.ts";
@@ -46,6 +47,7 @@ const commandSchema = z.discriminatedUnion("type", [
   z.strictObject({ type: z.literal("setFleetMotorization"), countryId: id, stateId: id, enabled: z.boolean() }),
   z.strictObject({ type: z.enum(institutionCommands), countryId: id, stateId: id, level: institutionLevelSchema }),
   z.strictObject({ type: z.literal("setTaxBand"), countryId: id, band: taxBandSchema }),
+  z.strictObject({ type: z.literal("setPublicPay"), countryId: id, band: publicPayBandSchema }),
   z.strictObject({ type: z.literal("setExciseGoods"), countryId: id, goods: exciseGoodsSchema }),
   z.strictObject({ type: z.literal("setTariffBand"), countryId: id, band: tariffBandSchema }),
   z.strictObject({ type: z.literal("setTradePartner"), countryId: id, partnerId: id, allowed: z.boolean() }),
