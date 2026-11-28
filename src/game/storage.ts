@@ -436,6 +436,7 @@ export function parseSave(baseScenario: Scenario, save: unknown): GameState {
       .object({
         states: z.record(activeSite, siteReport),
         countries: z.record(countries, countryReport),
+        marketCalibration: z.object({ rounds: z.int().min(1).max(3), limitedSites: z.array(activeSite) }).optional(),
         trade: z.array(tradeDeliverySchema).optional(),
         opiumSmuggling: z.array(opiumSmugglingSchema).optional(),
       })

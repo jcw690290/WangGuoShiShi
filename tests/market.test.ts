@@ -4,8 +4,9 @@ import { createGame, dispatch } from "../src/game/engine.ts";
 import { marketOf, projectEconomy } from "../src/game/economy.ts";
 import { goods, industries } from "../src/game/industry.ts";
 import { clearMarket, nextPrice, targetPrice } from "../src/game/market.ts";
+import { domesticFreight } from "../src/game/domestic-market.ts";
 import { parseSave, saveVersion } from "../src/game/storage.ts";
-import { scenario } from "../src/scenario/scenario.ts";
+import { borderScenario, scenario } from "../src/scenario/scenario.ts";
 import { claimError, settlementAt } from "../src/game/territory.ts";
 
 test("隔绝州只成交本地货物，连通州按份额成交且尾差守恒", () => {
@@ -31,10 +32,32 @@ test("隔绝州只成交本地货物，连通州按份额成交且尾差守恒",
   assert.equal(clearMarket([{ supply: 0, demand: 8, access: 0.5 }]).traded, 0);
 });
 
+test("国内多式运输沿相邻州成交，转运站为不同商品共享运力", () => {
+  const ids = ["Yunnan", "Guangxi", "Tonkin"];
+  const local = { ...borderScenario, states: { ...borderScenario.states,
+    ...Object.fromEntries(ids.map((id, i) => [id, { ...borderScenario.states[id], grainTransport: 10, coastal: false,
+      neighbors: [ids[i - 1], ids[i + 1]].filter(Boolean) }])),
+  } };
+  const state = createGame(local);
+  for (const id of ids) state.societies[id] = { ...state.societies[id], infrastructure: 1, railway: 0 };
+  const network = domesticFreight(local, state, { test: ids }, new Map(), new Map());
+  const orders = [{ supply: 8, demand: 0 }, { supply: 0, demand: 0 }, { supply: 0, demand: 4 }];
+  const first = network.clear(ids, orders, false);
+  assert.equal(first.fills[0].poolSold, 4);
+  assert.equal(first.fills[2].poolBought, 4);
+  const second = network.clear(ids, orders, false);
+  assert.equal(second.traded, 1);
+  assert.equal(network.used.road.get("Guangxi"), 10);
+
+  const ends = [ids[0], ids[2]];
+  const disconnected = domesticFreight(local, state, { test: ends }, new Map(), new Map());
+  assert.equal(disconnected.clear(ends, [orders[0], orders[2]], false).traded, 0);
+});
+
 test("世界各共同市场的成交、州的销量与用量逐项一致，历史周报可读回", () => {
   const game = dispatch(scenario, createGame(scenario), { type: "selectCountry", countryId: "country_29" });
   const union = dispatch(scenario, game, { type: "joinUnion", countryId: "country_28", leaderId: "country_29" });
-  const projection = projectEconomy(union);
+  const projection = projectEconomy(union, undefined, scenario);
   for (const [marketId, country] of Object.entries(projection.countries)) {
     if (marketOf(union, marketId) !== marketId) continue;
     const sites = Object.entries(projection.states)

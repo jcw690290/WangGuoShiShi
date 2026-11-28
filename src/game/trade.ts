@@ -425,5 +425,6 @@ export function settleTrade(
     illicitExports.set(from, { attempted: sent.attempted + attempted, delivered: sent.delivered + delivered, receipts: sent.receipts + spending });
     smuggling.push({ from, to, importer, exporter, mode: route.mode, attempted, seized, delivered, spending, lostValue: seized * unitPrice });
   }
-  return { transfers, deliveries, seaCargo, portFreight, smuggling, illicitImports, illicitExports };
+  const freight = { road: roadUse, rail: railUse, port: portFreight, sea: seaCargo };
+  return { transfers, deliveries, seaCargo, portFreight, smuggling, illicitImports, illicitExports, freight };
 }
