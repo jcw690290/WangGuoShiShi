@@ -3,6 +3,7 @@ import test from "node:test";
 import { advanceDay, createGame, dispatch } from "../src/game/engine.ts";
 import { applyPlayerCommand, decodeSnapshot, encodeSnapshot } from "../src/online/protocol.ts";
 import { scenario } from "../src/scenario/scenario.ts";
+import { claimError, settlementAt } from "../src/game/territory.ts";
 
 const [host, guest] = Object.keys(scenario.countries);
 const create = () => dispatch(scenario, createGame(scenario), { type: "selectCountry", countryId: host });
@@ -17,9 +18,10 @@ test("a guest can govern its own country without changing the authority's player
   assert.throws(() => applyPlayerCommand(scenario, game, host, command), /只能操作自己控制的国家/);
   assert.throws(() => applyPlayerCommand(scenario, game, guest, { type: "advanceDay" }), /无效的联机指令/);
 
-  const stateId = Object.keys(scenario.states).find((id) => !Object.hasOwn(game.ownerByStateId, id))!;
+  const stateId = Object.keys(scenario.states).find((id) => !claimError(scenario, game, id, guest))!;
   const claimed = applyPlayerCommand(scenario, game, guest, { type: "claimState", stateId });
-  assert.equal(claimed.ownerByStateId[stateId], guest);
+  assert.equal(settlementAt(claimed, stateId)!.countryId, guest);
+  assert.equal(claimed.ownerByStateId[stateId], undefined);
   assert.equal(claimed.countryEconomies[host], game.countryEconomies[host]);
 });
 

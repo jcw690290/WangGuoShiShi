@@ -22,6 +22,7 @@ interface ScenarioState {
   name: string;
   label: [number, number];
   ownerId: string | null;
+  unownedStatus?: "UNCLAIMED" | "LOCAL_POLITY";
   startingOffices?: number;
   cropland?: number;
   population: number;
@@ -217,6 +218,11 @@ if (
 ) {
   throw new Error("世界剧本的国家、邻接或容量数据无效");
 }
+// The registry leaves these districts outside modeled state authority. The frontier list is a scenario balance assumption.
+const openFrontiers = new Set([
+  "Greenland", "Patagonia", "South_Atlantic_Islands", "East_Sahara", "Egyptian_Desert", "Sahara",
+  "Northern_Territory", "Western_Australia", "South_Australia", "Equatoria", "Ubangi_Shari",
+]);
 export const scenario: Scenario = {
   id: "world-1820",
   name: "1820 世界剧本",
@@ -254,7 +260,8 @@ export const scenario: Scenario = {
       const arable = Math.max(legacy.capacity.grain * 600 + smallCrops, Math.floor(site.population * ruralShare)) +
         legacy.buildings.grain * croplandPerLegacyFarm;
       const cropland = Math.max(occupiedCropland(site.buildings), farmland, arable);
-      return [id, { ...site, id, ownerId: source ? source.countryId : null, startingOffices: source ? 1 : 0, cropland }];
+      return [id, { ...site, id, ownerId: source ? source.countryId : null, startingOffices: source ? 1 : 0, cropland,
+        ...(source ? {} : { unownedStatus: openFrontiers.has(id) ? "UNCLAIMED" as const : "LOCAL_POLITY" as const }) }];
     }),
   ),
 };
