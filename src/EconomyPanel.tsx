@@ -6,10 +6,10 @@ import { count, silver } from "./format.ts";
 import { fiscalRiskNames } from "./game/fiscal.ts";
 import { publicPayBands, publicPayBandSchema, publicPayNames } from "./game/public-pay.ts";
 import { CommodityDetails } from "./CommodityDetails.tsx";
-import { buildingCapacity, constructionError, workForce } from "./game/economy.ts";
+import { buildingCapacity, constructionError, productiveBuildingActivity, workForce } from "./game/economy.ts";
 import type { EconomyReport } from "./game/economy.ts";
 import type { GameCommand, GameState } from "./game/engine.ts";
-import { goods, industrialGoods, industries } from "./game/industry.ts";
+import { goods, industrialGoods, industries, outputGood, productiveBuildings, productiveDefinitions } from "./game/industry.ts";
 import { industryMethodAt, isIndustrialRetrofit, productionTierAt } from "./game/industrial.ts";
 import { productionProject, productionTierNames, productionTiers } from "./game/production-methods.ts";
 import type { Scenario } from "./scenario/scenario.ts";
@@ -169,9 +169,9 @@ function StateIndustry({
         )}
       </dl>
       <ul className="industry-list">
-        {goods.map((good) => {
-          const industry = industries[good];
-          const jobs = activity[good];
+        {productiveBuildings.map((good) => {
+          const industry = productiveDefinitions[good], commodity = outputGood(good);
+          const jobs = productiveBuildingActivity(snapshot, good);
           const tier = productionTierAt(good, society), method = industryMethodAt(good, society);
           const owned = ownedLevels(good, local.buildings[good], local.ownership);
           const problem = isOwnState ? constructionError(scenario, game, playerId, stateId, good) : undefined;
@@ -184,8 +184,8 @@ function StateIndustry({
                   {ownershipKinds.filter((kind) => owned[kind] > 0).map((kind) => ` · ${ownershipNames[kind]} ${owned[kind]}`).join("")}
                 </span>
                 <p>
-                  {productionTierNames[tier]}工序 · 就业 {count(jobs.employed)} 人 · 周产出 {count(jobs.output)} · 本地价{" "}
-                  {silver(snapshot.localPrices[good])} · 人均周工资{" "}
+                  {productionTierNames[tier]}工序 · 就业 {count(jobs.employed)} 人 · 周产出 {count(jobs.output)} {industries[commodity].goodName} · 本地价{" "}
+                  {silver(snapshot.localPrices[commodity])} · 人均周工资{" "}
                   {jobs.employed === 0 ? "—" : silver(jobs.wages / jobs.employed)}
                 </p>
                 {local.buildings[good] > 0 && <details>

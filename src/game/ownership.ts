@@ -1,6 +1,6 @@
 import { z } from "zod";
-import { goods } from "./industry.ts";
-import type { ByGood, Good } from "./industry.ts";
+import { productiveBuildings } from "./industry.ts";
+import type { ByProductiveBuilding, ProductiveBuilding } from "./industry.ts";
 
 export const ownershipKinds = ["PUBLIC", "PRIVATE", "LAND", "COOP"] as const;
 export const ownershipSchema = z.enum(ownershipKinds);
@@ -9,7 +9,7 @@ export const ownershipNames = { PUBLIC: "国有", PRIVATE: "私人", LAND: "土�
 export const ownershipAmountsSchema = z.record(ownershipSchema, z.int().nonnegative());
 export type OwnershipAmounts = z.infer<typeof ownershipAmountsSchema>;
 export const emptyOwnershipAmounts = (): OwnershipAmounts => ({ PUBLIC: 0, PRIVATE: 0, LAND: 0, COOP: 0 });
-export const industryOwnershipSchema = z.partialRecord(z.enum(goods), ownershipAmountsSchema);
+export const industryOwnershipSchema = z.partialRecord(z.enum(productiveBuildings), ownershipAmountsSchema);
 export type IndustryOwnership = z.infer<typeof industryOwnershipSchema>;
 
 export const economicLaws = ["国家主导", "干预主义", "自由放任", "合作经济"] as const;
@@ -23,28 +23,28 @@ const rates = {
 };
 export const economicOwnershipRules = (laws: readonly string[]) => rates[economicLaw(laws)];
 
-export function openingOwnership(good: Good): Ownership {
-  if (good === "grain" || good === "fiber" || good === "rubber") return "LAND";
+export function openingOwnership(good: ProductiveBuilding): Ownership {
+  if (good === "grain" || good === "fiber" || good === "rubber" || good === "cashCrops") return "LAND";
   if (good === "arms" || good === "ammo" || good === "electricity") return "PUBLIC";
   return "PRIVATE";
 }
 
-export function projectOwnership(good: Good, laws: readonly string[], privateBuild: boolean): Ownership {
+export function projectOwnership(good: ProductiveBuilding, laws: readonly string[], privateBuild: boolean): Ownership {
   if (!privateBuild) return "PUBLIC";
   if (economicLaw(laws) === "合作经济") return "COOP";
   return openingOwnership(good) === "LAND" ? "LAND" : "PRIVATE";
 }
 
-export function ownedLevels(good: Good, levels: number, ownership: IndustryOwnership | undefined): OwnershipAmounts {
+export function ownedLevels(good: ProductiveBuilding, levels: number, ownership: IndustryOwnership | undefined): OwnershipAmounts {
   return ownership?.[good] ?? { ...emptyOwnershipAmounts(), [openingOwnership(good)]: levels };
 }
 
-export function allocateIndustrialSurplus(surplus: number, margins: ByGood<number>, buildings: ByGood<number>,
+export function allocateIndustrialSurplus(surplus: number, margins: ByProductiveBuilding<number>, buildings: ByProductiveBuilding<number>,
   ownership: IndustryOwnership | undefined,
 ): OwnershipAmounts {
   const weights = emptyOwnershipAmounts();
-  const hasProfit = goods.some((good) => buildings[good] > 0 && margins[good] > 0);
-  for (const good of goods) {
+  const hasProfit = productiveBuildings.some((good) => buildings[good] > 0 && margins[good] > 0);
+  for (const good of productiveBuildings) {
     const levels = buildings[good];
     if (levels === 0) continue;
     const share = hasProfit ? Math.max(0, margins[good]) / levels : 1;

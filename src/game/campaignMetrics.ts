@@ -3,7 +3,7 @@ import type { Scenario } from "../scenario/scenario.ts";
 import type { EndingMetrics } from "../scenario/endingRules.ts";
 import { culturalAffinityOf } from "./culture.ts";
 import { participants } from "./diplomacy.ts";
-import { projectEconomy, weeklyBudgets, workForce } from "./economy.ts";
+import { productiveBuildingActivity, projectEconomy, weeklyBudgets, workForce } from "./economy.ts";
 import type { EconomyReport } from "./economy.ts";
 import type { GameState } from "./engine.ts";
 import { goods, industrialGoods, industries } from "./industry.ts";
@@ -28,7 +28,7 @@ function civilianOutput(report: EconomyReport, holdings: readonly string[]) {
     for (const good of goods) total += activity[good].output * industries[good].basePrice;
     if (industrial) for (const good of industrialGoods) total -= industrial.used[good] * industries[good].basePrice;
     for (const line of ["cloth", "tools", "paper", "dailyGoods", "luxury", "steel", "arms", "ammo", "shipGoods"] as const) {
-      const { method, electric, employed, output } = activity[line];
+      const { method, electric, employed, output } = productiveBuildingActivity(report.states[id], line);
       const spec = method ? productionMethod(line, method) : industryMethod(line, electric);
       const inputsCost = industrialGoods.reduce((sum, good) =>
         sum + Math.ceil(employed * (spec.recipe[good] ?? 0) / spec.jobs) * industries[good].basePrice, 0);

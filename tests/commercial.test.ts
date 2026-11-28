@@ -3,7 +3,7 @@ import { test } from "node:test";
 import { projectEconomy } from "../src/game/economy.ts";
 import { createGame, dispatch } from "../src/game/engine.ts";
 import { workingCapitalPerLevel } from "../src/game/industrial.ts";
-import { byGood, goods } from "../src/game/industry.ts";
+import { byProductiveBuilding, goods } from "../src/game/industry.ts";
 import { parseSave, saveVersion } from "../src/game/storage.ts";
 import { borderScenario } from "../src/scenario/scenario.ts";
 
@@ -49,7 +49,7 @@ test("版本 8 的农田、纺织和已付款工程只转换一次并可继续�
   const local = old.stateEconomies[stateId];
   delete local.commercialRecipes;
   delete local.industrial;
-  local.buildings = { ...byGood(() => 0), grain: 2, cloth: 1 };
+  local.buildings = { ...byProductiveBuilding(() => 0), grain: 2, cloth: 1 };
   old.countryEconomies[countryId].queue.push({ stateId, good: "grain", weeksLeft: 0.5 });
   const restored = parseSave(scenario, { version: 8, scenarioId: scenario.id, state: old });
   const funded = restored.stateEconomies[stateId];
