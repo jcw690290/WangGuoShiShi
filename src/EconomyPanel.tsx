@@ -438,7 +438,9 @@ function StateIndustry({
   );
 }
 
-export function EconomyPanel({ scenario, game, playerId, selectedId, report, busy, send, onPopulationOpen }: Props) {
+export function EconomyPanel(
+  { scenario, game, playerId, selectedId, report, busy, send, onPopulationOpen, onCommodityOpen }: Props & { onCommodityOpen: () => void },
+) {
   const marketId = selectedId === null ? playerId : game.ownerByStateId[selectedId];
   const country = scenario.countries[marketId];
   const countryReport = report.countries[marketId];
@@ -594,7 +596,8 @@ export function EconomyPanel({ scenario, game, playerId, selectedId, report, bus
               </div>
             </fieldset>}
           </details>}
-          <CommodityDetails scenario={scenario} game={game} report={report} countryId={marketId} />
+          <CommodityDetails scenario={scenario} game={game} report={report} countryId={marketId}
+            onInspect={() => { if (marketId === playerId) onCommodityOpen(); }} />
           <div className="economy-table">
             <table aria-label={`${country.name}商品供需`}>
               <thead>

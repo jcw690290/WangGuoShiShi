@@ -443,6 +443,9 @@ export function parseSave(baseScenario: Scenario, save: unknown): GameState {
   const owned = Object.keys(state.ownerByStateId);
   const campaign = state.campaign;
   if (campaign) {
+    if (campaign.guideProject && (!scenario.states[campaign.guideProject.stateId] || campaign.guideWeek === null ||
+        (campaign.guideStep !== 4 && campaign.guideStep !== 7))) invalid();
+    if (campaign.guideWeek !== null && campaign.guideWeek > Math.floor(state.elapsedDays / 7)) invalid();
     const ending = campaign.ending;
     const beginning = Date.parse(scenario.startDate);
     const currentTime = getGameDate(scenario, state).getTime();

@@ -29,12 +29,12 @@ export function MapGovernmentMenu({ open }: { open: (tab: GovernmentTab) => void
   </details>;
 }
 
-export function TreasuryStatus({ game, countryId }: { game: GameState; countryId: string }) {
+export function TreasuryStatus({ game, countryId, onInspect }: { game: GameState; countryId: string; onInspect: () => void }) {
   const { treasury, fiscal } = game.countryEconomies[countryId];
   const lastEconomy = game.lastEconomy;
   const budget = useMemo(() => lastEconomy ? weeklyBudgets(game.nations, lastEconomy)[countryId] : undefined,
     [countryId, game.nations, lastEconomy]);
-  return <details className="treasury-status">
+  return <details className="treasury-status" onToggle={(event) => { if (event.currentTarget.open) onInspect(); }}>
     <summary>
       <span>国库 {silver(treasury)}</span>
       <span>{budget ? `周结余 ${silver(budget.balance)}` : "未结算"}</span>

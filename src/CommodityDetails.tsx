@@ -17,10 +17,13 @@ interface Props {
   countryId: string;
 }
 
-export function CommodityDetails(props: Props) {
+export function CommodityDetails({ onInspect, ...props }: Props & { onInspect: () => void }) {
   const [open, setOpen] = useState(false);
   const [good, setGood] = useState<Good>("grain");
-  return <details className="control-block commodity-details" onToggle={(event) => setOpen(event.currentTarget.open)}>
+  return <details className="control-block commodity-details" onToggle={(event) => {
+    setOpen(event.currentTarget.open);
+    if (event.currentTarget.open && props.game.lastEconomy === props.report) onInspect();
+  }}>
     <summary>商品详情 · 来源、买方与限制</summary>
     {open && <>
       <label>商品 <select value={good} onChange={(event) => setGood(event.target.value as Good)}>
