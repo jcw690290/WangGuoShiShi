@@ -1,4 +1,5 @@
 import { z } from "zod";
+import { TICKS_PER_WEEK } from "./time.ts";
 
 export const publicPayBands = ["low", "standard", "high"] as const;
 export const publicPayBandSchema = z.enum(publicPayBands);
@@ -9,6 +10,9 @@ export const publicSalary = (base: number, band: PublicPayBand) => Math.round(ba
 export const officersInService = (regulars: number) => Math.ceil(regulars / 100);
 export const officerSalary = (regulars: number, band: PublicPayBand) => officersInService(regulars) * publicSalary(200, band);
 
-export function militarySalary(regulars: number, conscripts: number, injured: number, band: PublicPayBand) {
-  return (regulars - officersInService(regulars) + conscripts + injured) * publicSalary(120, band) + officerSalary(regulars, band);
+export function militarySalary(regulars: number, conscripts: number, injured: number, band: PublicPayBand,
+  draftTicks = TICKS_PER_WEEK) {
+  const base = publicSalary(120, band);
+  return (regulars - officersInService(regulars) + injured) * base + officerSalary(regulars, band) +
+    Math.floor(conscripts * base * draftTicks / TICKS_PER_WEEK);
 }

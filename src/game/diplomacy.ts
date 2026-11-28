@@ -25,6 +25,7 @@ import { recognizeTerritorialClaim, reconcileTerritorialPlans, settlementAt, ter
 import type { TerritorialClaimCommand } from "./territory.ts";
 import { minOpiumClaim, opiumEffects, recentOpiumLosses } from "./opium.ts";
 import { endCivilWar } from "./civil-war.ts";
+import { elapsedTicks, TICKS_PER_DAY } from "./time.ts";
 
 export const goals = ["cession", "reparations", "puppet", "vassal", "protectorate", "annex", "recognition", "haltSettlement", "opiumCompensation", "regime"] as const;
 export type Goal = (typeof goals)[number];
@@ -89,6 +90,7 @@ const peaceOfferDuration = 14;
 const mobilizationDelayDays = 7;
 const mobilizationPlanSchema = z.object({
   orderedDay: z.int().nonnegative(),
+  orderedTickInDay: z.int().min(0).max(TICKS_PER_DAY - 1).optional(),
   readyDay: z.int().nonnegative(),
   origins: z.array(z.string()).nonempty().refine((sites) => new Set(sites).size === sites.length),
 }).refine(({ orderedDay, readyDay }) =>
@@ -606,7 +608,8 @@ export function applyBorderCommand(scenario: Scenario, state: GameState, cmd: Bo
       (Number(transportDelay) + Number(governmentDelay)) * mobilizationDelayDays;
     return patch({
       mobilized: [...d.mobilized, id],
-      mobilization: { ...d.mobilization, [id]: { orderedDay: state.elapsedDays, readyDay, origins } },
+      mobilization: { ...d.mobilization, [id]: { orderedDay: state.elapsedDays, readyDay, origins,
+        ...(state.tickInDay === 0 ? {} : { orderedTickInDay: state.tickInDay }) } },
     });
   }
   if (cmd.type === "raid") {
@@ -671,6 +674,7 @@ interface SupplyRoute {
   deployedDrafts: Set<string>;
   grainTransport: number;
   mobilized: boolean;
+  mobilizedAtTick?: number;
   overseas: boolean;
   maritimeTerminals?: MaritimeTerminal[][];
 }
@@ -772,16 +776,19 @@ export function planWar(scenario: Scenario, state: GameState): WarPlan | undefin
     const mobilized = d.mobilized.includes(id);
     const draftOrigins = new Set((callUp?.origins ?? (mobilized ? [...recruitmentStates] : []))
       .filter((siteId) => state.occupation?.stateId !== siteId));
-    const draftReady = mobilized && (!callUp || callUp.readyDay <= state.elapsedDays);
+    const mobilizedAtTick = callUp && elapsedTicks({ elapsedDays: callUp.orderedDay, tickInDay: callUp.orderedTickInDay ?? 0 });
+    const draftReady = mobilized && (!callUp ||
+      elapsedTicks({ elapsedDays: callUp.readyDay, tickInDay: callUp.orderedTickInDay ?? 0 }) <= elapsedTicks(state));
+    const scheduled = mobilizedAtTick === undefined ? {} : { mobilizedAtTick };
     if (d.retreating?.includes(id)) {
       routes[id] = {
         objective, priorityShare, recruitmentStates: new Set(), connectedStates: new Set(),
-        draftOrigins, draftReady, deployedDrafts: new Set(), grainTransport: 0, mobilized, overseas: false,
+        draftOrigins, draftReady, deployedDrafts: new Set(), grainTransport: 0, mobilized, overseas: false, ...scheduled,
       };
     } else {
       const deployedDrafts = new Set(draftReady ? [...draftOrigins].filter((siteId) => connectedStates.has(siteId)) : []);
       routes[id] = { objective, priorityShare, recruitmentStates, connectedStates, draftOrigins, draftReady, deployedDrafts,
-        grainTransport, mobilized, overseas, ...(maritimeTerminals ? { maritimeTerminals } : {}) };
+        grainTransport, mobilized, overseas, ...scheduled, ...(maritimeTerminals ? { maritimeTerminals } : {}) };
     }
   }
   return { ...scenario.borderDispute, routes, naval };
