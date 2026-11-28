@@ -50,6 +50,8 @@ import { applyNavalConstruction, warshipMaterials } from "./navy.ts";
 import type { NavalConstructionCommand } from "./navy.ts";
 import { opiumLaw } from "./opium.ts";
 import type { OpiumLoss } from "./opium.ts";
+import { advanceConstitutionalCrises, applyConstitutionalCompromise, compromiseCost, constitutionalCompromiseError } from "./constitutional-crises.ts";
+import type { ConstitutionalCrisis, ConstitutionalCrisisCommand } from "./constitutional-crises.ts";
 export { DAY_MS, elapsedTicks, TICKS_PER_DAY } from "./time.ts";
 
 export interface GameState {
@@ -77,6 +79,7 @@ export interface GameState {
   territorialClaims?: TerritorialClaim[];
   territorialSettlements?: TerritorialSettlement[];
   opiumLosses?: OpiumLoss[];
+  constitutionalCrises?: Record<string, ConstitutionalCrisis>;
   tradeRoutes?: TradeRoute[];
   occupation?: Occupation;
 }
@@ -99,6 +102,7 @@ export type GameCommand =
   | { type: "setIndustrySubsidy"; countryId: string; stateId: string; limit: number }
   | { type: "advanceTick" | "advanceWeek" | "advanceDay" | "advanceHalfYear" }
   | PoliticsCommand
+  | ConstitutionalCrisisCommand
   | GovernanceCommand
   | TradeCommand
   | TradePolicyCommand
@@ -291,7 +295,9 @@ export function advanceTick(
   const settled = monthly ? settlePopulationMonth(scenario, weekly, date) : weekly;
   const battle = advanceFront(scenario, settled, settled.lastEconomy);
   const recovered = recoverMilitaryInjuries(battle, settled.lastEconomy);
-  let result = advancePolitics(recovered, settled.lastEconomy, date.getUTCFullYear(), yearFraction);
+  let result = advanceConstitutionalCrises(
+    advancePolitics(recovered, settled.lastEconomy, date.getUTCFullYear(), yearFraction),
+  );
   result.rng = (Math.imul(result.rng, 1664525) + 1013904223) >>> 0;
   const owners = new Set(Object.values(result.ownerByStateId));
   for (const id of owners) {
@@ -354,6 +360,9 @@ export function advanceTick(
       }
       const armyOrder = chooseEquipmentOrder(result, settled.lastEconomy, id) ?? chooseBattalionOrder(result, settled.lastEconomy, id);
       if (armyOrder) result = applyCommand(scenario, result, armyOrder);
+      if (result.countryEconomies[id].treasury >= 2 * compromiseCost && !constitutionalCompromiseError(result, id)) {
+        result = applyCommand(scenario, result, { type: "offerConstitutionalCompromise", countryId: id });
+      }
       const n = result.nations[id];
       const pending = techs.filter((t) => availableTech(n, t));
       if (!n.research && pending.length)
@@ -598,6 +607,8 @@ function applyCommand(
     case "proposeLaw":
     case "startResearch":
       return applyPolitics(state, cmd);
+    case "offerConstitutionalCompromise":
+      return applyConstitutionalCompromise(state, cmd.countryId);
     default:
       return applyBorderCommand(scenario, state, cmd);
   }

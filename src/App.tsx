@@ -25,6 +25,7 @@ import { atlas } from "./scenario/scenario.ts";
 import type { Scenario } from "./scenario/scenario.ts";
 import { endingStory, endingTitle } from "./scenario/endings.ts";
 import { countryDisplayName } from "./game/constitution.ts";
+import { constitutionalCrisisWarning } from "./game/constitutional-crises.ts";
 
 const dateFormat = new Intl.DateTimeFormat("zh-CN", { dateStyle: "long", timeZone: "UTC" });
 const tickRates = [1, 2, 4, 8];
@@ -133,6 +134,7 @@ export function App({ scenario, geometry, initialSaves, initialSaveNotice }: {
   const ending = game.campaign?.ending;
   const achievements = game.campaign?.achievements?.records;
   const deadline = campaignEndDate(scenario, game);
+  const constitutionalWarning = player && constitutionalCrisisWarning(game, player);
   const picker = !connection && (screen === "new" || screen === "tutorial");
   function markGuide(step: number) {
     if (!connection) setGame((state) => completeGuideStep(state, step));
@@ -369,6 +371,9 @@ export function App({ scenario, geometry, initialSaves, initialSaveNotice }: {
             </>}
           </div>}
           <div className="header-menus">
+            {constitutionalWarning && <button className="menu-entry" aria-haspopup="dialog" onClick={() => openGovernment(1)}>
+              政体冲突预警
+            </button>}
             <button className="menu-entry" aria-haspopup="dialog" onClick={() => roomDialog.current!.showModal()}>联机</button>
             {(connection || player) && <button className="menu-entry" aria-haspopup="dialog" onClick={() => openGovernment()}>政务菜单</button>}
           </div>
@@ -510,7 +515,7 @@ export function App({ scenario, geometry, initialSaves, initialSaveNotice }: {
             {tab === 0 && !connection && guideStep === 6 && game.lastEconomy && <button className="menu-button" onClick={() => markGuide(6)}>
               已核对市场缺口
             </button>}
-            {tab === 1 && <PoliticsPanel game={game} playerId={player} year={date.getUTCFullYear()} busy={locked || finished} send={send} />}
+            {tab === 1 && <PoliticsPanel scenario={scenario} game={game} playerId={player} year={date.getUTCFullYear()} busy={locked || finished} send={send} />}
             {tab === 2 && <DiplomacyPanel
               scenario={scenario}
               game={game}

@@ -21,18 +21,23 @@ import { civicLawCategory, civicLawFamilies, enactedCivicLaws } from "./game/civ
 import { authorityBudget, constitutionalForms, constitutionLawCategory, representationLaw, representationLaws, stateForm } from "./game/constitution.ts";
 import { governanceLaw, governanceLaws, isGovernanceLaw } from "./game/governance.ts";
 import { economicLaw, economicLaws, isEconomicLaw } from "./game/ownership.ts";
+import {
+  compromiseCost, constitutionalCompromiseError, constitutionalCrisisWarning, constitutionalSupportByState,
+} from "./game/constitutional-crises.ts";
+import type { Scenario } from "./scenario/scenario.ts";
 
 const otherLaws = laws.filter((law) => !institutionLawDetails(law) && !laborLawCategory(law) &&
   !(taxLaws as readonly Law[]).includes(law) && !isTradeLaw(law) && !civicLawCategory(law) &&
   !constitutionLawCategory(law) && !isGovernanceLaw(law) && !isEconomicLaw(law));
 interface Props {
+  scenario: Scenario;
   game: GameState;
   playerId: string;
   year: number;
   busy: boolean;
   send: (cmd: GameCommand) => void;
 }
-export function PoliticsPanel({ game, playerId: id, year, busy, send }: Props) {
+export function PoliticsPanel({ scenario, game, playerId: id, year, busy, send }: Props) {
   const n = game.nations[id],
     sites = ownedSocieties(game, id),
     people = sites.flatMap((site) => site.pops),
@@ -53,6 +58,9 @@ export function PoliticsPanel({ game, playerId: id, year, busy, send }: Props) {
   const effectiveLaws = n.laws.filter((law) => !civicLawCategory(law) && !constitutionLawCategory(law) && !isGovernanceLaw(law) &&
     !isEconomicLaw(law));
   const authority = authorityBudget(game, id);
+  const crisis = constitutionalCrisisWarning(game, id);
+  const crisisState = game.constitutionalCrises?.[id];
+  const compromiseReason = crisis && constitutionalCompromiseError(game, id);
   return (
     <section className="economy">
       <header className="economy-heading">
@@ -65,6 +73,27 @@ export function PoliticsPanel({ game, playerId: id, year, busy, send }: Props) {
             <h3>政府与利益集团</h3>
             <span>{stateForm(n)} · {distributionName[powerDistribution(n)]} · 合法性 {conditions.legitimacy} / 100</span>
           </header>
+          {crisis && (
+            <div className="control-block">
+              <h4>全国政体冲突预警</h4>
+              <p>反对派要求实施{crisis.demand}。政体冲突已持续 {game.elapsedDays - crisis.since} 天。</p>
+              <details>
+                <summary>各州支持分布</summary>
+                <ul>
+                  {constitutionalSupportByState(game, id, crisis.demand).map(({ stateId, opposition }) => (
+                    <li key={stateId}>{scenario.states[stateId].name} · 反对派 {opposition}% · 政府 {100 - opposition}%</li>
+                  ))}
+                </ul>
+              </details>
+              <button type="button" disabled={busy || !!compromiseReason} title={compromiseReason}
+                onClick={() => send({ type: "offerConstitutionalCompromise", countryId: id })}>
+                协商并将诉求列入改革议程（{count(compromiseCost)}）
+              </button>
+            </div>
+          )}
+          {crisisState && "compromiseUntil" in crisisState && crisisState.compromiseUntil > game.elapsedDays && (
+            <p>政体协商期还剩 {crisisState.compromiseUntil - game.elapsedDays} 天。</p>
+          )}
           <div className="control-block">
             <p>权威力可用 {authority.available} · 已占用 {authority.used} / {authority.capacity}</p>
             <p>勾选执政集团。议案需要政府支持，或至少 25% 的运动支持。</p>

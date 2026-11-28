@@ -40,6 +40,7 @@ import { routeTransport, tradeDeliverySchema, tradeRouteKey, tradeRouteSchema } 
 import { fleetReportSchema, fleetSpending, maximumConvoyCapacity } from "./fleet.ts";
 import { navyReportSchema } from "./navy.ts";
 import { opiumLossKey, opiumLossSchema, opiumReportSchema, opiumSmugglingSchema } from "./opium.ts";
+import { compromiseDays, constitutionalCrisisSchema } from "./constitutional-crises.ts";
 import { achievementKey, achievementRecordSchema } from "./achievements.ts";
 import type { AchievementRecord } from "./achievements.ts";
 const storeName = "saves";
@@ -341,6 +342,7 @@ export function parseSave(scenario: Scenario, save: unknown): GameState {
     countries = z.enum(Object.keys(scenario.countries));
   // A valid map ID is optional until claimed; enum-keyed records require every ID.
   const activeSite = z.string().refine((id) => Object.hasOwn(scenario.states, id));
+  const activeCountry = z.string().refine((id) => Object.hasOwn(scenario.countries, id));
   const project = z.object({ stateId: sites, good: z.enum(projectTypes), weeksLeft: z.number().positive(),
     levels: uint.positive().optional(), ownership: ownershipSchema.optional() });
   const lastPopulation = z.object({ day: uint.positive(), changes: z.record(activeSite, cash) }).nullable();
@@ -374,6 +376,7 @@ export function parseSave(scenario: Scenario, save: unknown): GameState {
     territorialClaims: z.array(territorialClaimSchema).optional(),
     territorialSettlements: z.array(territorialSettlementSchema).optional(),
     opiumLosses: z.array(opiumLossSchema).optional(),
+    constitutionalCrises: z.record(activeCountry, constitutionalCrisisSchema).optional(),
     tradeRoutes: z.array(tradeRouteSchema.extend({ from: sites, to: sites, exporter: countries, importer: countries })).optional(),
     occupation: z.object({ stateId: sites, controllerId: countries }).optional(),
     lastEconomy: z
@@ -549,6 +552,10 @@ export function parseSave(scenario: Scenario, save: unknown): GameState {
         !Object.hasOwn(state.nations, entry.exporter) || !Object.hasOwn(state.nations, entry.importer) ||
         entry.day > state.elapsedDays) invalid();
     opiumLossKeys.add(key);
+  }
+  for (const crisis of Object.values(state.constitutionalCrises ?? {})) {
+    if ("demand" in crisis ? crisis.since > state.elapsedDays : crisis.compromiseUntil > state.elapsedDays + compromiseDays)
+      throw new Error("存档政体冲突计时无效");
   }
   if (data.version !== saveVersion && migrateCommercialProduction(state) && campaign?.outcome?.baseline && campaign.ending === null) {
     const fresh = openingMetrics(createGame(scenario, 1820, state.settings.difficulty), state.playerCountryId!);
