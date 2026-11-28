@@ -41,6 +41,7 @@ import { fleetReportSchema, fleetSpending, maximumConvoyCapacity } from "./fleet
 import { navyReportSchema } from "./navy.ts";
 import { opiumLossKey, opiumLossSchema, opiumReportSchema, opiumSmugglingSchema } from "./opium.ts";
 import { compromiseDays, constitutionalCrisisSchema } from "./constitutional-crises.ts";
+import { civilWarResultSchema, civilWarSchema, oppositionId, scenarioWithCivilWar } from "./civil-war.ts";
 import { achievementKey, achievementRecordSchema } from "./achievements.ts";
 import type { AchievementRecord } from "./achievements.ts";
 const storeName = "saves";
@@ -328,18 +329,24 @@ const siteReport = z.object({
 ).refine((site) => site.householdConsumption === undefined
   ? site.consumptionIndex === undefined
   : site.consumptionIndex !== undefined && site.foodFulfillment !== undefined);
-export function parseSave(scenario: Scenario, save: unknown): GameState {
+export function parseSave(baseScenario: Scenario, save: unknown): GameState {
   const header = z.object({ version: z.int(), scenarioId: z.string(), weeklyConstruction: z.literal(true).optional() }).safeParse(save);
   if (!header.success) throw new Error("存档数据无效");
   if (header.data.version >= 1 && header.data.version <= 4) {
     const source =
-      header.data.scenarioId === borderScenario.id && scenario.id === "world-1820"
+      header.data.scenarioId === borderScenario.id && baseScenario.id === "world-1820"
         ? borderScenario
-        : scenario;
-    return syncOccupation(scenario, importRegionalSave(source, scenario, save));
+        : baseScenario;
+    return syncOccupation(baseScenario, importRegionalSave(source, baseScenario, save));
   }
+  const civilHeader = z.object({ state: z.object({ civilWar: civilWarSchema.optional() }) }).safeParse(save);
+  if (!civilHeader.success) throw new Error("存档内战记录无效", { cause: civilHeader.error });
+  const { civilWar } = civilHeader.data.state;
+  if (civilWar && !Object.hasOwn(baseScenario.countries, civilWar.countryId)) throw new Error("存档内战所属国家无效");
+  const scenario = scenarioWithCivilWar(baseScenario, civilWar);
   const sites = z.enum(Object.keys(scenario.states)),
     countries = z.enum(Object.keys(scenario.countries));
+  const registeredCountries = z.enum(Object.keys(baseScenario.countries));
   // A valid map ID is optional until claimed; enum-keyed records require every ID.
   const activeSite = z.string().refine((id) => Object.hasOwn(scenario.states, id));
   const activeCountry = z.string().refine((id) => Object.hasOwn(scenario.countries, id));
@@ -356,7 +363,7 @@ export function parseSave(scenario: Scenario, save: unknown): GameState {
     .transform((local) => ({ ...local, basicBudget: local.basicBudget ?? openingBasicBudget(local.population) })));
   const stateSchema = z.object({
     elapsedDays: uint.max(Math.floor((8.64e15 - Date.parse(scenario.startDate)) / DAY_MS)),
-    playerCountryId: countries,
+    playerCountryId: registeredCountries,
     rng: uint.max(0xffffffff),
     ownerByStateId: z.record(activeSite, countries),
     stateEconomies: z.record(activeSite, stateEconomy),
@@ -377,6 +384,8 @@ export function parseSave(scenario: Scenario, save: unknown): GameState {
     territorialSettlements: z.array(territorialSettlementSchema).optional(),
     opiumLosses: z.array(opiumLossSchema).optional(),
     constitutionalCrises: z.record(activeCountry, constitutionalCrisisSchema).optional(),
+    civilWar: civilWarSchema.optional(),
+    lastCivilWar: civilWarResultSchema.extend({ countryId: registeredCountries }).optional(),
     tradeRoutes: z.array(tradeRouteSchema.extend({ from: sites, to: sites, exporter: countries, importer: countries })).optional(),
     occupation: z.object({ stateId: sites, controllerId: countries }).optional(),
     lastEconomy: z
@@ -696,6 +705,14 @@ export function parseSave(scenario: Scenario, save: unknown): GameState {
         invalid();
   }
   const d = state.borderDispute;
+  if (state.lastCivilWar && state.lastCivilWar.endedDay > state.elapsedDays) invalid();
+  if (civilWar) {
+    const rebel = oppositionId(civilWar.countryId);
+    if (!d || d.phase !== "war" || d.claimantId !== rebel || d.defenderId !== civilWar.countryId ||
+        d.goals.length !== 1 || d.goals[0] !== "regime" || d.allies.length || d.defenders.length || d.peaceOffer ||
+        d.outcome !== null || d.progress <= 0 || d.progress >= 100 ||
+        !liveCountries.has(rebel) || !liveCountries.has(civilWar.countryId)) invalid();
+  } else if (d?.goals.includes("regime")) invalid();
   if (d) {
     const parties = participants(d);
     if (

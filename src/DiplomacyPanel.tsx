@@ -338,7 +338,7 @@ export function DiplomacyPanel({ scenario, game, playerId: id, report, busy, sen
       <div className="economy-grid">
         <section className="panel">
           <header className="panel-header">
-            <h3>外交博弈</h3>
+            <h3>{game.civilWar ? "政体内战" : "外交博弈"}</h3>
             {d && <span>{phases[d.phase]}</span>}
           </header>
           <div className="control-block">
@@ -348,6 +348,7 @@ export function DiplomacyPanel({ scenario, game, playerId: id, report, busy, sen
               <p role="status">
                 {countries[d.claimantId].name} → {countries[d.defenderId].name} ·{" "}
                 {scenario.states[d.targetStateId].name} · 核心要求 {goalNames[d.goals[0]]}
+                {game.civilWar && ` · 实施${game.civilWar.demand}`}
                 {d.settlementStateId && ` · 涉案项目 ${scenario.states[d.settlementStateId].name}`}
                 {d.opiumClaim && ` · 核定损失 ${silver(d.opiumClaim.loss)}`}
                 {d.opiumClaim?.paid !== undefined && ` · 实付赔偿 ${silver(d.opiumClaim.paid)}`}
@@ -396,7 +397,7 @@ export function DiplomacyPanel({ scenario, game, playerId: id, report, busy, sen
                   <label>
                     外交要求
                     <select value={goal} onChange={(e) => setGoal(e.target.value as Goal)}>
-                      {goals.filter((g) => g !== "haltSettlement" && g !== "opiumCompensation").map((g) => (
+                      {goals.filter((g) => g !== "haltSettlement" && g !== "opiumCompensation" && g !== "regime").map((g) => (
                         <option key={g} value={g} disabled={!canDemandGoal(game, id, game.ownerByStateId[target.id], g, target.id)}>
                           {goalNames[g]}
                         </option>
@@ -503,19 +504,20 @@ export function DiplomacyPanel({ scenario, game, playerId: id, report, busy, sen
                       {btn("命令推进", simple("orderAdvance"), d.advance.includes(id))}
                       {btn("命令防御", simple("orderDefend"), !d.advance.includes(id) && !d.retreating?.includes(id))}
                       {btn("撤至后方", simple("orderRetreat"), d.retreating?.includes(id))}
-                      {primary &&
+                      {primary && !game.civilWar &&
                         btn(
                           "执行战争目标",
                           simple("signTreaty"),
                           d.lastChange === null || d.progress < scenario.borderDispute.cessionProgress,
                         )}
-                      {claimant && btn("撤回战时要求", simple("armistice"), d.lastChange === null)}
+                      {game.civilWar ? btn("向对方投降", simple("armistice")) :
+                        claimant && btn("撤回战时要求", simple("armistice"), d.lastChange === null)}
                     </div>
                   </>
                 )}
               </>
             )}
-            {primary && d && (d.phase === "countdown" || d.phase === "war") &&
+            {primary && !game.civilWar && d && (d.phase === "countdown" || d.phase === "war") &&
               <PeaceNegotiation key={`${d.claimantId}:${d.defenderId}:${d.since}`} game={game} dispute={d} id={id} busy={busy} send={send} />}
           </div>
         </section>

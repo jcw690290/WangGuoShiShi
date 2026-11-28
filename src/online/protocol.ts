@@ -2,6 +2,7 @@ import { z } from "zod";
 import { disputeSchema, goals, peaceGoalsSchema, supplyPriorities } from "../game/diplomacy.ts";
 import { dispatch } from "../game/engine.ts";
 import type { GameState } from "../game/engine.ts";
+import { civilSides, controlledCivilCountry } from "../game/civil-war.ts";
 import { GameRuleError } from "../game/rules.ts";
 import { groups, laws, projectTypes, techs } from "../game/society.ts";
 import { governanceModes } from "../game/governance.ts";
@@ -53,6 +54,7 @@ const commandSchema = z.discriminatedUnion("type", [
   z.strictObject({ type: z.literal("setBattalionEquipment"), countryId: id, stateId: id, slot: battalionSlotSchema, equipment: z.enum(battalionEquipment).nullable() }),
   z.strictObject({ type: z.literal("setGovernment"), countryId: id, government: z.array(z.enum(groups)).max(groups.length) }),
   z.strictObject({ type: z.literal("offerConstitutionalCompromise"), countryId: id }),
+  z.strictObject({ type: z.literal("chooseCivilWarSide"), countryId: id, side: z.enum(civilSides) }),
   z.strictObject({ type: z.literal("proposeLaw"), countryId: id, law: z.enum(laws) }),
   z.strictObject({ type: z.literal("startResearch"), countryId: id, tech: z.enum(techs) }),
   z.strictObject({ type: z.literal("declareInterest"), countryId: id, targetStateId: id }),
@@ -99,7 +101,8 @@ export function applyPlayerCommand(scenario: Scenario, state: GameState, country
   const parsed = commandSchema.safeParse(input);
   if (!parsed.success) throw new GameRuleError("无效的联机指令");
   const command = parsed.data;
-  if ("countryId" in command && command.countryId !== country)
+  if ("countryId" in command && command.countryId !==
+      (command.type === "chooseCivilWarSide" ? country : controlledCivilCountry(state, country)))
     throw new GameRuleError("只能操作自己控制的国家");
   const result = dispatch(scenario, { ...state, playerCountryId: country }, command);
   return { ...result, playerCountryId: state.playerCountryId };
