@@ -15,7 +15,7 @@ import { syncOccupation } from "./occupation.ts";
 import { adjustForeignRelation, breakOpposedTreaties, diplomaticTrust, expireTreatyOffers, influenceBudget, reconcileTreaties,
   relationBetween, signForeignTreaty, treatyBetween, treatyInfluence, treatyPartners } from "./foreign-relations.ts";
 import { governmentLegitimacy, hash, influence, unrestOf } from "./society.ts";
-import { battalionDetails, battalionTrainingDays, battalionsAt } from "./military.ts";
+import { battalionDetails, battalionTrainingDays, battalionsAt, equipmentDetails } from "./military.ts";
 import { applyMilitaryLoss, warLossesSchema } from "./military-health.ts";
 import { fleetPower, navalMissionSchema, navalMissionTargets, planNavalOperations } from "./naval-operations.ts";
 import type { NavalMissionCommand } from "./naval-operations.ts";
@@ -672,14 +672,16 @@ export function advanceFront(scenario: Scenario, state: GameState, report: Econo
       const roster = route.recruitmentStates.has(siteId) ? battalionsAt(state, siteId, district.regulars) : [];
       const conscripts = district.deployedConscripts!;
       const regulars = roster.reduce((sum, unit) => sum + unit.trained, 0);
-      const effective = roster.reduce((sum, unit) => sum + unit.trained * battalionDetails[unit.kind][role] / 10, conscripts);
+      const effective = roster.reduce((sum, unit) =>
+        sum + unit.trained * battalionDetails[unit.kind][role] * equipmentDetails[unit.equipment][role] / 10, conscripts);
       const cavalry = roster.reduce((sum, unit) => sum + (unit.kind === "cavalry" ? unit.trained : 0), 0);
       return { siteId, regulars, conscripts, effective, cavalry };
     });
     const soldiers = origins.reduce((sum, x) => sum + x.regulars + x.conscripts, 0);
     const effective = origins.reduce((sum, x) => sum + x.effective, 0);
     const nation = state.nations[id], military = report.countries[id].military;
-    const available = Math.min(soldiers, 300 * nation.generalRank, frontWidth(route.objective));
+    const leadership = nation.knowledge["参谋组织"] === 100 ? 400 : 300;
+    const available = Math.min(soldiers, leadership * nation.generalRank, frontWidth(route.objective));
     const support = plan.naval.landing.get(id);
     const navalBonus = support?.portId === route.objective ? 0.35 * support.power / (1 + support.power) : 0;
     const landing = attacking(d, id) && !landBorder(scenario, state, id, route.objective) ? 0.65 + navalBonus : 1;

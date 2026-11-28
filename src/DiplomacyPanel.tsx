@@ -27,7 +27,8 @@ import { diplomaticGiftCost, diplomaticTrust, foreignCommandError, influenceBudg
   treatyBetween, treatyKinds, treatyNames } from "./game/foreign-relations.ts";
 import { countryDisplayName } from "./game/constitution.ts";
 import { silver } from "./format.ts";
-import { battalionDetails, battalionKinds, battalionOrderError, battalionSize, battalionsAt } from "./game/military.ts";
+import { battalionDetails, battalionEquipment, battalionKinds, battalionOrderError, battalionSize, battalionsAt,
+  equipmentDetails, equipmentFits, equipmentOrderError, refitOrder } from "./game/military.ts";
 import { injuredPersonnel } from "./game/military-health.ts";
 import { maxWarshipOrder, shipGoodsPerWarship } from "./game/navy.ts";
 import { fleetPower, navalMissionTargets, navalTaskNames, navalTasks } from "./game/naval-operations.ts";
@@ -62,6 +63,7 @@ function ArmyRoster({ scenario, game, playerId, busy, send, selectedId }: Omit<P
   if (!active) return null;
   const roster = battalionsAt(game, active.id);
   const injured = injuredPersonnel(game.societies[active.id]);
+  const knowledge = game.nations[playerId].knowledge;
   return (
     <details>
       <summary>常备陆军</summary>
@@ -75,7 +77,9 @@ function ArmyRoster({ scenario, game, playerId, busy, send, selectedId }: Omit<P
       {roster.map((unit) => (
         <div key={unit.slot} className="control-block">
           <p>第 {unit.slot + 1} 营 · {battalionDetails[unit.kind].name} · {unit.personnel} / {battalionSize} 人
+            {" · "}{equipmentDetails[unit.equipment].name}
             {unit.trained < unit.personnel && ` · 已训练 ${unit.trained} 人 · 最迟 ${unit.readyDay - game.elapsedDays} 天后完成`}
+            {unit.pendingEquipment && ` · 等待${equipmentDetails[unit.pendingEquipment].name}交付`}
           </p>
           <div className="diplomacy-actions">
             {battalionKinds.filter((kind) => kind !== unit.kind).map((kind) => {
@@ -87,6 +91,25 @@ function ArmyRoster({ scenario, game, playerId, busy, send, selectedId }: Omit<P
                 </button>
               );
             })}
+            {battalionEquipment.filter((gear) => {
+              const { technology } = equipmentDetails[gear];
+              return gear !== unit.equipment && gear !== unit.pendingEquipment && equipmentFits(unit.kind, gear) &&
+                (technology === null || knowledge[technology] === 100);
+            }).map((equipment) => {
+              const cmd = { type: "setBattalionEquipment", countryId: playerId, stateId: active.id, slot: unit.slot, equipment } as const;
+              const error = equipmentOrderError(game, cmd);
+              const needs = refitOrder({ ...unit, pendingEquipment: equipment });
+              return (
+                <button key={equipment} className="build" disabled={busy || !!error}
+                  title={error ?? `换装需要武器 ${needs.weapons}、弹药 ${needs.ammunition}`} onClick={() => send(cmd)}>
+                  换装{equipmentDetails[equipment].name}
+                </button>
+              );
+            })}
+            {unit.pendingEquipment && <button className="build" disabled={busy || game.occupation?.stateId === active.id}
+              onClick={() => send({ type: "setBattalionEquipment", countryId: playerId, stateId: active.id, slot: unit.slot, equipment: null })}>
+              取消换装
+            </button>}
           </div>
         </div>
       ))}
