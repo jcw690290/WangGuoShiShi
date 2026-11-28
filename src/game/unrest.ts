@@ -6,15 +6,27 @@ import { authorityBudget, localNegotiationAuthority } from "./constitution.ts";
 
 const causes = ["hardship", "exclusion", "war", "politics"] as const;
 type Cause = (typeof causes)[number];
+export const localIncidentMonths = 24;
+const incidentCooldownMonths = 24;
+const calmMonthsToResolve = 2;
 export const incidentNames = {
   hardship: "民生停工", exclusion: "地方拒税", war: "战时运输受阻", politics: "政治停工",
 } satisfies Record<Cause, string>;
 const dayNumber = z.int().nonnegative();
 export const stabilitySchema = z.object({
   unrest: z.number().min(0).max(100),
-  incident: z.object({ cause: z.enum(causes), since: dayNumber, negotiated: z.boolean() }).nullable(),
+  incident: z.object({
+    cause: z.enum(causes), since: dayNumber, negotiated: z.boolean(), calmSince: dayNumber.optional(),
+  }).nullable(),
   lastIncident: z.partialRecord(z.enum(causes), dayNumber),
-}).refine((site) => !site.incident || site.lastIncident[site.incident.cause] === site.incident.since);
+  lastResolved: z.partialRecord(z.enum(causes), dayNumber).optional(),
+}).refine(({ incident, lastIncident, lastResolved }) => {
+  if (!incident) return true;
+  const resolved = lastResolved?.[incident.cause];
+  return lastIncident[incident.cause] === incident.since &&
+    (resolved === undefined || resolved < incident.since) &&
+    (incident.calmSince === undefined || incident.calmSince >= incident.since);
+});
 export type LocalStability = z.infer<typeof stabilitySchema>;
 export const emptyStability = (): LocalStability => ({ unrest: 0, incident: null, lastIncident: {} });
 
@@ -33,16 +45,31 @@ export function advanceUnrest(
   const target = Math.max(0, unmitigated * (1 - 0.30 * policing) - (previous.incident?.negotiated ? 25 : 0));
   const unrest = previous.unrest + 0.22 * (target - previous.unrest);
   let incident = previous.incident;
-  if (incident && (unrest < 20 || calendarMonthsPassed(date, day - incident.since, 6))) incident = null;
+  let lastResolved = previous.lastResolved;
+  if (incident) {
+    const { cause, since, negotiated } = incident;
+    const calmSince = pressure[cause] < 8 ? incident.calmSince ?? day : undefined;
+    if (unrest < 20 || calendarMonthsPassed(date, day - since, localIncidentMonths) ||
+        (calmSince !== undefined && calendarMonthsPassed(date, day - calmSince, calmMonthsToResolve))) {
+      lastResolved = { ...lastResolved, [cause]: day };
+      incident = null;
+    } else {
+      incident = calmSince === undefined ? { cause, since, negotiated } : { cause, since, negotiated, calmSince };
+    }
+  }
+  let lastIncident = previous.lastIncident;
   if (incident === null && unrest >= 35) {
     const cause = [...causes].sort((left, right) => pressure[right] - pressure[left]).find((candidate) => {
-      const last = previous.lastIncident[candidate];
-      return pressure[candidate] >= 12 && (last === undefined || calendarMonthsPassed(date, day - last, 24));
+      const last = lastResolved?.[candidate] ?? lastIncident[candidate];
+      return pressure[candidate] >= 12 &&
+        (last === undefined || calendarMonthsPassed(date, day - last, incidentCooldownMonths));
     });
-    if (cause) return { unrest, incident: { cause, since: day, negotiated: false },
-      lastIncident: { ...previous.lastIncident, [cause]: day } };
+    if (cause) {
+      incident = { cause, since: day, negotiated: false };
+      lastIncident = { ...lastIncident, [cause]: day };
+    }
   }
-  return { ...previous, unrest, incident };
+  return lastResolved === undefined ? { unrest, incident, lastIncident } : { unrest, incident, lastIncident, lastResolved };
 }
 
 export function unrestEffects(stability: LocalStability | undefined) {

@@ -727,7 +727,10 @@ export function parseSave(baseScenario: Scenario, save: unknown): GameState {
         barracksTraining.some((group, index) => group.readyDay > latestTrainingDay ||
           (index > 0 && group.readyDay <= barracksTraining[index - 1].readyDay)))) invalid();
     if (governance?.integration && governance.integration.startedAtTick > elapsedTicks(state)) invalid();
-    if (stability && Object.values(stability.lastIncident).some((day) => day > state.elapsedDays)) invalid();
+    if (stability && (Object.values(stability.lastIncident).some((day) => day > state.elapsedDays) ||
+        (stability.lastResolved && Object.entries(stability.lastResolved).some(([cause, day]) =>
+          day > state.elapsedDays || !(cause in stability.lastIncident))) ||
+        (stability.incident?.calmSince !== undefined && stability.incident.calmSince > state.elapsedDays))) invalid();
     if (!local.industrial && goods.some((good) => local.buildings[good] > 0)) invalid();
     if (local.industrial && local.industrial.stocks.electricity !== 0) invalid();
     if (local.buildings.shipGoods > 0 && !scenario.states[id].coastal) invalid();

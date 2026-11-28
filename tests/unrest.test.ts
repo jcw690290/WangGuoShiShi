@@ -45,17 +45,26 @@ test("缺粮和不满在月结触发地方停工，影响下次产出并计入�
   assert.ok(negotiated.societies[site].stability!.unrest < unchanged.societies[site].stability!.unrest);
 });
 
-test("拒税协议不会立即提高征收比例，同原因停工有六个月时限和两年冷却", () => {
+test("拒税协议不会立即提高征收比例，同因事件结束后冷却两年", () => {
   const previous = { unrest: 80, incident: { cause: "exclusion" as const, since: 0, negotiated: false }, lastIncident: { exclusion: 0 } };
   assert.ok(unrestEffects({ ...previous, incident: { ...previous.incident, negotiated: true } }).collection <=
     unrestEffects(previous).collection);
   const pressure = { radicals: 0, excluded: 0, living: 3, food: 0, war: 0 };
-  function month(date: string, previous = { ...emptyStability(), unrest: 40 }) {
-    return advanceUnrest(previous, new Date(date), (Date.parse(date) - Date.parse(scenario.startDate)) / DAY_MS, pressure);
+  function month(date: string, previous = { ...emptyStability(), unrest: 40 }, facts = pressure) {
+    return advanceUnrest(previous, new Date(date), (Date.parse(date) - Date.parse(scenario.startDate)) / DAY_MS, facts);
   }
   const started = month("1820-02-01");
-  const expired = month("1820-08-01", started);
+  assert.equal(month("1820-08-01", started).incident?.cause, "hardship");
+  const expired = month("1822-02-01", started);
   assert.equal(expired.incident, null);
-  assert.equal(month("1822-01-01", expired).incident, null);
-  assert.equal(month("1822-02-01", expired).incident?.cause, "hardship");
+  assert.equal(expired.lastResolved?.hardship, (Date.parse("1822-02-01") - Date.parse(scenario.startDate)) / DAY_MS);
+  assert.equal(month("1824-01-01", expired).incident, null);
+  assert.equal(month("1824-02-01", expired).incident?.cause, "hardship");
+
+  const relief = { ...pressure, living: 9, food: 1 };
+  const calming = month("1820-03-01", started, relief);
+  assert.ok(calming.incident?.calmSince);
+  assert.equal(month("1820-04-01", calming).incident?.calmSince, undefined);
+  assert.equal(month("1820-04-01", calming, relief).incident?.cause, "hardship");
+  assert.equal(month("1820-05-01", calming, relief).incident, null);
 });
