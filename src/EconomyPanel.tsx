@@ -4,6 +4,7 @@ import { civicPolicy, civicStanding, nationalIdentity } from "./game/civic-polic
 import { privateShareOf, projectDeposit, projectPoints, remainingProjectPoints, weeklyBudgets } from "./game/economy.ts";
 import { count, silver } from "./format.ts";
 import { fiscalRiskNames } from "./game/fiscal.ts";
+import { CommodityDetails } from "./CommodityDetails.tsx";
 import { buildingCapacity, constructionError, workForce } from "./game/economy.ts";
 import type { EconomyReport } from "./game/economy.ts";
 import type { GameCommand, GameState } from "./game/engine.ts";
@@ -593,6 +594,7 @@ export function EconomyPanel({ scenario, game, playerId, selectedId, report, bus
               </div>
             </fieldset>}
           </details>}
+          <CommodityDetails scenario={scenario} game={game} report={report} countryId={marketId} />
           <div className="economy-table">
             <table aria-label={`${country.name}商品供需`}>
               <thead>
