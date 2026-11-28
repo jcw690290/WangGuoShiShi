@@ -264,7 +264,10 @@ function PeaceNegotiation({ game, dispute, id, busy, send }: {
   </div>;
 }
 
-export function DiplomacyPanel({ scenario, game, playerId: id, report, busy, send, selectedId }: Props) {
+export function DiplomacyPanel(
+  { view, scenario, game, playerId: id, report, busy, send, selectedId }: Props & { view: "diplomacy" | "military" },
+) {
+  const military = view === "military";
   const n = game.nations[id],
     d = game.borderDispute,
     countries = scenario.countries;
@@ -329,21 +332,23 @@ export function DiplomacyPanel({ scenario, game, playerId: id, report, busy, sen
   return (
     <section className="economy">
       <header className="economy-heading">
-        <h2 id="diplomacy-title">外交与战争</h2>
-        <span>
+        <h2 id="diplomacy-title">{military ? "军事" : "外交"}</h2>
+        {!military && <span>
           恶名 {n.infamy.toFixed(1)}
           {" · "}{infamyLevel(n.infamy)} · 外交信誉 {n.prestige} · 外交影响力 {influence.available} / {influence.capacity}
-        </span>
+        </span>}
       </header>
       <div className="economy-grid">
         <section className="panel">
           <header className="panel-header">
-            <h3>{game.civilWar ? "政体内战" : "外交博弈"}</h3>
+            <h3>{military ? "部队与战线" : game.civilWar ? "政体内战" : "外交博弈"}</h3>
             {d && <span>{phases[d.phase]}</span>}
           </header>
           <div className="control-block">
-            <ArmyRoster scenario={scenario} game={game} playerId={id} busy={busy} send={send} selectedId={selectedId} />
-            <NavalYard scenario={scenario} game={game} playerId={id} report={report} busy={busy} send={send} />
+            {military && <>
+              <ArmyRoster scenario={scenario} game={game} playerId={id} busy={busy} send={send} selectedId={selectedId} />
+              <NavalYard scenario={scenario} game={game} playerId={id} report={report} busy={busy} send={send} />
+            </>}
             {d && (
               <p role="status">
                 {countries[d.claimantId].name} → {countries[d.defenderId].name} ·{" "}
@@ -364,9 +369,9 @@ export function DiplomacyPanel({ scenario, game, playerId: id, report, busy, sen
                 {d.agreedPeace && ` · 双方同意 ${peaceSummary(d.agreedPeace.goals, d.agreedPeace.commercial)}`}
               </p>
             )}
-            {!!d?.containment?.length && <p>地区防御联合 · {d.containment.map((countryId) => countries[countryId].name).join("、")}</p>}
-            {canJoinContainment && btn("加入地区防御联合", { type: "joinContainment", countryId: id })}
-            {opiumLosses.size > 0 && <details>
+            {!military && !!d?.containment?.length && <p>地区防御联合 · {d.containment.map((countryId) => countries[countryId].name).join("、")}</p>}
+            {!military && canJoinContainment && btn("加入地区防御联合", { type: "joinContainment", countryId: id })}
+            {!military && opiumLosses.size > 0 && <details>
               <summary>近期鸦片贸易损失</summary>
               {[...opiumLosses].map(([stateId, amount]) => {
                 const problem = opiumDemandError(scenario, game, id, stateId);
@@ -377,7 +382,7 @@ export function DiplomacyPanel({ scenario, game, playerId: id, report, busy, sen
                 </div>;
               })}
             </details>}
-            {(!d || d.phase === "resolved") &&
+            {!military && (!d || d.phase === "resolved") &&
               (target ? (
                 <>
                   <label>
@@ -419,7 +424,7 @@ export function DiplomacyPanel({ scenario, game, playerId: id, report, busy, sen
               ) : (
                 <p>当前没有可接触的外国州。</p>
               ))}
-            {d && d.phase !== "resolved" && d.phase !== "war" && (
+            {!military && d && d.phase !== "resolved" && d.phase !== "war" && (
               <>
                 <p>
                   本阶段已过 {game.elapsedDays - d.since} 天。提出要求 7 天，博弈 14 天，倒计时陆上 7 天、跨海
@@ -462,7 +467,7 @@ export function DiplomacyPanel({ scenario, game, playerId: id, report, busy, sen
                 {primary && btn(claimant ? "撤回要求" : "让步并接受核心要求", simple("backDown"))}
               </>
             )}
-            {d?.phase === "war" && (
+            {military && d?.phase === "war" && (
               <>
                 <p>
                   当前战线{" "}
@@ -517,11 +522,11 @@ export function DiplomacyPanel({ scenario, game, playerId: id, report, busy, sen
                 )}
               </>
             )}
-            {primary && !game.civilWar && d && (d.phase === "countdown" || d.phase === "war") &&
+            {!military && primary && !game.civilWar && d && (d.phase === "countdown" || d.phase === "war") &&
               <PeaceNegotiation key={`${d.claimantId}:${d.defenderId}:${d.since}`} game={game} dispute={d} id={id} busy={busy} send={send} />}
           </div>
         </section>
-        <section className="panel">
+        {!military && <section className="panel">
           <header className="panel-header">
             <h3>条约、共同市场与附属关系</h3>
           </header>
@@ -628,7 +633,7 @@ export function DiplomacyPanel({ scenario, game, playerId: id, report, busy, sen
                   </>
                 )}
           </div>
-        </section>
+        </section>}
       </div>
     </section>
   );

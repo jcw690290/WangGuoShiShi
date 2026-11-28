@@ -3,6 +3,7 @@ import type { Difficulty } from "./settings.ts";
 
 const cash = z.int().nonnegative();
 const fiscalRisk = z.enum(["stable", "warning", "restricted", "defaulted"]);
+export const fiscalRiskNames = { stable: "稳定", warning: "信用预警", restricted: "限制新工程", defaulted: "违约" };
 const maxSamples = 52;
 export const fiscalAccountSchema = z.object({
   debt: cash,
