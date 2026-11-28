@@ -68,6 +68,7 @@ function StateIndustry({
   const workforce =
     (report.states[stateId].workforce ?? workForce(local.population, society.laborParticipation)) -
     (report.states[stateId].draftWorkforce ?? conscripts) -
+    (report.states[stateId].releasedDraftWorkforce ?? 0) -
     report.states[stateId].builders -
     (report.states[stateId].constructionMaintenance?.workers ?? 0) -
     report.states[stateId].regulars -

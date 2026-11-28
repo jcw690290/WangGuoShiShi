@@ -125,6 +125,19 @@ test("常备军和平支薪，征兵占用产业工人；战线受命令和补�
   assert.equal(militaryPopulation(loss), militaryPopulation(fighting) - 1);
   assert.equal(loss.stateEconomies.Yunnan.population, fighting.stateEconomies.Yunnan.population - 1);
   const signed = send(fighting, { type: "armistice", countryId: a });
+  const halfWeekPeace = { ...fighting, elapsedDays: fighting.elapsedDays + 3, tickInDay: 2 };
+  const midweek = load(send(halfWeekPeace, { type: "armistice", countryId: a }));
+  const finalDuty = midweek.reserveDischarges!.filter(({ payer }) => payer === a);
+  assert.ok(finalDuty.length > 0 && finalDuty.every(({ ticks }) => ticks === TICKS_PER_WEEK / 2));
+  const afterPeace = (state: GameState) =>
+    send({ ...state, elapsedDays: fighting.elapsedDays + 6, tickInDay: 3 }, { type: "advanceTick" });
+  const { reserveDischarges: _paid, ...comparison } = midweek;
+  const discharged = afterPeace(midweek);
+  assert.equal(discharged.reserveDischarges, undefined);
+  assert.equal(discharged.lastEconomy!.countries[a].military.conscripts, 0);
+  assert.equal(discharged.lastEconomy!.countries[a].military.payroll!.due -
+    afterPeace(comparison).lastEconomy!.countries[a].military.payroll!.due,
+    finalDuty.reduce((sum, { people, ticks }) => sum + Math.floor(people * rate * ticks / TICKS_PER_WEEK), 0));
   assert.equal(signed.ownerByStateId.Tonkin, b);
   const demobilized = week(signed);
   assert.equal(demobilized.lastEconomy!.countries[a].military.conscripts, 0);
