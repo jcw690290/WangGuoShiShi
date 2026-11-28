@@ -24,6 +24,7 @@ import { exciseGoods, taxBandNames, taxBands, taxPolicy } from "./game/taxation.
 import { tariffBandNames, tariffBands, tariffRate, tariffRates, tradeLaw } from "./game/trade-policy.ts";
 import { authorityBudget, countryDisplayName, localNegotiationAuthority } from "./game/constitution.ts";
 import { ownedLevels, ownershipKinds, ownershipNames } from "./game/ownership.ts";
+import { opiumLaw } from "./game/opium.ts";
 
 function cultureName(scenario: Scenario, id: string) {
   const separator = id.indexOf("-");
@@ -259,7 +260,8 @@ function StateIndustry({
         </details>}
         {snapshot.opium && <details>
           <summary>鸦片消费与依赖</summary>
-          <p>地方依赖负担 {(society.opiumBurden ?? 0).toFixed(1)} / 100</p>
+          <p>{opiumLaw(nation.laws)} · 地方依赖负担 {(society.opiumBurden ?? 0).toFixed(1)} / 100</p>
+          {snapshot.opium.recoverySupport !== undefined && <p>实付教育、救助及医疗支持 {Math.round(snapshot.opium.recoverySupport * 100)}%</p>}
           <p>医疗采购 {count(snapshot.opium.medical.delivered)} / {count(snapshot.opium.medical.ordered)} · 机构实付 {silver(snapshot.opium.medical.spending)}</p>
           <p>非医疗消费 {count(snapshot.opium.nonMedical.consumed)} / {count(snapshot.opium.nonMedical.ordered)} · 家庭实付 {silver(snapshot.opium.nonMedical.spending)}</p>
         </details>}

@@ -19,7 +19,7 @@ import { economicLaws, isEconomicLaw, ownershipSchema } from "./ownership.ts";
 import { barracksTrainingSchema, battalionOrdersSchema } from "./military.ts";
 import { militaryHealthSchema } from "./military-health.ts";
 import { initialNavy, navySchema } from "./navy.ts";
-import { opiumBurdenSchema } from "./opium.ts";
+import { isOpiumLaw, opiumBurdenSchema, opiumLaws } from "./opium.ts";
 
 export const occupations = ["农民", "劳工", "工程师", "军官", "教士", "店主", "资本家", "贵族"] as const;
 export type Occupation = (typeof occupations)[number];
@@ -102,6 +102,7 @@ export const laws = [
   ...constitutionalLaws,
   ...governanceLaws,
   ...economicLaws,
+  ...opiumLaws,
 ] as const;
 export type Law = (typeof laws)[number];
 export const techs = ["纺织工艺", "野战后勤", "公共教育", "机械织造", "运输调度", "高等教育", "蒸汽动力", "铁路",
@@ -196,6 +197,7 @@ export const nationSchema = z.object({
     const civicCategories = enacted.map(civicLawCategory).filter((category) => category !== undefined);
     return new Set(categories).size === categories.length && new Set(civicCategories).size === civicCategories.length;
   }).refine((enacted) => enacted.filter(isTaxLaw).length <= 1 && enacted.filter(isTradeLaw).length <= 1 &&
+    enacted.filter(isOpiumLaw).length <= 1 &&
     enacted.filter(isGovernanceLaw).length <= 1 && enacted.filter(isEconomicLaw).length <= 1 &&
     (["stateForm", "representation"] as const).every((category) =>
       enacted.filter((law) => constitutionLawCategory(law) === category).length <= 1)),
@@ -342,6 +344,9 @@ export function influence(locals: SiteSocial[], id: string, nation: Nation) {
   return points;
 }
 export const supporters: Record<Law, Group[]> = {
+  鸦片许可经营: ["实业家", "地主"],
+  鸦片限医疗: ["知识分子", "小市民", "教会"],
+  鸦片禁令: ["教会", "乡民", "武装部队"],
   工资税改革: ["实业家", "小市民"],
   平等公民权: ["知识分子", "工会"],
   信仰自由: ["知识分子", "小市民"],

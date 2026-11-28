@@ -12,6 +12,7 @@ import { connectedRailway, portCapacity, seaVoyageCargoCost } from "./transport.
 import { effectiveConvoyCapacity } from "./fleet.ts";
 import { unrestEffects } from "./unrest.ts";
 import { tariffRate, tradeRestriction } from "./trade-policy.ts";
+import { opiumCommerceAllowed } from "./opium.ts";
 
 const units = z.int().nonnegative();
 export const tradeLimit = z.int().positive().max(100_000);
@@ -51,13 +52,14 @@ export const tradeStatuses = {
   commonMarket: "同一关税市场",
   importPolicy: "进口国未授予通商许可",
   exportPolicy: "出口国未授予通商许可",
+  opiumPolicy: "鸦片禁令限制合法贸易",
   noVolume: "暂无可运货量",
   unprofitable: "价差无法覆盖运费和关税",
 } as const;
 export const tradeDeliverySchema = z.object({
   ...tradeEndpoint,
   status: z.enum(["shipped", "paused", "sovereignty", "occupied", "war", "blockaded", "commonMarket",
-    "importPolicy", "exportPolicy", "noVolume", "unprofitable"]),
+    "importPolicy", "exportPolicy", "opiumPolicy", "noVolume", "unprofitable"]),
   quantity: units,
   purchase: units,
   freight: units,
@@ -82,13 +84,15 @@ export function routeTransport(scenario: Scenario, from: string, to: string, mod
   };
 }
 
-export function foreignTradeStatus(state: GameState, exporter: string, importer: string) {
+export function foreignTradeStatus(state: GameState, exporter: string, importer: string, good?: TradeRoute["good"]) {
   const dispute = state.borderDispute;
   if (dispute?.phase === "war") {
     const fighters = participants(dispute);
     if (fighters.includes(exporter) && fighters.includes(importer) && attacking(dispute, exporter) !== attacking(dispute, importer))
       return "war";
   }
+  if (good === "opium" && (!opiumCommerceAllowed(state.nations[exporter].laws) || !opiumCommerceAllowed(state.nations[importer].laws)))
+    return "opiumPolicy";
   return tradeRestriction(state, exporter, importer);
 }
 
@@ -98,7 +102,7 @@ export function tradeRouteBlock(state: GameState, route: TradeRoute) {
   if (state.ownerByStateId[from] !== exporter || state.ownerByStateId[to] !== importer) return "sovereignty";
   if (state.occupation?.stateId === from || state.occupation?.stateId === to) return "occupied";
   if (marketOf(state, exporter) === marketOf(state, importer)) return "commonMarket";
-  return foreignTradeStatus(state, exporter, importer);
+  return foreignTradeStatus(state, exporter, importer, route.good);
 }
 
 export function applyTradeCommand(scenario: Scenario, state: GameState, cmd: TradeCommand): GameState {
@@ -116,7 +120,7 @@ export function applyTradeCommand(scenario: Scenario, state: GameState, cmd: Tra
       throw new GameRuleError("贸易连接不同关税市场");
     if (state.occupation?.stateId === from || state.occupation?.stateId === to)
       throw new GameRuleError(tradeStatuses.occupied);
-    const restriction = foreignTradeStatus(state, exporter, importer);
+    const restriction = foreignTradeStatus(state, exporter, importer, good);
     if (restriction) throw new GameRuleError(tradeStatuses[restriction]);
     if (route?.exporter === exporter && route.importer === cmd.countryId)
       throw new GameRuleError("该商品的线路已存在");
