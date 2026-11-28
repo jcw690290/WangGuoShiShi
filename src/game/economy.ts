@@ -1,4 +1,4 @@
-import { occupationAt } from "./conflict-state.ts";
+import { currentDisputes, occupationAt } from "./conflict-state.ts";
 import type { Scenario } from "../scenario/scenario.ts";
 import type { GameState } from "./engine.ts";
 import { elapsedTicks, TICKS_PER_WEEK } from "./time.ts";
@@ -531,7 +531,8 @@ function fleetPlans(state: GameState, holdings: Record<string, string[]>, scenar
     const buffer = fleet.stores <= need * 2 ? need * 8 : need;
     const fuelDemand = fleet.motorized + refits;
     const merchantDemand = port === null ? 0 : Math.max(0, buffer + berths * shipGoodsPerConvoy + refits * shipGoodsPerMotor - fleet.stores);
-    const engaged = state.borderDispute?.phase === "war" && state.borderDispute.navalMissions?.[owner] !== undefined;
+    const engaged = currentDisputes(state).some((dispute) => dispute.phase === "war" &&
+      (dispute.navalMissions?.[owner] !== undefined || dispute.raid.includes(owner)));
     const navalUpkeep = navyMaintenance(navy) * (engaged ? 2 : 1);
     const navalMaintenance = port === null ? 0 : Math.max(0, navalUpkeep - navy.stores);
     const hullMaterials = navy.order ? warshipMaterials[navy.order.model] : 0;

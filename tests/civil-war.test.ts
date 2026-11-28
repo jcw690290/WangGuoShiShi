@@ -3,6 +3,7 @@ import { test } from "node:test";
 import { advanceCivilWar, oppositionId, scenarioWithCivilWar } from "../src/game/civil-war.ts";
 import { occupationAt } from "../src/game/conflict-state.ts";
 import { applyBorderCommand, planWar } from "../src/game/diplomacy.ts";
+import { projectEconomy } from "../src/game/economy.ts";
 import { advanceDay, createGame, dispatch } from "../src/game/engine.ts";
 import { parseSave, saveVersion } from "../src/game/storage.ts";
 import { foreignTradeStatus } from "../src/game/trade.ts";
@@ -34,6 +35,16 @@ test("参与国分开的内战与对外战争各自结算，内战结束保留�
   assert.equal(foreignTradeStatus(divided, attacker, defender), "war");
   for (const countryId of [home, oppositionId(home), attacker, defender])
     assert.ok(planWar(scenarioWithCivilWar(scenario, divided.civilWar), divided)?.routes[countryId]);
+  const dividedScenario = scenarioWithCivilWar(scenario, divided.civilWar);
+  const navy = { ...divided.nations[attacker].navy, warships: 4, armored: 0 };
+  const fleet = { ...divided, nations: { ...divided.nations, [attacker]: { ...divided.nations[attacker], navy } } };
+  const mission = { ...fleet, foreignTheater: { ...fleet.foreignTheater!, dispute: {
+    ...foreign, navalMissions: { [attacker]: { task: "escort" as const, portId: "Tonkin" } },
+  } } };
+  const peacetimeMaintenance = projectEconomy(fleet, planWar(dividedScenario, fleet), dividedScenario).countries[attacker].navy!.maintenanceDue;
+  assert.ok(peacetimeMaintenance > 0);
+  assert.equal(projectEconomy(mission, planWar(dividedScenario, mission), dividedScenario).countries[attacker].navy!.maintenanceDue,
+    peacetimeMaintenance * 2);
 
   const chosen = dispatch(scenario, divided, { type: "chooseCivilWarSide", countryId: home, side: "government" });
   const load = (state: typeof chosen) => parseSave(scenario, { version: saveVersion, scenarioId: scenario.id, state });

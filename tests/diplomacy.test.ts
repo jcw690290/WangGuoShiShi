@@ -7,7 +7,7 @@ import { projectEconomy, projectOpeningCapital } from "../src/game/economy.ts";
 import { infamyLevel, planWar, swayCost } from "../src/game/diplomacy.ts";
 import { applyMilitaryLoss } from "../src/game/military-health.ts";
 import { publicSalary } from "../src/game/public-pay.ts";
-import { TICKS_PER_WEEK } from "../src/game/time.ts";
+import { elapsedTicks, TICKS_PER_DAY, TICKS_PER_WEEK } from "../src/game/time.ts";
 import { parseSave, saveVersion } from "../src/game/storage.ts";
 import { borderScenario as scenario } from "../src/scenario/scenario.ts";
 const a = "country_01",
@@ -110,6 +110,10 @@ test("常备军和平支薪，征兵占用产业工人；战线受命令和补�
   assert.equal(g.borderDispute!.progress, 0);
   assert.throws(() => send(g, { type: "signTreaty", countryId: a }), /战线进度/);
   g = send(g, { type: "orderAdvance", countryId: a });
+  const marching = send(g, { type: "advanceTick" });
+  assert.equal(marching.borderDispute!.progress, g.borderDispute!.progress);
+  assert.equal(marching.borderDispute!.frontDeployments![a].arrivals.Yunnan, elapsedTicks(g) + TICKS_PER_DAY);
+  assert.deepEqual(send(load(marching), { type: "advanceTick" }), send(marching, { type: "advanceTick" }));
   const fighting = week(g);
   assert.deepEqual(week(load(g)), fighting);
   const militaryPopulation = (state: GameState) => state.societies.Yunnan.pops.reduce((sum, pop) =>
