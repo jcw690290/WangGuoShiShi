@@ -1,16 +1,18 @@
 import type { GameState } from "./engine.ts";
-import { marketOf } from "./economy.ts";
 import { civicPolicy, civicStanding } from "./civic-policy.ts";
-import { mergePopCohorts } from "./society.ts";
+import { literacyOf, livingStandardOf } from "./society.ts";
 import type { Scenario } from "../scenario/scenario.ts";
 import { culturalAffinityOf, cultureShares, updateCulturalAffinity } from "./culture.ts";
 import { participants } from "./diplomacy.ts";
 import { advanceUnrest, emptyStability } from "./unrest.ts";
 import { opiumEffects } from "./opium.ts";
+import { settleMigration } from "./migration.ts";
+import type { PopulationMove } from "./migration.ts";
 
 export interface PopulationMonth {
   day: number;
   changes: Record<string, number>;
+  moves?: PopulationMove[];
 }
 
 const birthRate = 0.036;
@@ -33,7 +35,8 @@ export function settlePopulationMonth<T extends GameState>(scenario: Scenario, s
   const dispute = state.borderDispute;
   const war = dispute?.phase === "war" ? dispute : undefined;
   const warParties = new Set(war ? participants(war) : []);
-  const frontline = new Set(war ? [war.targetStateId, ...scenario.states[war.targetStateId].neighbors] : []);
+  const frontline = new Set(war ? [war.targetStateId, ...scenario.states[war.targetStateId].neighbors]
+    .filter((id) => warParties.has(state.ownerByStateId[id])) : []);
 
   for (const [siteId, owner] of Object.entries(state.ownerByStateId)) {
     const economy = stateEconomies[siteId];
@@ -48,8 +51,12 @@ export function settlePopulationMonth<T extends GameState>(scenario: Scenario, s
     const treatment = medical?.ordered ? 0.002 * healthCoverage * medical.delivered / medical.ordered : 0;
     const burden = opiumEffects(site.opiumBurden);
     const baselineMortality = deathRate * (1 - healthcareMortalityReduction * healthCoverage) - treatment + burden.mortality;
+    const schoolCoverage = occupied ? 0 : latest?.education?.coverage ?? 0;
+    const development = Math.min(1, Math.max(0, livingStandardOf(site.pops) - 10) / 20);
+    const fertility = birthRate - 0.008 * schoolCoverage * literacyOf(site.pops) / 100 - 0.004 * development;
+    const civilianMortality = occupied ? 0.012 : frontline.has(siteId) ? 0.004 : 0;
     const populationAfter = population + Math.round(
-      population * (birthRate - baselineMortality - additionalMortality) * fractionOfYear,
+      population * (fertility - baselineMortality - additionalMortality - civilianMortality) * fractionOfYear,
     );
     const change = populationAfter - population;
     changes[siteId] = change;
@@ -58,7 +65,6 @@ export function settlePopulationMonth<T extends GameState>(scenario: Scenario, s
     const { knowledge } = state.nations[owner];
     const universityLevel = knowledge["高等教育"] === 100 ? 2 : knowledge["公共教育"] === 100 ? 1 : 0;
     const universityCoverage = Math.min(1, (latest?.universityStaff ?? 0) * 1000 / population);
-    const schoolCoverage = occupied ? 0 : latest?.education?.coverage ?? 0;
     const literacyBonus = Math.min(0.0012, 0.0006 * universityLevel * universityCoverage + 0.0012 * schoolCoverage);
     educationBySite[siteId] = Math.max(universityCoverage, schoolCoverage);
     let peopleSoFar = 0;
@@ -82,43 +88,15 @@ export function settlePopulationMonth<T extends GameState>(scenario: Scenario, s
       radicals: totals.radicals / populationAfter, living: totals.living / populationAfter,
       excluded: totals.excluded / populationAfter, food,
       extraHardship: burden.unrest,
-      war: occupied ? 35 : warParties.has(owner) && frontline.has(siteId) ? 15 : 0,
+      war: occupied ? 35 : frontline.has(siteId) ? 15 : 0,
     }, policing);
     societies[siteId] = { ...site, pops, stability };
   }
 
-  const destinations = new Map<string, string>();
-  for (const [site, owner] of Object.entries(state.ownerByStateId)) {
-    const policy = rights[owner];
-    if (policy.citizenship !== "平等公民权" || policy.religion !== "信仰自由") continue;
-    const market = marketOf(state, owner);
-    const current = destinations.get(market);
-    if (current === undefined || societies[site].university > societies[current].university)
-      destinations.set(market, site);
-  }
-  for (const [site, owner] of Object.entries(state.ownerByStateId)) {
-    const target = destinations.get(marketOf(state, owner));
-    if (target === undefined || state.ownerByStateId[target] === owner) continue;
-    const affinity = culturalAffinityOf(state.societies[target]);
-    for (const pop of societies[site].pops) {
-      if (pop.occupation !== "工程师" || pop.people === 0) continue;
-      const exclusion = 1 - civicStanding(pop, owner, societies[site], rights[owner]);
-      if (exclusion === 0) continue;
-      const familiarity = Object.hasOwn(affinity, pop.culture) ? affinity[pop.culture] : 0;
-      const people = Math.min(Math.ceil(pop.people * exclusion * (0.01 + familiarity / 10_000)), stateEconomies[site].population - 1);
-      if (people === 0) break;
-      const destination = societies[target].pops;
-      const index = destination.findIndex((candidate) =>
-        candidate.occupation === pop.occupation && candidate.culture === pop.culture && candidate.religion === pop.religion,
-      );
-      if (index >= 0) destination[index] = mergePopCohorts(destination[index], pop, people);
-      else destination.push({ ...pop, people });
-      pop.people -= people;
-      stateEconomies[site].population -= people;
-      stateEconomies[target].population += people;
-      changes[site] -= people;
-      changes[target] += people;
-    }
+  const moves = settleMigration(scenario, { ...state, stateEconomies, societies }, frontline);
+  for (const { from, to, people } of moves) {
+    changes[from] -= people;
+    changes[to] += people;
   }
   const shares = Object.fromEntries(Object.entries(societies).map(([id, site]) => [id, cultureShares(site.pops)]));
   const tradeContacts = new Map<string, Map<string, number>>();
@@ -144,5 +122,5 @@ export function settlePopulationMonth<T extends GameState>(scenario: Scenario, s
       trade,
     );
   }
-  return { ...state, stateEconomies, societies, lastPopulation: { day: state.elapsedDays, changes } };
+  return { ...state, stateEconomies, societies, lastPopulation: { day: state.elapsedDays, changes, moves } };
 }
