@@ -26,6 +26,7 @@ import type { TerritorialClaimCommand } from "./territory.ts";
 import { minOpiumClaim, opiumEffects, recentOpiumLosses } from "./opium.ts";
 import { endCivilWar } from "./civil-war.ts";
 import { elapsedTicks, TICKS_PER_DAY } from "./time.ts";
+import { investmentAccount, recordImmediateTransfer, treasuryAccount } from "./finance-journal.ts";
 
 export const goals = ["cession", "reparations", "puppet", "vassal", "protectorate", "annex", "recognition", "haltSettlement", "opiumCompensation", "regime"] as const;
 export type Goal = (typeof goals)[number];
@@ -316,6 +317,15 @@ function treaty(state: GameState, d: BorderDispute, victory: boolean, withdrawal
           };
         }
       const subsidies = countryEconomies[b].industrySubsidies;
+      for (const [queue, account] of [
+        [countryEconomies[b].queue, treasuryAccount(b)], [nations[b].privateQueue, investmentAccount(b)],
+      ] as const) {
+        for (const project of queue) {
+          if (ownerByStateId[project.stateId] === b) continue;
+          diplomaticState = recordImmediateTransfer(diplomaticState, { from: `construction-deposit:${b}`, to: account,
+            amount: projectOpeningCapital(project), reason: "割地终止工程并退回周转金", reference: project.stateId });
+        }
+      }
       countryEconomies[b] = {
         ...countryEconomies[b],
         treasury: countryEconomies[b].treasury + countryEconomies[b].queue.reduce((sum, p) =>
@@ -338,12 +348,16 @@ function treaty(state: GameState, d: BorderDispute, victory: boolean, withdrawal
     }
     if (terms.includes("reparations")) {
       const amount = Math.floor(Math.max(0, countryEconomies[b].treasury) * 0.15);
+      diplomaticState = recordImmediateTransfer(diplomaticState, { from: treasuryAccount(b), to: treasuryAccount(a),
+        amount, reason: "和约赔款", reference: d.targetStateId });
       countryEconomies[b] = { ...countryEconomies[b], treasury: countryEconomies[b].treasury - amount };
       countryEconomies[a] = { ...countryEconomies[a], treasury: countryEconomies[a].treasury + amount };
     }
     if (terms.includes("opiumCompensation")) {
       const loss = opiumClaim!.loss;
       const paid = Math.min(loss, Math.max(0, countryEconomies[b].treasury));
+      diplomaticState = recordImmediateTransfer(diplomaticState, { from: treasuryAccount(b), to: treasuryAccount(a),
+        amount: paid, reason: "和约损失补偿", reference: d.targetStateId });
       countryEconomies[b] = { ...countryEconomies[b], treasury: countryEconomies[b].treasury - paid };
       countryEconomies[a] = { ...countryEconomies[a], treasury: countryEconomies[a].treasury + paid };
       opiumClaim = { loss, paid };
@@ -368,6 +382,8 @@ function treaty(state: GameState, d: BorderDispute, victory: boolean, withdrawal
     }
     for (const ally of d.promises) {
       const reward = Math.min(50000, Math.max(0, countryEconomies[a].treasury));
+      diplomaticState = recordImmediateTransfer(diplomaticState, { from: treasuryAccount(a), to: treasuryAccount(ally),
+        amount: reward, reason: "兑现参战承诺", reference: d.targetStateId });
       countryEconomies[a] = { ...countryEconomies[a], treasury: countryEconomies[a].treasury - reward };
       countryEconomies[ally] = {
         ...countryEconomies[ally],
@@ -463,13 +479,14 @@ export function applyBorderCommand(scenario: Scenario, state: GameState, cmd: Bo
     return removeDiplomaticTies(state, (current) => current === tie);
   }
   if (cmd.type === "promoteGeneral") {
-    if (n.generalRank >= 5 || state.countryEconomies[id].treasury < 80000)
+    const cost = 80000;
+    if (n.generalRank >= 5 || state.countryEconomies[id].treasury < cost)
       throw new GameRuleError("晋升需要 800 两，最高五级");
     const paid = state.countryEconomies[id];
-    return {
+    return recordImmediateTransfer({
       ...change({ generalRank: n.generalRank + 1 }),
-      countryEconomies: { ...state.countryEconomies, [id]: { ...paid, treasury: paid.treasury - 80000 } },
-    };
+      countryEconomies: { ...state.countryEconomies, [id]: { ...paid, treasury: paid.treasury - cost } },
+    }, { from: treasuryAccount(id), to: `officer-training:${id}`, amount: cost, reason: "将领晋升", reference: id });
   }
   if (cmd.type === "leaveUnion") {
     if (!n.marketLeader || n.overlord) throw new GameRuleError("无法退出当前市场");

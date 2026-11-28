@@ -10,6 +10,7 @@ import { borderScenario, scenario as world } from "../src/scenario/scenario.ts";
 import { effectiveConvoyCapacity } from "../src/game/fleet.ts";
 import { seaVoyageCargoCost } from "../src/game/transport.ts";
 import { chooseAITradeRoutes } from "../src/game/trade.ts";
+import { measureCampaign } from "../src/game/campaignMetrics.ts";
 
 const qing = "country_01", vietnam = "country_26", to = "Tonkin", from = "Yunnan";
 const scenario = {
@@ -146,6 +147,9 @@ test("沿海州能按海运结算，旧陆路档继续可读，跨图边界按�
   assert.equal(shipment.mode, "sea");
   assert.equal(shipment.status, "shipped");
   assert.equal(settled.lastEconomy!.countries[countryId].tradeSeaCargo, shipment.quantity * sea.tradeRoutes![0].cargoCost);
+  assert.ok(shipment.seaCargo && shipment.seaCargo.required >= shipment.seaCargo.delivered);
+  assert.equal(measureCampaign(world, settled, countryId, undefined, true).SEA,
+    shipment.seaCargo.delivered / shipment.seaCargo.required);
   assert.deepEqual(await decodeSnapshot(world, await encodeSnapshot(world, settled)), settled);
   assert.equal(seaVoyageCargoCost([5, 70], [1195, 70]), 1);
   assert.ok(seaVoyageCargoCost([25, 50], [625, 400]) > 1);

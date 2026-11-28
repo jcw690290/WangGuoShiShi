@@ -1,4 +1,5 @@
 import { z } from "zod";
+import { recordImmediateTransfer, treasuryAccount } from "./finance-journal.ts";
 import { GameRuleError } from "./rules.ts";
 import type { Scenario } from "../scenario/scenario.ts";
 import { isScenarioFinished } from "./engine.ts";
@@ -141,10 +142,11 @@ export function applyTerritorialSettlement(scenario: Scenario, state: GameState,
   const id = countryId!, anchor = anchorFor(scenario, state, stateId, id)!;
   const mode = settlementMode(scenario, state, stateId, anchor.sea);
   const country = state.countryEconomies[id];
-  return { ...state, countryEconomies: { ...state.countryEconomies, [id]: { ...country, treasury: country.treasury - CLAIM_COST } },
+  return recordImmediateTransfer({ ...state, countryEconomies: { ...state.countryEconomies, [id]: { ...country, treasury: country.treasury - CLAIM_COST } },
     territorialSettlements: [...(state.territorialSettlements ?? []), {
       stateId, countryId: id, ...anchor, mode, startedDay: state.elapsedDays, progress: 0,
-    }] };
+    }] }, { from: treasuryAccount(id), to: `territorial-settlement:${stateId}`, amount: CLAIM_COST,
+    reason: "领土项目启动支出", reference: stateId });
 }
 
 function completeSettlement(scenario: Scenario, state: GameState, project: TerritorialSettlement): GameState {

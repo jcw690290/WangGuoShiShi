@@ -3,6 +3,9 @@ import { facilityNames, facilityTypes, livingStandardOf, socialTags } from "./ga
 import { civicPolicy, civicStanding, nationalIdentity } from "./game/civic-policy.ts";
 import { privateShareOf, projectDeposit, projectName, projectPoints, remainingProjectPoints, weeklyBudgets } from "./game/economy.ts";
 import { count, silver } from "./format.ts";
+import { activeConstruction } from "./game/construction.ts";
+import { TICKS_PER_DAY } from "./game/time.ts";
+import { treasuryAccount } from "./game/finance-journal.ts";
 import { fiscalRiskNames } from "./game/fiscal.ts";
 import { publicPayBands, publicPayBandSchema, publicPayNames } from "./game/public-pay.ts";
 import { CommodityDetails } from "./CommodityDetails.tsx";
@@ -480,6 +483,9 @@ export function EconomyPanel(
   const marketId = selectedId === null ? playerId : game.ownerByStateId[selectedId];
   const country = scenario.countries[marketId];
   const countryReport = report.countries[marketId];
+  const account = treasuryAccount(marketId);
+  const journal = game.financeJournal ? [...game.financeJournal.settled, ...game.financeJournal.pending]
+    .filter(({ from, to }) => from === account || to === account) : [];
   const { market, tax, wageTaxRate, upkeep, tribute, officeUpkeep, military, fleet, tradeSeaCargo } = countryReport;
   const nation = game.nations[marketId];
   const policy = taxPolicy(nation);
@@ -622,6 +628,16 @@ export function EconomyPanel(
             <p>支付利息 {silver(fiscal.week.interestPaid)} · 未付利息 {silver(fiscal.arrears)}</p>
             <p>必要支出实付 {silver(fiscal.week.upkeepPaid)} ／ 应付 {silver(fiscal.week.upkeepDue)}</p>
           </details>}
+          {journal.length > 0 && <details className="control-block">
+            <summary>国库账务 · 最近周结与本周指令</summary>
+            <ul>
+              {journal.map(({ transactionId, tick, from, to, amount, reason, reference }) =>
+                <li key={transactionId}>
+                  第 {Math.floor(tick / TICKS_PER_DAY) + 1} 天 · {reason} · {to === account ? "+" : "−"}{silver(amount)}
+                  <br /><small>{transactionId} · {from} → {to} · {reference}</small>
+                </li>)}
+            </ul>
+          </details>}
           {marketId === playerId && <details className="control-block">
             <summary>贸易设置 · {commercialLaw} · 现行关税 {tariffRate(nation)}%</summary>
             <label>关税档位{" "}
@@ -708,13 +724,14 @@ export function EconomyPanel(
                 <h4>
                   {country.name} · {kind}
                 </h4>
-                {queue.length ? (
+                {queue.some(activeConstruction) ? (
                   <ol>
-                    {queue.map((job, i) => (
+                    {queue.map((job, i) => activeConstruction(job) && (
                       <li key={i}>
                         {scenario.states[job.stateId].name} ·{" "}
                         {projectName(job.good)}{job.levels && ` × ${job.levels}`} ·
                         余 {remainingProjectPoints(job).toFixed(2)} 点
+                        {job.startedAtTick !== undefined && " · 首周按开工时长结算"}
                         {marketId === playerId && <button disabled={busy} onClick={() => send({
                           type: "cancelConstruction", countryId: playerId, index: i, stateId: job.stateId, good: job.good,
                           privateBuild: kind === "私人",

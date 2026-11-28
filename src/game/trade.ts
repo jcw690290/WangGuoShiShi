@@ -69,8 +69,11 @@ export const tradeDeliverySchema = z.object({
   tariff: units,
   sales: units,
   profit: units,
+  seaCargo: z.object({ required: units.positive(), delivered: units }).optional(),
 }).refine((row) => row.sales === row.purchase + row.freight + row.tariff + row.profit &&
-  (row.status === "shipped" ? row.quantity > 0 : row.quantity === 0 && row.sales === 0));
+  (row.status === "shipped" ? row.quantity > 0 : row.quantity === 0 && row.sales === 0) &&
+  (!row.seaCargo || (row.mode === "sea" && row.seaCargo.delivered <= row.seaCargo.required &&
+    (row.status === "shipped" ? row.seaCargo.delivered >= row.quantity : row.seaCargo.delivered === 0))));
 export type TradeDelivery = z.infer<typeof tradeDeliverySchema>;
 
 export const tradeRouteKey = ({ from, to, good, mode = "land" }: RouteSelection) =>
@@ -370,15 +373,18 @@ export function settleTrade(
     const empty = { from, to, good, mode, quantity: 0, purchase: 0, freight: 0, tariff: 0, sales: 0, profit: 0 };
     const restriction = tradeRouteBlock(state, route);
     if (restriction) return { ...empty, status: restriction };
-    if (blockedAtSea(route)) return { ...empty, status: "blockaded" };
     const source = at(from), target = at(to);
-    const { transport, book } = corridor(route);
-    const quantity = Math.min(
-      route.limit, transport,
+    const required = Math.min(
+      route.limit,
       supplies[from][good] - fills[good][from].local - fills[good][from].poolSold - source.sent[good],
       demands[to][good] - fills[good][to].local - fills[good][to].poolBought - target.received[good],
     );
-    if (quantity <= 0) return { ...empty, status: "noVolume" };
+    const seaCargo = (quantity: number) => mode === "sea" && required > 0 ?
+      { seaCargo: { required: required * cargoCost, delivered: quantity * cargoCost } } : {};
+    if (blockedAtSea(route)) return { ...empty, status: "blockaded", ...seaCargo(0) };
+    const { transport, book } = corridor(route);
+    const quantity = Math.min(required, transport);
+    if (quantity <= 0) return { ...empty, status: "noVolume", ...seaCargo(0) };
     const amounts = tradeAmounts(state, route, quantity, sites[from].localPrices[good], sites[to].localPrices[good]);
     const { purchase, freight, tariff, profit } = amounts;
     if (profit <= 0) return { ...empty, status: "unprofitable" };
@@ -389,7 +395,7 @@ export function settleTrade(
     target.freight += freight;
     target.profit += profit;
     target.tariff += tariff;
-    return { from, to, good, mode, quantity, status: "shipped", ...amounts };
+    return { from, to, good, mode, quantity, status: "shipped", ...amounts, ...seaCargo(quantity) };
   });
   const smuggling: OpiumSmuggling[] = [];
   const illicitImports = new Map<string, { attempted: number; seized: number; delivered: number; spending: number }>();

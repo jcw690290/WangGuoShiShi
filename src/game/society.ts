@@ -25,6 +25,7 @@ import { isMilitaryServiceLaw, militaryServiceLaws } from "./military-service.ts
 import { productionProjects, productionTiers } from "./production-methods.ts";
 import { officersInService, publicPayBandSchema } from "./public-pay.ts";
 import { populationServicesSchema } from "./population-services.ts";
+import { constructionTiming } from "./construction.ts";
 
 const startingOccupations = ["农民", "劳工", "工程师", "军官", "教士", "店主", "资本家", "贵族"] as const;
 export const occupations = [...startingOccupations, "文职", "军人"] as const;
@@ -259,6 +260,7 @@ export const privateProject = z.object({
   weeksLeft: z.number().positive(),
   levels: z.int().positive().optional(),
   ownership: ownershipSchema.optional(),
+  ...constructionTiming,
 });
 export const facilityTypes = [
   "infrastructure",
@@ -641,7 +643,7 @@ export function evolvePops(
     grainPrice: number; laborWages: number; specialistWages: number; clerkWages: number;
     enlistedWages: number; officerWages: number;
     capitalistIncome: number; landownerIncome: number; ruralResources: number; businessJobs: number; standardTarget: number;
-    taxBurden: number; warPressure: number;
+    taxBurden: number; warPressure: number; training: number;
     relief?: { 农民: number; 劳工: number };
   },
   tuning: RuleTuning,
@@ -709,7 +711,7 @@ export function evolvePops(
     );
     const qualified = Math.floor(
       ((p.people * (p.literacy + p.wealth)) / 1000) *
-        (1 + site.university) *
+        (1 + week.training) *
         (0.35 + 0.65 * civicStanding(p, id, site, policy)),
     );
     const promoted = Math.min(p.people, vacancies, qualified);

@@ -8,6 +8,7 @@ import { defaultEndYear, guideSteps } from "./game/campaign.ts";
 import type { Campaign, EndingRecord } from "./game/campaign.ts";
 import { listAchievements, listEndings } from "./game/storage.ts";
 import { achievementCatalog, achievementKey } from "./game/achievements.ts";
+import { activeConstruction } from "./game/construction.ts";
 import type { AchievementRecord } from "./game/achievements.ts";
 import { endingCatalog, endingStory, endingTitle } from "./scenario/endings.ts";
 import type { Scenario } from "./scenario/scenario.ts";
@@ -163,7 +164,8 @@ export function TutorialConstructionReview({ scenario, game, countryId, onReview
   const project = game.campaign!.guideProject;
   const construction = game.lastEconomy!.countries[countryId].construction!;
   const queue = project?.privateBuild ? game.nations[countryId].privateQueue : game.countryEconomies[countryId].queue;
-  const pending = project && queue.find(({ stateId, good }) => stateId === project.stateId && good === project.good);
+  const pending = project && queue.find((job) =>
+    activeConstruction(job) && job.stateId === project.stateId && job.good === project.good);
   const spending = project?.privateBuild ? construction.private : construction.public;
   return <section className="panel control-block" aria-label="教程施工复盘">
     <h3>施工复盘</h3>

@@ -4,6 +4,7 @@ import { advanceDay, createGame, dispatch, getGameDate, spanDays } from "../src/
 import type { GameState, GameCommand } from "../src/game/engine.ts";
 import { projectEconomy, constructionError, projectDeposit, projects, remainingProjectPoints } from "../src/game/economy.ts";
 import { constructionSpending } from "../src/game/construction.ts";
+import { treasuryAccount } from "../src/game/finance-journal.ts";
 import { parseSave, saveVersion } from "../src/game/storage.ts";
 import { decodeSnapshot, encodeSnapshot } from "../src/online/protocol.ts";
 import { influence, reformConditions, reformWork } from "../src/game/society.ts";
@@ -189,6 +190,29 @@ test("施工闲置维护购买实物并占用国库现款，和在建岗位分�
   assert.equal(settled.countryEconomies.first.treasury, initial.countryEconomies.first.treasury + report.tax - report.upkeep);
   assert.equal(settled.countryEconomies.first.fiscal!.week.upkeepPaid, report.upkeep);
   assert.deepEqual(load(settled), settled);
+
+  const close = (state: GameState) => send({ ...state, elapsedDays: 6, tickInDay: 3 }, { type: "advanceTick" });
+  const build = { type: "queueConstruction", countryId: "first", stateId: "border", good: "cloth" } as const;
+  const half = { ...initial, elapsedDays: 3, tickInDay: 2 };
+  const late = send(half, build);
+  const fullBill = close(worked).lastEconomy!.countries.first.construction!.public;
+  const halfBill = close(load(late)).lastEconomy!.countries.first.construction!.public;
+  assert.equal(halfBill.wages, fullBill.wages / 2);
+  assert.ok(halfBill.points > 0 && halfBill.points < fullBill.points);
+  const cancel = { type: "cancelConstruction", countryId: "first", stateId: "border", good: "cloth", index: 0 } as const;
+  const canceled = send({ ...worked, elapsedDays: 3, tickInDay: 2 }, cancel);
+  assert.throws(() => send(canceled, cancel), /不在队列/);
+  const closed = close(load(canceled));
+  assert.equal(closed.countryEconomies.first.queue.length, 0);
+  assert.equal(closed.lastEconomy!.countries.first.construction!.public.wages, halfBill.wages);
+  assert.equal(close(send(late, cancel)).lastEconomy!.countries.first.construction!.public.wages, 0);
+  const account = treasuryAccount("first");
+  const entries = closed.financeJournal!.settled;
+  assert.equal(new Set(entries.map(({ transactionId }) => transactionId)).size, entries.length);
+  const net = entries.reduce((sum, { from, to, amount }) =>
+    sum + (to === account ? amount : 0) - (from === account ? amount : 0), 0);
+  assert.equal(closed.countryEconomies.first.treasury - initial.countryEconomies.first.treasury, net);
+  assert.deepEqual(load(closed).financeJournal, closed.financeJournal);
 });
 
 test("职业支持分配与选举权重改变八个集团，合法性和激进度影响审议", () => {

@@ -19,7 +19,7 @@ import { allocateHouseholdIncome, basicEquivalentSupply, byExtraGood, extrasOrde
 import type { BasicPurchases, ExtrasReport, SubstituteOrders } from "./households.ts";
 import { administrationWage, advanceIntegration, integrationStaffNeeded,
   integrationWeekShare, localGovernanceRule } from "./governance.ts";
-import { expectedTrade, illicitOpiumEligible, settleTrade, tradeRouteBlock } from "./trade.ts";
+import { expectedTrade, illicitOpiumEligible, settleTrade, tradeRouteBlock, tradeRouteKey } from "./trade.ts";
 import type { TradeDelivery } from "./trade.ts";
 import { unrestEffects } from "./unrest.ts";
 import { affordableIndustryWorkers, electricityUse, electricIndustries, electricRetrofits, emptyIndustrialAccount,
@@ -30,13 +30,14 @@ import type { IndustrialAccount, IndustrialReport, IndustrySubsidyReport } from 
 import { deliverOffice, officeNeed, officeStaffCapacity, planOffice } from "./administration.ts";
 import type { OfficeReport } from "./administration.ts";
 import { byInstitution, byInstitutionGood, deliverInstitution, deliverInstitutionOrders,
-  deliverWelfareRelief, institutionGoods, institutionLawLimit, institutionOperation, institutions, isInstitutionGood,
+  deliverWelfareRelief, institutionGoods, institutionLawLimit, institutionNames, institutionOperation, institutions, isInstitutionGood,
   planInstitution, planWelfareRelief } from "./institutions.ts";
 import type { Institution, InstitutionReport, WelfareRelief } from "./institutions.ts";
 import { harvestGood, isCrop, rentRateOf, reservedCropland, subsistenceHarvest } from "./subsistence.ts";
 import type { SubsistenceReport } from "./subsistence.ts";
-import { affordableCrew, constructionJobs, constructionMaterials, constructionPointsPerLevel, constructionSectors, constructionWage,
-  constructionSpending, crewMaterials, deliverConstruction, emptyConstructionReport, materialOrder,
+import { activeConstruction, affordableCrew, allocateConstructionPoints, constructionDuty, constructionJobs,
+  constructionMaterials, constructionSectors, constructionWage, constructionSpending,
+  crewMaterials, deliverConstruction, emptyConstructionReport, materialOrder,
   planConstructionMaintenance, reserveCrew, shareCrew } from "./construction.ts";
 import type { ConstructionMaintenance, ConstructionReport, ConstructionSector, ConstructionStock } from "./construction.ts";
 import { portCapacity, railCapacityPerLevel } from "./transport.ts";
@@ -63,6 +64,7 @@ import { industrialWage, productionHiringLimit } from "./private-labor.ts";
 import type { IndustryLabor } from "./private-labor.ts";
 import { militarySalary, officerSalary, publicSalary } from "./public-pay.ts";
 import { accumulatePopulationServices } from "./population-services.ts";
+import { investmentAccount, treasuryAccount, weeklyFinance } from "./finance-journal.ts";
 
 export { marketOf } from "./market.ts";
 
@@ -127,6 +129,8 @@ export interface Project {
   weeksLeft: number;
   levels?: number;
   ownership?: Ownership;
+  startedAtTick?: number;
+  cancelledAtTick?: number;
 }
 export function projectPoints(good: Building) {
   if (good === "railway") return 250;
@@ -145,11 +149,13 @@ export function projectDeposit(good: Building) {
   return isProductiveBuilding(good) ? workingCapitalPerLevel(good) : 0;
 }
 export function projectOpeningCapital(project: Project) {
+  if (!activeConstruction(project)) return 0;
   const { good, levels } = project;
   const capital = projectDeposit(good) * (levels ?? 1);
   return levels && isGood(good) && !isIndustrialGood(good) ? Math.min(capital, legacyCommercialCost[good]) : capital;
 }
 export function unusedPrepaidConstruction(project: Project) {
+  if (!activeConstruction(project)) return 0;
   const { good, levels, weeksLeft } = project;
   const { cost, weeks } = projects[good];
   const deposit = levels && isGood(good) && !isIndustrialGood(good) ? legacyCommercialCost[good] : cost;
@@ -192,6 +198,8 @@ export interface MilitarySupply {
   grainDrawn: number;
   grainTransport: number;
   seaCargoUsed?: number;
+  seaCargoRequired?: number;
+  fieldPersonnel?: number;
   procurement?: { grain: number; cloth: number; arms?: number; ammo?: number; oil?: number; rubber?: number };
   equipment: Record<"weapons" | "ammunition" | "uniforms", EquipmentIssue> & Partial<Record<"fuel" | "spares", EquipmentIssue>>;
   readiness: number;
@@ -486,7 +494,10 @@ function issueSupplies(
     seaCargo += issued;
     if (needs[kind]) readiness = Math.min(readiness, issued / needs[kind]);
   }
-  if (overseas) military.seaCargoUsed = seaCargo;
+  if (overseas) {
+    military.seaCargoUsed = seaCargo;
+    military.seaCargoRequired = equipmentTypes.reduce((sum, kind) => sum + needs[kind], demand);
+  }
   return readiness;
 }
 
@@ -600,6 +611,11 @@ function projectSettlement(state: GameState, war?: WarPlan, closingTick?: number
   const maintenancePlans: Record<string, ReturnType<typeof planConstructionMaintenance>> = {};
   const constructionClosing: Record<string, ConstructionStock> = {};
   const constructionNeeds: Record<string, Record<ConstructionSector, number>> = {};
+  const constructionSchedules: Record<string, {
+    public: ReturnType<typeof constructionDuty>;
+    private: ReturnType<typeof constructionDuty>;
+    openTicks: number;
+  }> = {};
   const privateConstructionCash: Record<string, number> = {};
   const productionStocks = new Map<string, {
     remaining: IndustrialAccount["stocks"]; restock: IndustrialAccount["stocks"];
@@ -620,11 +636,13 @@ function projectSettlement(state: GameState, war?: WarPlan, closingTick?: number
     markets[id] = market;
     marketSites[id] = [];
     holdings[id] = [];
-    const work = (queue: Project[]) => Math.ceil(queue.reduce((points, project) =>
-      points + (project.stateId === state.occupation?.stateId || (project.good === "opium" && !opiumCommerceAllowed(nation.laws))
-        ? 0 : remainingProjectPoints(project)), 0) *
-      constructionJobs / constructionPointsPerLevel);
-    constructionNeeds[id] = { public: work(state.countryEconomies[id].queue), private: work(nation.privateQueue) };
+    const canWork = (project: Project) => project.stateId !== state.occupation?.stateId &&
+      (project.good !== "opium" || opiumCommerceAllowed(nation.laws));
+    const government = constructionDuty(state.countryEconomies[id].queue, closingTick, canWork, remainingProjectPoints);
+    const investment = constructionDuty(nation.privateQueue, closingTick, canWork, remainingProjectPoints);
+    constructionSchedules[id] = { public: government, private: investment,
+      openTicks: new Set([...government.ticks, ...investment.ticks]).size };
+    constructionNeeds[id] = { public: government.requestedWorkers, private: investment.requestedWorkers };
     privateConstructionCash[id] = nation.investment;
     report.countries[id] = {
       market,
@@ -788,10 +806,14 @@ function projectSettlement(state: GameState, war?: WarPlan, closingTick?: number
       conscripts = 0;
     const jobs = state.occupation?.stateId === id ? 0 : Math.min(workers, site.construction * constructionJobs);
     const need = constructionNeeds[owner];
+    const duty = constructionSchedules[owner];
+    const availableCrew = (ticks: number) => Math.floor(jobs * ticks / TICKS_PER_WEEK);
     const stock = local.constructionStock ?? { public: crewMaterials(0), private: crewMaterials(0) };
-    const crews = shareCrew(jobs, privateShareOf(nation),
-      affordableCrew(Math.min(jobs, need.public), cashToCommit[owner], ceilings, stock.public, constructionPay),
-      affordableCrew(Math.min(jobs, need.private), privateConstructionCash[owner], ceilings, stock.private));
+    const crews = shareCrew(availableCrew(duty.openTicks), privateShareOf(nation),
+      affordableCrew(Math.min(availableCrew(duty.public.ticks.length), need.public),
+        cashToCommit[owner], ceilings, stock.public, constructionPay),
+      affordableCrew(Math.min(availableCrew(duty.private.ticks.length), need.private),
+        privateConstructionCash[owner], ceilings, stock.private));
     constructionCrews[id] = crews;
     cashToCommit[owner] -= reserveCrew(crews.public, ceilings, stock.public, constructionPay);
     privateConstructionCash[owner] -= reserveCrew(crews.private, ceilings, stock.private);
@@ -816,7 +838,7 @@ function projectSettlement(state: GameState, war?: WarPlan, closingTick?: number
     let skilledWages = 0;
     const retrofitting = new Set<ProductiveBuilding>();
     for (const job of state.countryEconomies[owner].queue) {
-      if (job.stateId !== id || job.weeksLeft >= projects[job.good].weeks) continue;
+      if (!activeConstruction(job) || job.stateId !== id || job.weeksLeft >= projects[job.good].weeks) continue;
       const upgrade = productionUpgradeFor(job.good);
       if (upgrade) retrofitting.add(upgrade.good);
     }
@@ -987,6 +1009,7 @@ function projectSettlement(state: GameState, war?: WarPlan, closingTick?: number
       const draftTicks = draftDutyTicks(route, closingTick);
       const fieldReserves = Math.round(m.deployedConscripts! * draftTicks / TICKS_PER_WEEK);
       const fieldStrength = deployed + fieldReserves;
+      m.fieldPersonnel = deployed + m.deployedConscripts!;
       const homeReserves = Math.round((m.conscripts - m.deployedConscripts!) * draftTicks / TICKS_PER_WEEK);
       const deployedRoster = ids.filter((id) => route.recruitmentStates.has(id)).flatMap((id) => rosters[id]);
       m.readiness = issueSupplies(
@@ -1423,7 +1446,8 @@ function projectSettlement(state: GameState, war?: WarPlan, closingTick?: number
     };
     return [owner, { ...closing, navy: naval.navy }];
   }));
-  return { report, referenceQuotes, localQuotes, industrialClosing, constructionClosing, fleetClosing, netHouseholdIncome, taxBurden, completedRefits };
+  return { report, referenceQuotes, localQuotes, industrialClosing, constructionClosing, constructionSchedules,
+    fleetClosing, netHouseholdIncome, taxBurden, completedRefits };
 }
 export function buildingCapacity(site: Scenario["states"][string], local: StateEconomy, good: ProductiveBuilding) {
   if (good === "cashCrops") return Math.floor((local.cropland ?? 0) / productiveDefinitions.cashCrops.jobs);
@@ -1464,7 +1488,7 @@ export function constructionError(
     if (technology && nation.knowledge[technology] !== 100) return `需要掌握${technology}技术`;
     if (state.stateEconomies[stateId].buildings[industry] === 0) return "需要已经投产的产业设施";
     if (productionTierAt(industry, state.societies[stateId]) === tier) return "该产业已采用这项工序";
-    if (country.queue.some((p) => p.stateId === stateId && productionUpgradeFor(p.good)?.good === industry))
+    if (country.queue.some((p) => activeConstruction(p) && p.stateId === stateId && productionUpgradeFor(p.good)?.good === industry))
       return "该产业已安排工序改造";
     if (tier === "advanced" && industry !== "electricity" && state.stateEconomies[stateId].buildings.electricity === 0)
       return "先进工序需要州内发电设施";
@@ -1472,7 +1496,8 @@ export function constructionError(
   if (good === "administrativeArchive") {
     if (nation.knowledge["官僚改良"] !== 100) return "需要掌握官僚改良技术";
     if (!state.societies[stateId].bureaucracy) return "需要已有行政办事处";
-    if (state.societies[stateId].administrativeArchive || country.queue.some((p) => p.stateId === stateId && p.good === good))
+    if (state.societies[stateId].administrativeArchive || country.queue.some((p) =>
+      activeConstruction(p) && p.stateId === stateId && p.good === good))
       return "该州已经安排行政档案室改造";
   }
   if (good === "port" && !scenario.states[stateId].coastal) return "只能在沿海州建设港口";
@@ -1486,7 +1511,7 @@ export function constructionError(
     if (privateBuild && economicLaw(nation.laws) === "国家主导" && openingOwnership(good) === "PUBLIC")
       return "国家主导制度下该产业由政府建设";
     const local = state.stateEconomies[stateId];
-    const queue = [...country.queue, ...nation.privateQueue].filter((p) => p.stateId === stateId);
+    const queue = [...country.queue, ...nation.privateQueue].filter((p) => activeConstruction(p) && p.stateId === stateId);
     const queued = queue.reduce((count, project) => count + (project.good === good ? project.levels ?? 1 : 0), 0);
     if (local.buildings[good] + queued >= buildingCapacity(scenario.states[stateId], local, good))
       return "州内容量已满";
@@ -1635,7 +1660,7 @@ export function settleEconomy(state: GameState, war?: WarPlan, fractionOfYear = 
     countryEconomies = { ...state.countryEconomies },
     nations = { ...state.nations };
   // A project completed from this week's deliveries starts operating next week.
-  const { report: production, referenceQuotes, localQuotes, industrialClosing, constructionClosing, fleetClosing,
+  const { report: production, referenceQuotes, localQuotes, industrialClosing, constructionClosing, constructionSchedules, fleetClosing,
     netHouseholdIncome, taxBurden, completedRefits } = projectSettlement(
     state, war, closingTick, scenario,
   );
@@ -1643,6 +1668,7 @@ export function settleEconomy(state: GameState, war?: WarPlan, fractionOfYear = 
   const campusFunding: Record<string, number> = {};
   const administrationFunding: Record<string, number> = {};
   const militaryPayroll: Record<string, { paid: number; due: number; accrued: number; allocated: number }> = {};
+  const journal = weeklyFinance(closingTick);
   for (const [id, c] of Object.entries(production.countries)) {
     const country = countryEconomies[id];
     const construction = c.construction!;
@@ -1669,6 +1695,7 @@ export function settleEconomy(state: GameState, war?: WarPlan, fractionOfYear = 
       c.industrySubsidiesPaid! += paid;
       industrialClosing[siteId].capital += paid;
       site.industrial!.capital += paid;
+      journal.transfer(treasuryAccount(id), `industry:${siteId}`, paid, "产业补贴", siteId);
     }
     const universityDue = c.universityWages!;
     const administrationDue = c.administrationWages!;
@@ -1689,6 +1716,30 @@ export function settleEconomy(state: GameState, war?: WarPlan, fractionOfYear = 
     if (militaryDue > 0) c.military.readiness *= Math.min(1, militaryPaid / militaryDue);
     c.upkeep = week.upkeepPaid;
     c.interestPaid = week.interestPaid;
+    const treasury = treasuryAccount(id), lender = `credit:${id}`;
+    const market = `market:${marketOf(state, id)}`;
+    journal.transfer(market, treasury, c.taxReceipts!.income, "实收所得税", id);
+    journal.transfer(market, treasury, c.taxReceipts!.excise, "实收消费税", id);
+    journal.transfer(`ownership:${id}`, treasury, c.publicIndustryIncome!, "国有产业收益", id);
+    if (nations[id].overlord !== null)
+      journal.transfer(treasury, treasuryAccount(nations[id].overlord!), c.tribute, "实缴贡赋", id);
+    journal.transfer(lender, treasury, Math.max(0, -country.treasury), "旧透支转入债务", id);
+    journal.transfer(lender, treasury, week.borrowed, "借款到账", id);
+    journal.transfer(treasury, lender, week.repaid, "归还本金", id);
+    journal.transfer(treasury, lender, week.interestPaid, "实付利息", id);
+    journal.transfer(treasury, `public-payroll:${id}`, militaryPaid, "实付军饷", id);
+    journal.transfer(treasury, `public-payroll:${id}`, universityPaid, "大学工资", id);
+    journal.transfer(treasury, `public-payroll:${id}`, administrationPaid, "整合行政工资", id);
+    journal.transfer(treasury, market, militaryProcurementCost(c.military.procurement), "军需采购", id);
+    journal.transfer(treasury, market, fleetSpending(c.fleet!), "商船采购与维护", id);
+    journal.transfer(treasury, market, c.navy!.spending, "海军采购与维护", id);
+    journal.transfer(treasury, `public-services:${id}`, c.officeUpkeep!, "行政署支出", id);
+    for (const kind of institutions)
+      journal.transfer(treasury, `public-services:${id}`, c[`${kind}Upkeep`]!, institutionNames[kind], id);
+    journal.transfer(treasury, `construction:${id}`, constructionSpending(construction.public), "公共施工", id);
+    journal.transfer(treasury, `construction:${id}`, constructionSpending(c.constructionMaintenance!), "建造部门维护", id);
+    journal.transfer(investmentAccount(id), `construction:${id}`, constructionSpending(construction.private), "私人施工", id);
+    journal.transfer(`ownership:${id}`, investmentAccount(id), c.investment, "收益转入投资池", id);
     countryEconomies[id] = {
       ...country,
       ...closing,
@@ -1702,6 +1753,16 @@ export function settleEconomy(state: GameState, war?: WarPlan, fractionOfYear = 
       : Math.min(100, nations[id].morale + 8);
     nations[id] = { ...nations[id], ...fleetClosing[id], morale,
       investment: nations[id].investment - constructionSpending(construction.private) + c.investment };
+  }
+  for (const shipment of production.trade ?? []) {
+    if (shipment.status !== "shipped") continue;
+    const exporter = state.ownerByStateId[shipment.from], importer = state.ownerByStateId[shipment.to];
+    const reference = tradeRouteKey(shipment), trade = `trade:${reference}`;
+    journal.transfer(`market:${marketOf(state, importer)}`, trade, shipment.sales, "进口成交", reference);
+    journal.transfer(trade, `market:${marketOf(state, exporter)}`, shipment.purchase, "进口采购", reference);
+    journal.transfer(trade, `income-clearing:${shipment.to}`, shipment.freight, "贸易运费", reference);
+    journal.transfer(trade, treasuryAccount(importer), shipment.tariff, "实收进口关税", reference);
+    journal.transfer(trade, `ownership:${importer}`, shipment.profit, "贸易经营结余", reference);
   }
   const integrationEfficiency = new Map<string, number>();
   for (const [id, s] of Object.entries(production.states)) {
@@ -1751,6 +1812,23 @@ export function settleEconomy(state: GameState, war?: WarPlan, fractionOfYear = 
     const basic = s.householdBasicPurchases!;
     const habit = s.opium?.nonMedical;
     const extra = s.householdExtras!;
+    const localMarket = `market:${marketOf(state, owner)}`, household = `households:${id}`;
+    const localTreasury = `local-treasury:${id}`, industrialAccount = `industry:${id}`;
+    journal.transfer(household, localMarket, basic.spending, "家庭基本消费", id);
+    journal.transfer(household, localMarket, extra.spending, "家庭可选消费", id);
+    if (habit) journal.transfer(household, localMarket, habit.spending, "非医疗依赖支出", id);
+    journal.transfer(`income-clearing:${id}`, household, income.basic + income.discretionary, "家庭可支配收入", id);
+    if (s.industrial) {
+      const wages = goods.reduce((total, good) => total + s.industries[good].wages, 0);
+      journal.transfer(localMarket, industrialAccount, s.industrial.sales, "产业销售回款", id);
+      journal.transfer(industrialAccount, localMarket, s.industrial.spent, "产业实际投入支出", id);
+      journal.transfer(industrialAccount, `income-clearing:${id}`, wages, "产业实付工资", id);
+      journal.transfer(industrialAccount, `ownership:${owner}`, s.industrial.distributed, "产业经营结余分配", id);
+    }
+    if (s.localFiscal) {
+      journal.transfer(localMarket, localTreasury, s.localFiscal.retainedTax, "地方留税", id);
+      journal.transfer(localTreasury, `public-services:${owner}`, s.localFiscal.publicSpending, "地方实付公共服务", id);
+    }
     const { constructionStock: _priorStock, ...local } = stateEconomies[id];
     const staffing = Object.fromEntries(productiveBuildings.flatMap((good) => {
       const { employed } = productiveBuildingActivity(s, good);
@@ -1792,6 +1870,7 @@ export function settleEconomy(state: GameState, war?: WarPlan, fractionOfYear = 
       businessJobs: jobs - privateClerks,
       standardTarget: livingStandardTarget(s.consumptionIndex!, s.foodFulfillment!),
       taxBurden: Math.min(1, taxBurden[id]),
+      training: s.universityStaff! / universityJobs + (s.education?.coverage ?? 0),
       warPressure: state.occupation?.stateId === id ? 0.22 : war?.routes[owner]?.recruitmentStates.has(id) ? 0.09 : 0,
       relief,
     }, tuning);
@@ -1809,32 +1888,39 @@ export function settleEconomy(state: GameState, war?: WarPlan, fractionOfYear = 
     }
     if (Object.hasOwn(completedRefits, id)) societies[id] = { ...societies[id], battalionOrders: completedRefits[id] };
   }
-  function complete<T extends Project>(queue: T[], points: number, privateBuild: boolean, nation: Nation) {
+  function complete<T extends Project>(queue: T[], duty: ReturnType<typeof constructionDuty>, points: number,
+    privateBuild: boolean, nation: Nation) {
+    const assigned = allocateConstructionPoints(duty, points);
     const remaining: T[] = [];
     for (const job of queue) {
-      if (points === 0 || job.stateId === state.occupation?.stateId || (job.good === "opium" && !opiumCommerceAllowed(nation.laws))) {
-        remaining.push(job);
+      if (!activeConstruction(job)) continue;
+      const { startedAtTick: _startedAtTick, ...unstarted } = job;
+      const worked = assigned.get(job) ?? 0;
+      if (worked === 0) {
+        remaining.push(unstarted as T);
         continue;
       }
       const required = remainingProjectPoints(job);
-      if (points < required) {
-        remaining.push({ ...job, weeksLeft: (required - points) * projects[job.good].weeks / projectPoints(job.good) });
-        points = 0;
+      if (worked + 1e-9 < required) {
+        remaining.push({ ...unstarted, weeksLeft: (required - worked) * projects[job.good].weeks / projectPoints(job.good) } as T);
         continue;
       }
-      points -= required;
       const { stateId, good } = job;
       if (isProductiveBuilding(good)) {
         const local = stateEconomies[stateId];
         const industrial = local.industrial ?? emptyIndustrialAccount();
         const levels = job.levels ?? 1;
         const owned = { ...ownedLevels(good, local.buildings[good], local.ownership) };
+        const owner = state.ownerByStateId[stateId];
+        const openingCapital = projectOpeningCapital(job);
+        const deposit = `construction-deposit:${owner}`;
+        journal.transfer(deposit, `industry:${stateId}`, openingCapital, "工程周转金划转投产", stateId);
         owned[job.ownership ?? projectOwnership(good, nation.laws, privateBuild)] += levels;
         stateEconomies[stateId] = {
           ...local,
           buildings: { ...local.buildings, [good]: local.buildings[good] + levels },
           ownership: { ...local.ownership, [good]: owned },
-          industrial: { ...industrial, capital: industrial.capital + projectOpeningCapital(job) },
+          industrial: { ...industrial, capital: industrial.capital + openingCapital },
         };
       } else if (isProductionProject(good)) {
         const { good: industry, tier } = productionProjectDefinitions[good], site = societies[stateId];
@@ -1851,12 +1937,14 @@ export function settleEconomy(state: GameState, war?: WarPlan, fractionOfYear = 
   }
   for (const [id, country] of Object.entries(countryEconomies)) {
     const construction = production.countries[id].construction!;
+    const duty = constructionSchedules[id];
     const nation = nations[id];
-    country.queue = complete(country.queue, construction.public.points, false, nation);
-    nation.privateQueue = complete(nation.privateQueue, construction.private.points, true, nation);
+    country.queue = complete(country.queue, duty.public, construction.public.points, false, nation);
+    nation.privateQueue = complete(nation.privateQueue, duty.private, construction.private.points, true, nation);
   }
   const opiumLosses = recordOpiumLosses(state, production.opiumSmuggling ?? []);
   const { opiumLosses: _previousLosses, ...world } = state;
   return { ...world, stateEconomies, countryEconomies, societies, nations,
-    ...(opiumLosses ? { opiumLosses } : {}), lastEconomy: production };
+    ...(opiumLosses ? { opiumLosses } : {}), lastEconomy: production,
+    financeJournal: { settled: [...(state.financeJournal?.pending ?? []), ...journal.entries], pending: [] } };
 }
