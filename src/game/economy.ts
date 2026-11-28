@@ -372,7 +372,8 @@ function planArmamentOrders(state: GameState, holdings: Record<string, string[]>
 // Add this force's issues to the national report, returning its own fulfilment for combat.
 function issueSupplies(
   military: MilitarySupply, contract: SupplyContract, stocks: Record<string, ByGood<number>>, sources: string[],
-  demand: number, needs: ReturnType<typeof equipmentNeeds>, transport: number, grainShare: number, overseas = false,
+  demand: number, needs: ReturnType<typeof equipmentNeeds>, transport: number, grainShare: number,
+  overseas = false, equipmentShare = 1,
 ) {
   function pay(id: string, good: keyof MilitaryGoods, units: number) {
     if (units === 0) return;
@@ -401,7 +402,8 @@ function issueSupplies(
   for (const kind of ["weapons", "ammunition", "uniforms"] as const) {
     const good = equipmentGoods[kind];
     let issued = 0;
-    const limit = Math.min(overseas ? transport - seaCargo : transport, needs[kind],
+    const available = sources.reduce((sum, id) => sum + stocks[id][good], 0);
+    const limit = Math.min(overseas ? transport - seaCargo : transport, needs[kind], Math.floor(available * equipmentShare),
       Math.floor(contract.cash / contract.prices[good]));
     for (const id of sources) {
       const take = Math.min(limit - issued, stocks[id][good]);
@@ -819,7 +821,7 @@ function projectSettlement(state: GameState, war?: WarPlan, closingTick?: number
       m.readiness = issueSupplies(
         m, contract, supplies, front,
         deployed + fieldStrength * war!.grainPerRecruit, equipmentNeeds(deployedRoster, m.deployedConscripts!, true),
-        route.grainTransport, war!.supplyPercent / 100, route.overseas,
+        route.grainTransport, war!.supplyPercent / 100 * route.priorityShare, route.overseas, route.priorityShare,
       );
       if (route.overseas) {
         const cargo = m.seaCargoUsed!;
