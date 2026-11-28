@@ -125,7 +125,7 @@ export type GameCommand =
   | BorderCommand;
 
 export function createGame(scenario: Scenario, seed = 1820, difficulty: Difficulty = "standard", campaign?: CampaignSetup): GameState {
-  const social = initSociety(scenario),
+  const social = initSociety(scenario, seed),
     countries = Object.values(scenario.countries),
     owned = Object.values(scenario.states).filter((s) => s.ownerId !== null);
   // One pioneer per category. Seeded starting knowledge is a scenario balance assumption.

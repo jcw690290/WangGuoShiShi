@@ -10,7 +10,8 @@ import {
   techEffect,
   lawEffect,
 } from "./game/politics.ts";
-import { distributionName, groups, influence, laws, literacyOf, politicalAttitudes, powerDistribution, reformConditions, reformWork, techs } from "./game/society.ts";
+import { distributionName, groups, laws, literacyOf, politicalAttitudes, politicalRepresentation,
+  powerDistribution, reformConditions, reformWork, techs } from "./game/society.ts";
 import type { Law } from "./game/society.ts";
 import { count } from "./format.ts";
 import { institutionLawDetails, institutionLawFamilies, institutionLawKinds, institutionLawOptions, technologyName } from "./game/institutions.ts";
@@ -41,10 +42,9 @@ interface Props {
   send: (cmd: GameCommand) => void;
 }
 export function PoliticsPanel({ scenario, game, playerId: id, year, busy, send }: Props) {
-  const n = game.nations[id],
-    sites = ownedSocieties(game, id),
-    people = sites.flatMap((site) => site.pops),
-    power = influence(sites, id, n);
+  const n = game.nations[id], sites = ownedSocieties(game, id);
+  const people = sites.flatMap((site) => site.pops);
+  const { influence: power, supporters, organization, leadership } = politicalRepresentation(sites, id, n);
   const attitudes = politicalAttitudes(people);
   const [selected, setLaw] = useState<Law>("工资税改革");
   const law = n.reform ?? selected,
@@ -125,6 +125,13 @@ export function PoliticsPanel({ scenario, game, playerId: id, year, busy, send }
                 </label>
               ))}
             </div>
+            <details>
+              <summary>人口支持与集团领袖</summary>
+              <ul>{groups.map((group) => <li key={group}>
+                {group} · 人口支持 {supporters[group].toFixed(1)}% · 组织系数 {organization[group].toFixed(2)} ·
+                领袖能力 {leadership[group].ability} · 执政经验 {leadership[group].experience} 个月
+              </li>)}</ul>
+            </details>
             <p>生效法律 · {[stateForm(n), representationLaw(n), governanceLaw(n.laws), economicLaw(n.laws), militaryServiceLaw(n.laws),
               ...effectiveLaws, ...enactedCivicLaws(n.laws)].join("、")}</p>
             <select

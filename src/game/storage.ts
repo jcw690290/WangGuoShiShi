@@ -28,7 +28,7 @@ import { buildingCapacity, militaryProcurementCost, productionUpgradeFor, projec
 import { isProductionProject, productionProjectDefinitions, productionTiers } from "./production-methods.ts";
 import { industryLaborSchema } from "./private-labor.ts";
 import { constructionMaintenanceSchema, constructionReportSchema, constructionStockSchema, constructionSpending, constructionWage } from "./construction.ts";
-import { nationSchema, siteSocialSchema, projectTypes, reformConsultationDays, reformStage } from "./society.ts";
+import { initialGroupLeadership, nationSchema, siteSocialSchema, projectTypes, reformConsultationDays, reformStage } from "./society.ts";
 import { importRegionalSave } from "./legacySave.ts";
 import { borderScenario } from "../scenario/scenario.ts";
 import type { Scenario } from "../scenario/scenario.ts";
@@ -656,6 +656,7 @@ export function parseSave(baseScenario: Scenario, save: unknown): GameState {
     )
       invalid();
     if (Boolean(n.overlord) !== Boolean(n.subjectType)) invalid();
+    n.groupLeadership ??= initialGroupLeadership(id, state.rng);
     if (n.pendingPublicPay === n.publicPay) invalid();
     const queued = [...state.countryEconomies[id].queue, ...n.privateQueue];
     const retrofits = new Set<string>();

@@ -5,6 +5,7 @@ import { startingLivingStandard, updateLivingStandard } from "./households.ts";
 import { initialCulturalAffinity } from "./culture.ts";
 import { governanceLaws, isGovernanceLaw, localGovernanceSchema } from "./governance.ts";
 import { emptyStability, stabilitySchema } from "./unrest.ts";
+import type { LocalStability } from "./unrest.ts";
 import { goods } from "./industry.ts";
 import { initialFleet, merchantFleetSchema } from "./fleet.ts";
 import { institutionLawDetails, institutionLawKinds, institutionLawOptions, institutionLevelSchema } from "./institutions.ts";
@@ -28,6 +29,10 @@ export const occupations = ["农民", "劳工", "工程师", "军官", "教士",
 export type Occupation = (typeof occupations)[number];
 export const groups = ["乡民", "工会", "知识分子", "武装部队", "教会", "小市民", "实业家", "地主"] as const;
 export type Group = (typeof groups)[number];
+const leadershipSchema = z.record(z.enum(groups), z.object({
+  ability: z.int().min(50).max(80), experience: z.int().min(0).max(24),
+}));
+type GroupLeadership = z.infer<typeof leadershipSchema>;
 const occupationSupport: Record<Occupation, readonly (readonly [Group, number])[]> = {
   农民: [["乡民", 0.70], ["地主", 0.20], ["教会", 0.10]],
   劳工: [["工会", 0.55], ["小市民", 0.15], ["教会", 0.15], ["武装部队", 0.05], ["实业家", 0.05], ["乡民", 0.05]],
@@ -226,6 +231,7 @@ export const nationSchema = z.object({
   publicPay: publicPayBandSchema.default("standard"),
   pendingPublicPay: publicPayBandSchema.optional(),
   government: z.array(z.enum(groups)).min(1),
+  groupLeadership: leadershipSchema.optional(),
   startingRepresentation: z.literal("limited").optional(),
   startingStateForm: constitutionalFormSchema.optional(),
   laws: z.array(z.enum(laws)).refine((enacted) => institutionLawKinds.every((kind) =>
@@ -314,7 +320,7 @@ export function initSiteSociety(site: Scenario["states"][string]): SiteSocial {
     conscription: 1,
   };
 }
-export function initSociety(scenario: Scenario) {
+export function initSociety(scenario: Scenario, seed = 1820) {
   const societies: Record<string, SiteSocial> = {};
   const nations: Record<string, Nation> = {};
   const coastalByOwner: Record<string, number> = {};
@@ -329,6 +335,7 @@ export function initSociety(scenario: Scenario) {
       startingStateForm: startingStateForm(id),
       ...(limitedVoteCountries.has(id) ? { startingRepresentation: "limited" as const } : {}),
       government: ["地主", "乡民"],
+      groupLeadership: initialGroupLeadership(id, seed),
       laws: [...institutionLawKinds.map((kind) => institutionLawOptions[kind][0]), ...startingLaborLaws(id),
         taxLaws[0], tradeLaws[0], "职业常备军"],
       taxBand: "standard",
@@ -371,26 +378,84 @@ export function politicalAttitudes(pops: Pop[]) {
 }
 export { powerDistribution } from "./constitution.ts";
 
-export function influence(locals: SiteSocial[], id: string, nation: Nation) {
-  const points = Object.fromEntries(groups.map((g) => [g, 0])) as Record<Group, number>;
+export function initialGroupLeadership(id: string, seed: number): GroupLeadership {
+  return Object.fromEntries(groups.map((group) => [
+    group, { ability: 50 + hash(`${seed}/${id}/${group}`) % 31, experience: 0 },
+  ])) as GroupLeadership;
+}
+
+export function advanceGroupLeadership(nation: Nation, id: string, seed: number): Nation {
+  const leadership = nation.groupLeadership ?? initialGroupLeadership(id, seed);
+  const groupLeadership = { ...leadership };
+  for (const group of nation.government) {
+    const leader = leadership[group];
+    if (leader.experience < 24) groupLeadership[group] = { ...leader, experience: leader.experience + 1 };
+  }
+  return { ...nation, groupLeadership };
+}
+
+const localMovements = {
+  hardship: ["乡民", "工会"],
+  exclusion: ["知识分子", "工会"],
+  war: ["武装部队"],
+  politics: ["知识分子", "小市民"],
+} satisfies Record<NonNullable<LocalStability["incident"]>["cause"], readonly Group[]>;
+
+export function politicalRepresentation(locals: SiteSocial[], id: string, nation: Nation) {
+  const points = Object.fromEntries(groups.map((group) => [group, 0])) as Record<Group, number>;
+  const supporters = { ...points };
+  const leadership = nation.groupLeadership ?? initialGroupLeadership(id, 1820);
   const weights = votingWeights[powerDistribution(nation)];
   const civicRights = nation.laws.includes("妇女平等权") ? { 下层: 1.15, 中层: 1.10, 上层: 1 } :
     { 下层: 1, 中层: 1, 上层: 1 };
   const ruralFreedom = 1 - bondedRuralShare(nation.laws);
   const policy = civicPolicy(nation.laws);
-  let sum = 0;
-  for (const site of locals)
+  const government = new Set(nation.government);
+  const mobilized = nation.knowledge["大众政治"] === 100;
+  const organization = Object.fromEntries(groups.map((group) => {
+    const leader = leadership[group];
+    const emerging = group === "工会" && !mobilized ? 0.65 :
+      group === "实业家" && nation.knowledge["机械工具"] !== 100 ? 0.80 : 1;
+    return [group, emerging * (0.85 + leader.ability / 400 + leader.experience / 300)];
+  })) as Record<Group, number>;
+  const views = Object.fromEntries(groups.map((group) => [
+    group, Math.max(-0.18, Math.min(0.18, (approval(nation, group) - (government.has(group) ? 8 : 0)) / 100)),
+  ])) as Record<Group, number>;
+  let population = 0;
+  for (const site of locals) {
+    const incident = site.stability?.incident;
+    const movement: readonly Group[] = incident && !incident.negotiated ? localMovements[incident.cause] : [];
     for (const pop of site.pops) {
       const stratum = socialTags[pop.occupation][0];
-      const weight =
-        pop.people *
-        weights[stratum] * civicRights[stratum] * (pop.occupation === "农民" ? ruralFreedom : 1) *
-        (0.05 + 0.95 * civicStanding(pop, id, site, policy));
-      for (const [group, support] of occupationSupport[pop.occupation]) points[group] += weight * support;
-      sum += weight;
+      const standing = civicStanding(pop, id, site, policy);
+      const weight = pop.people * weights[stratum] * civicRights[stratum] *
+        (pop.occupation === "农民" ? ruralFreedom : 1) * (0.05 + 0.95 * standing);
+      const attitude = (pop.loyalists - pop.radicals) / 100;
+      const hardTimes = Math.max(0, 10 - pop.livingStandard) / 10;
+      const choices = occupationSupport[pop.occupation].map(([group, base]) => {
+        const trust = attitude * (government.has(group) ? 0.24 : -0.16);
+        const hardship = group === "乡民" || group === "工会" ? 0.20 * hardTimes : 0;
+        const exclusion = group === "知识分子" || group === "工会" ? 0.12 * (1 - standing) : 0;
+        return { group, share: base * (1 + views[group] + trust + hardship + exclusion + (movement.includes(group) ? 0.15 : 0)) };
+      });
+      const total = choices.reduce((sum, choice) => sum + choice.share, 0);
+      for (const { group, share } of choices) {
+        supporters[group] += pop.people * share / total;
+        points[group] += weight * share / total * organization[group];
+      }
+      population += pop.people;
     }
-  for (const g of groups) points[g] = sum ? (100 * points[g]) / sum : 0;
-  return points;
+  }
+  const power = groups.reduce((sum, group) => sum + points[group], 0);
+  for (const group of groups) {
+    points[group] = power > 0 ? 100 * points[group] / power : 0;
+    supporters[group] = population > 0 ? 100 * supporters[group] / population : 0;
+  }
+  return { influence: points, supporters, organization, leadership };
+}
+
+export function influence(locals: SiteSocial[], id: string, nation: Nation) {
+  return politicalRepresentation(locals, id, nation).influence;
 }
 export const supporters: Record<Law, Group[]> = {
   地方民兵: ["乡民", "小市民"],
