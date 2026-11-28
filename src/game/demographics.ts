@@ -1,7 +1,7 @@
 import { currentDisputes, occupationAt } from "./conflict-state.ts";
 import type { GameState } from "./engine.ts";
 import { civicPolicy, civicStanding } from "./civic-policy.ts";
-import { advanceGroupLeadership, literacyOf, livingStandardOf } from "./society.ts";
+import { advanceGroupLeadership, literacyOf, livingStandardOf, trainTechnicalWorkers } from "./society.ts";
 import type { Scenario } from "../scenario/scenario.ts";
 import { culturalAffinityOf, cultureShares, updateCulturalAffinity } from "./culture.ts";
 import { participants } from "./diplomacy.ts";
@@ -12,6 +12,9 @@ import type { PopulationMove } from "./migration.ts";
 import { completedServiceWeeks } from "./population-services.ts";
 import { DAY_MS } from "./time.ts";
 import { maxInstitutionLevel } from "./institutions.ts";
+import { industryMethodAt } from "./industrial.ts";
+import { productiveBuildings } from "./industry.ts";
+import { workForce } from "./labor.ts";
 
 export interface PopulationMonth {
   day: number;
@@ -74,7 +77,7 @@ export function settlePopulationMonth<T extends GameState>(scenario: Scenario, s
     educationBySite[siteId] = Math.max(universityCoverage, schoolCoverage);
     let peopleSoFar = 0;
     let apportioned = 0;
-    const pops = site.pops.map((pop) => {
+    let pops = site.pops.map((pop) => {
       peopleSoFar += pop.people;
       const assigned = Math.round(change * (peopleSoFar / population));
       const people = pop.people + assigned - apportioned;
@@ -82,6 +85,25 @@ export function settlePopulationMonth<T extends GameState>(scenario: Scenario, s
       const literacyGain = Math.min(0.002, (0.0001 + literacyBonus) * (1 - pop.literacy / 100));
       return { ...pop, people, literacy: pop.literacy + 100 * literacyGain };
     });
+    if (economy.industryLabor) {
+      const nation = state.nations[owner];
+      const prior = Object.values(economy.industryLabor.staffing);
+      const ordinary = prior.reduce((jobs, staff) => jobs + staff.ordinary, 0) - (latest?.clergyPayroll?.staff ?? 0);
+      const technicians = workForce(pops.reduce((total, pop) => total + (pop.occupation === "工程师" ? pop.people : 0), 0),
+        site.laborParticipation);
+      let desired = (latest?.universityStaff ?? 0) + (latest?.administrationStaff ?? 0);
+      let betterPay = false;
+      for (const building of productiveBuildings) {
+        if (building === "services" || economy.buildings[building] === 0) continue;
+        const method = industryMethodAt(building, site);
+        const openings = Math.ceil(economy.buildings[building] * method.jobs * method.skill[0] / 100);
+        desired += openings;
+        if (openings > 0 && method.skill[1] > economy.industryLabor.wage) betterPay = true;
+      }
+      const vacancies = Math.max(0, desired - technicians);
+      pops = trainTechnicalWorkers({ ...current, pops }, siteId, nation, universityCoverage + schoolCoverage,
+        Math.max(0, ordinary), vacancies, betterPay);
+    }
     const totals = pops.reduce((facts, pop) => {
       facts.radicals += pop.radicals * pop.people;
       facts.living += pop.livingStandard * pop.people;

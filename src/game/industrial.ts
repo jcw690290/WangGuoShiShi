@@ -125,13 +125,17 @@ export const electricityUse = (method: Method, workers: number) => Math.ceil(wor
 
 export const serviceClerks = (employed: number) => Math.ceil(employed * skilledPositions.services[0] / 100);
 export const serviceClerkWage = skilledPositions.services[1];
+export const clergyWage = Math.round(baseOrdinaryWage * 1.30);
 
-export function industrialPayroll(good: ProductiveBuilding, employed: number, method = industryMethod(good), ordinaryWage = baseOrdinaryWage) {
+export function industrialPayroll(good: ProductiveBuilding, employed: number, method = industryMethod(good),
+  ordinaryWage = baseOrdinaryWage, clergyAvailable = 0) {
   const [perHundred, wage] = method.skill;
   const skilled = Math.ceil(employed * perHundred / 100);
   const clerks = good === "services" ? serviceClerks(employed) : 0;
+  const clergy = good === "services" ? Math.min(clergyAvailable, employed - skilled, Math.ceil(employed / 10)) : 0;
   const skilledWages = (skilled - clerks) * wage;
-  return { skilled, skilledWages, total: (employed - skilled) * ordinaryWage + skilledWages + clerks * serviceClerkWage };
+  return { skilled, skilledWages, clergy,
+    total: (employed - skilled - clergy) * ordinaryWage + skilledWages + clerks * serviceClerkWage + clergy * clergyWage };
 }
 
 export function trainedLabourCapacity(good: ProductiveBuilding, trained: number, method = industryMethod(good)) {
@@ -140,13 +144,13 @@ export function trainedLabourCapacity(good: ProductiveBuilding, trained: number,
 }
 
 export function affordableIndustryWorkers(good: ProductiveBuilding, capital: number, method = industryMethod(good),
-  powerPrice = 0, ordinaryWage = baseOrdinaryWage,
+  powerPrice = 0, ordinaryWage = baseOrdinaryWage, clergyAvailable = 0,
 ) {
-  if (powerPrice > 0 && method.power > 0) {
-    let low = 0, high = Math.floor(capital / ordinaryWage);
+  if ((powerPrice > 0 && method.power > 0) || (good === "services" && clergyAvailable > 0)) {
+    let low = 0, high = Math.floor(capital / Math.min(ordinaryWage, clergyWage, serviceClerkWage));
     while (low < high) {
       const count = Math.ceil((low + high) / 2);
-      if (industrialPayroll(good, count, method, ordinaryWage).total + electricityUse(method, count) * powerPrice <= capital) low = count;
+      if (industrialPayroll(good, count, method, ordinaryWage, clergyAvailable).total + electricityUse(method, count) * powerPrice <= capital) low = count;
       else high = count - 1;
     }
     return low;

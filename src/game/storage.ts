@@ -303,6 +303,8 @@ const countryReport = z.object({
 const siteReport = z.object({
   industrialWage: uint.positive().optional(),
   militaryWages: z.object({ enlisted: uint, officers: uint }).optional(),
+  clergyPayroll: z.object({ staff: uint, wages: uint }).optional(),
+  smallOwnerIncome: uint.optional(),
   draftWorkforce: uint.optional(),
   releasedDraftWorkforce: uint.optional(),
   industries: z.object({ grain: industry, cloth: industry, ...byIndustrialGood(() =>

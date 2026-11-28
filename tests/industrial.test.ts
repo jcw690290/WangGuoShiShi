@@ -3,7 +3,7 @@ import { test } from "node:test";
 import { projectDeposit, projectEconomy } from "../src/game/economy.ts";
 import { createGame, dispatch } from "../src/game/engine.ts";
 import { byIndustrialGood, industrialGoods } from "../src/game/industry.ts";
-import { workingCapitalPerLevel } from "../src/game/industrial.ts";
+import { clergyWage, workingCapitalPerLevel } from "../src/game/industrial.ts";
 import { parseSave, saveVersion } from "../src/game/storage.ts";
 import { borderScenario, scenario as world } from "../src/scenario/scenario.ts";
 
@@ -90,7 +90,9 @@ test("造纸和服务使用实际原料与共享技术劳动力，服务在本�
   const local = report.states[stateId];
   assert.equal(local.industries.paper.output, 100);
   assert.equal(local.industries.services.output, 100);
-  assert.equal(local.industries.services.wages, 12_500);
+  assert.equal(local.clergyPayroll?.staff, 10);
+  assert.equal(local.clergyPayroll.wages, 10 * clergyWage);
+  assert.equal(local.industries.services.wages, 40 * 100 + 50 * 150 + local.clergyPayroll.wages);
   assert.equal(local.industrial?.skilledWages, 14_700 - 50 * 150);
   assert.deepEqual(local.industrial?.used, { ...byIndustrialGood(() => 0), wood: 60, iron: 30, coal: 15, tools: 10, paper: 2 });
   assert.equal(local.householdConsumption?.services, 100);

@@ -25,7 +25,7 @@ import type { TradeDelivery } from "./trade.ts";
 import { unrestEffects } from "./unrest.ts";
 import { affordableIndustryWorkers, electricityUse, electricIndustries, electricRetrofits, emptyIndustrialAccount,
   fundedRestock, initialIndustrialAccount, industrialPayroll, industrialRetrofits, industryMethodAt, isIndustrialRetrofit, materialWorkers, operateIndustry,
-  productionTierAt, serviceClerks, serviceClerkWage,
+  clergyWage, productionTierAt, serviceClerks, serviceClerkWage,
   trainedLabourCapacity, workingCapitalPerLevel, workingCapitalTarget } from "./industrial.ts";
 import type { IndustrialAccount, IndustrialReport, IndustrySubsidyReport } from "./industrial.ts";
 import { deliverOffice, officeNeed, officeStaffCapacity, planOffice } from "./administration.ts";
@@ -211,6 +211,8 @@ type EquipmentIssue = { demand: number; delivered: number };
 export interface SiteReport {
   industrialWage?: number;
   militaryWages?: { enlisted: number; officers: number };
+  clergyPayroll?: { staff: number; wages: number };
+  smallOwnerIncome?: number;
   draftWorkforce?: number;
   releasedDraftWorkforce?: number;
   workforce?: number;
@@ -307,16 +309,22 @@ export function weeklyBudgets(nations: GameState["nations"], report: EconomyRepo
 export { workForce } from "./labor.ts";
 const fulfillment = (bought: number, demand: number) => demand ? bought / demand : 1;
 
-function privateHouseholdIncome(site: SiteReport, earnings: OwnershipAmounts): HouseholdIncome {
+function privateHouseholdIncome(site: SiteReport, earnings: OwnershipAmounts, residents: SiteSocial): HouseholdIncome {
   const specialist = site.industrial?.skilledWages ?? 0;
   const clerical = serviceClerks(site.industries.services.employed) * serviceClerkWage;
+  const clergy = site.clergyPayroll?.wages ?? 0;
+  const owners = residents.pops.reduce((total, pop) => total + (pop.occupation === "店主" || pop.occupation === "资本家" ? pop.people : 0), 0);
+  const shopkeepers = residents.pops.reduce((total, pop) => total + (pop.occupation === "店主" ? pop.people : 0), 0);
+  const storeIncome = owners > 0 ? Math.floor(earnings.PRIVATE * shopkeepers / owners) : 0;
   const wages = goods.reduce((sum, good) => sum + site.industries[good].wages, site.freightWages ?? 0);
   return {
     农民: site.subsistence?.householdIncome ?? 0,
-    劳工: wages - specialist - clerical + site.construction!.private.wages + earnings.COOP,
+    劳工: wages - specialist - clerical - clergy + site.construction!.private.wages + earnings.COOP,
     工程师: specialist,
     文职: clerical,
-    资本家: earnings.PRIVATE,
+    教士: clergy,
+    店主: storeIncome,
+    资本家: earnings.PRIVATE - storeIncome,
     贵族: earnings.LAND + (site.subsistence?.landRent ?? 0),
   };
 }
@@ -763,6 +771,7 @@ function projectSettlement(state: GameState, war?: WarPlan, closingTick?: number
       Math.max(0, recruitableMilitaryWorkers(site, nation.laws) - regulars - injuredTroops));
     const engineers = availableEngineers(site, owner, nation);
     const participation = site.laborParticipation;
+    const clergyAvailable = workForce(site.pops.reduce((total, pop) => total + (pop.occupation === "教士" ? pop.people : 0), 0), participation);
     const ruralPeople = ruralPopulation(site.pops);
     const workforce = fitWorkforce(site, local.population, state.elapsedDays);
     const boundToLand = Math.min(workforce, bondedRuralWorkers(ruralPeople, participation, nation.laws));
@@ -850,6 +859,7 @@ function projectSettlement(state: GameState, war?: WarPlan, closingTick?: number
     const plannedWorkers = byProductiveBuilding(() => 0);
     let technicians = specialists - universityStaff - administrators - office.staff - institutionStaff;
     let skilledWages = 0;
+    let clergyStaff = 0;
     const retrofitting = new Set<ProductiveBuilding>();
     for (const job of state.countryEconomies[owner].queue) {
       if (!activeConstruction(job) || job.stateId !== id || job.weeksLeft >= projects[job.good].weeks) continue;
@@ -884,7 +894,7 @@ function projectSettlement(state: GameState, war?: WarPlan, closingTick?: number
         hiring,
         orderedJobs,
         trainedLabourCapacity(g, technicians, spec),
-        affordableIndustryWorkers(g, payrollBudget, spec, ceilings.electricity, ordinaryWage),
+        affordableIndustryWorkers(g, payrollBudget, spec, ceilings.electricity, ordinaryWage, clergyAvailable),
       );
       const drafted = Math.min(draftQuota - conscripts, Math.floor(jobs * draftRate / 100));
       const service = Math.floor((conscripts + drafted) * draftTicks / TICKS_PER_WEEK) -
@@ -899,7 +909,8 @@ function projectSettlement(state: GameState, war?: WarPlan, closingTick?: number
       powerLeft -= electricity;
       powerUsed += electricity;
       workers -= employed + service;
-      const payroll = industrialPayroll(g, employed, spec, ordinaryWage);
+      const payroll = industrialPayroll(g, employed, spec, ordinaryWage, clergyAvailable);
+      clergyStaff += payroll.clergy;
       payrollBudget -= payroll.total + electricity * ceilings.electricity;
       technicians -= payroll.skilled;
       skilledWages += payroll.skilledWages;
@@ -970,6 +981,7 @@ function projectSettlement(state: GameState, war?: WarPlan, closingTick?: number
         isFleetGood(g) && fleet.port === id ? fleet.ordered[g] : g === "electricity" ? powerUsed : 0));
     report.states[id] = {
       industries: activity,
+      ...(clergyStaff > 0 ? { clergyPayroll: { staff: clergyStaff, wages: clergyStaff * clergyWage } } : {}),
       ...(cashCrops ? { cashCrops } : {}),
       industrialWage: ordinaryWage,
       ...(discharged > 0 ? { releasedDraftWorkforce: discharged } : {}),
@@ -1414,7 +1426,7 @@ function projectSettlement(state: GameState, war?: WarPlan, closingTick?: number
       const acquiredValue = goods.reduce((sum, g) => sum + consumption[g] * industries[g].basePrice, 0);
       s.consumptionIndex = acquiredValue / (state.stateEconomies[id].population * basketBaseValue);
       c.investment += s.investment;
-      const gross = privateHouseholdIncome(s, earnings);
+      const gross = privateHouseholdIncome(s, earnings, site);
       gross.文职 += s.office.wages;
       const paidTax = settleIncomeTax(gross, policy, collection);
       const incomeTax = Object.values(paidTax).reduce((sum, value) => sum + value, 0);
@@ -1430,11 +1442,14 @@ function projectSettlement(state: GameState, war?: WarPlan, closingTick?: number
       netHouseholdIncome[id] = {
         农民: gross.农民 - paidTax.农民, 劳工: gross.劳工 - paidTax.劳工, 工程师: gross.工程师 - paidTax.工程师,
         文职: gross.文职 - paidTax.文职,
+        教士: gross.教士 - paidTax.教士,
+        店主: gross.店主 - paidTax.店主,
         资本家: gross.资本家 - paidTax.资本家, 贵族: gross.贵族 - paidTax.贵族,
       };
+      if (gross.店主 > 0) s.smallOwnerIncome = netHouseholdIncome[id].店主;
       if (policy.system === "工资税改革") c.wageTaxGain += Math.floor(Math.max(0,
-        paidTax.劳工 + paidTax.工程师 + paidTax.文职 -
-        Math.floor((gross.劳工 + gross.工程师 + gross.文职) * 0.1 * collection * policy.multiplier)) * centralTax / 100);
+        paidTax.劳工 + paidTax.工程师 + paidTax.文职 + paidTax.教士 -
+        Math.floor((gross.劳工 + gross.工程师 + gross.文职 + gross.教士) * 0.1 * collection * policy.multiplier)) * centralTax / 100);
       capacity += s.construction.public.points + s.construction.private.points;
     }
     c.capacity = Math.floor(capacity * 100) / 100;
@@ -1894,13 +1909,13 @@ export function settleEconomy(state: GameState, war?: WarPlan, fractionOfYear = 
       laborWages: earned.劳工 + publicConstructionWages + dischargePay,
       specialistWages: earned.工程师 + publicSpecialistWages,
       clerkWages: clericalWages,
+      clergyIncome: earned.教士, smallOwnerIncome: earned.店主,
       enlistedWages, officerWages,
       ruralResources: retainedValue + earned.农民,
       capitalistIncome: earned.资本家, landownerIncome: earned.贵族,
-      businessJobs: jobs - privateClerks,
+      businessJobs: jobs - privateClerks - (s.clergyPayroll?.staff ?? 0),
       standardTarget: livingStandardTarget(s.consumptionIndex!, s.foodFulfillment!),
       taxBurden: Math.min(1, taxBurden[id]),
-      training: s.universityStaff! / universityJobs + (s.education?.coverage ?? 0),
       warPressure: !!occupationAt(state, id) ? 0.22 : war?.routes[owner]?.recruitmentStates.has(id) ? 0.09 : 0,
       relief,
     }, tuning);

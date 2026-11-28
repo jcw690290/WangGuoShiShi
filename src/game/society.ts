@@ -641,9 +641,10 @@ export function evolvePops(
   nation: Nation,
   week: {
     grainPrice: number; laborWages: number; specialistWages: number; clerkWages: number;
+    clergyIncome: number; smallOwnerIncome: number;
     enlistedWages: number; officerWages: number;
     capitalistIncome: number; landownerIncome: number; ruralResources: number; businessJobs: number; standardTarget: number;
-    taxBurden: number; warPressure: number; training: number;
+    taxBurden: number; warPressure: number;
     relief?: { 农民: number; 劳工: number };
   },
   tuning: RuleTuning,
@@ -661,7 +662,7 @@ export function evolvePops(
   const occupationIncome: Record<Occupation, number> = {
     农民: ruralResources + (week.relief?.农民 ?? 0), 劳工: laborWages + (week.relief?.劳工 ?? 0),
     工程师: specialistWages, 文职: clerkWages,
-    军官: week.officerWages, 军人: week.enlistedWages, 教士: totals.教士 * 4, 店主: totals.店主 * 4,
+    军官: week.officerWages, 军人: week.enlistedWages, 教士: week.clergyIncome, 店主: week.smallOwnerIncome,
     资本家: capitalistIncome, 贵族: landownerIncome,
   };
   const pops = site.pops.map((p) => {
@@ -700,26 +701,45 @@ export function evolvePops(
     rural.people -= hired;
     vacancies -= hired;
   }
-  // Workers qualify for new technical posts in their own culture/religion cohort.
-  for (const p of pops.filter((p) => p.occupation === "劳工")) {
-    const index = pops.findIndex((e) => e.occupation === "工程师" && e.culture === p.culture && e.religion === p.religion);
-    const engineers = (index === -1 ? 0 : pops[index].people) + pops.reduce((sum, clerk) =>
-      sum + (clerk.occupation === "文职" && clerk.culture === p.culture && clerk.religion === p.religion ? clerk.people : 0), 0);
-    const vacancies = Math.max(
-      0,
-      Math.ceil((businessJobs * 0.12 * p.people) / Math.max(1, totals["劳工"])) - engineers,
-    );
-    const qualified = Math.floor(
-      ((p.people * (p.literacy + p.wealth)) / 1000) *
-        (1 + week.training) *
-        (0.35 + 0.65 * civicStanding(p, id, site, policy)),
-    );
-    const promoted = Math.min(p.people, vacancies, qualified);
-    if (!promoted) continue;
-    if (index === -1) pops.push({ ...p, occupation: "工程师", people: promoted });
-    else pops[index] = mergePopCohorts(pops[index], p, promoted);
-    p.people -= promoted;
-  }
   const laborParticipation = site.laborParticipation + 0.1 * (participationTarget(nation.laws) - site.laborParticipation);
   return { ...site, pops, laborParticipation };
+}
+
+export function trainTechnicalWorkers(site: SiteSocial, id: string, nation: Nation, training: number,
+  ordinaryJobs: number, technicalVacancies: number, betterPay: boolean) {
+  if (technicalVacancies === 0) return site.pops;
+  const pops = site.pops.map((pop) => ({ ...pop }));
+  const policy = civicPolicy(nation.laws);
+  const workers = pops.filter((pop) => pop.occupation === "劳工")
+    .sort((a, b) => b.literacy - a.literacy);
+  const laborers = workers.reduce((total, pop) => total + pop.people, 0);
+  const unemployed = Math.max(0, laborers - Math.ceil(ordinaryJobs / site.laborParticipation));
+  let vacancies = Math.ceil(technicalVacancies / site.laborParticipation);
+  let peopleSoFar = 0, unemployedSoFar = 0;
+  const candidates = workers.map((worker) => {
+    peopleSoFar += worker.people;
+    const totalUnemployed = Math.round(unemployed * peopleSoFar / Math.max(1, laborers));
+    const available = totalUnemployed - unemployedSoFar;
+    unemployedSoFar = totalUnemployed;
+    const qualified = Math.floor(
+      ((worker.people * (worker.literacy + worker.wealth)) / 1000) *
+        (1 + training) *
+        (0.35 + 0.65 * civicStanding(worker, id, site, policy)),
+    );
+    return { worker, available, employed: worker.people - available, qualified };
+  });
+  for (const group of betterPay ? ["available", "employed"] as const : ["available"] as const) {
+    for (const candidate of candidates) {
+      const { worker } = candidate;
+      const promoted = Math.min(candidate[group], vacancies, candidate.qualified);
+      if (promoted === 0) continue;
+      const index = pops.findIndex((e) => e.occupation === "工程师" && e.culture === worker.culture && e.religion === worker.religion);
+      if (index === -1) pops.push({ ...worker, occupation: "工程师", people: promoted });
+      else pops[index] = mergePopCohorts(pops[index], worker, promoted);
+      worker.people -= promoted;
+      candidate.qualified -= promoted;
+      vacancies -= promoted;
+    }
+  }
+  return pops;
 }
