@@ -338,6 +338,7 @@ function StateIndustry({
               <small>
                 {problem ?? `按周实付 · ${projectPoints(g)} 施工点`}
               </small>
+          {snapshot.industrialWage !== undefined && <small>产业普通岗位周薪 {silver(snapshot.industrialWage)}</small>}
             </button>
             );
           })}

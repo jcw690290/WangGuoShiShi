@@ -26,6 +26,7 @@ import { settlementAt, territorialClaim, territorialClaimSchema, territorialSett
 import { seaVoyageCargoCost } from "./transport.ts";
 import { buildingCapacity, militaryProcurementCost, productionUpgradeFor, projects, unusedPrepaidConstruction } from "./economy.ts";
 import { isProductionProject, productionProjectDefinitions, productionTiers } from "./production-methods.ts";
+import { industryLaborSchema } from "./private-labor.ts";
 import { constructionMaintenanceSchema, constructionReportSchema, constructionStockSchema, constructionSpending, constructionWage } from "./construction.ts";
 import { nationSchema, siteSocialSchema, projectTypes, reformConsultationDays, reformStage } from "./society.ts";
 import { importRegionalSave } from "./legacySave.ts";
@@ -286,6 +287,7 @@ const countryReport = z.object({
   (country.constructionMaintenance === undefined ? 0 : constructionSpending(country.constructionMaintenance)) +
   (country.fleet === undefined ? 0 : fleetSpending(country.fleet)) + (country.navy?.spending ?? 0) <= country.upkeep);
 const siteReport = z.object({
+  industrialWage: uint.positive().optional(),
   industries: z.object({ grain: industry, cloth: industry, ...byIndustrialGood(() =>
     industry.default({ employed: 0, output: 0, wages: 0 })) }),
   populationChange: cash.optional(),
@@ -363,6 +365,7 @@ export function parseSave(baseScenario: Scenario, save: unknown): GameState {
       .refine(({ from, to }) => from !== to)).optional(),
   }).nullable();
   const stateEconomy = z.object({ population: z.int().positive(), buildings: goodsNumbers, localQuotes: quotes.optional(),
+    industryLabor: industryLaborSchema.optional(),
     industrial: industrialAccountSchema.optional(), basicBudget: uint, discretionaryBudget: uint.optional(), cropland: uint.optional(),
     constructionStock: constructionStockSchema.optional(), localTreasury: uint.optional(),
     ownership: industryOwnershipSchema.optional(),
