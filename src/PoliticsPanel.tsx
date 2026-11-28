@@ -10,10 +10,11 @@ import {
   techEffect,
   lawEffect,
 } from "./game/politics.ts";
-import { distributionName, groups, influence, laws, literacyOf, powerDistribution, reformConditions, reformWork, techs, unrestOf } from "./game/society.ts";
+import { distributionName, groups, laws, literacyOf, politicalAttitudes, politicalRepresentation,
+  powerDistribution, reformConditions, reformWork, techs } from "./game/society.ts";
 import type { Law } from "./game/society.ts";
 import { count } from "./format.ts";
-import { institutionLawDetails, institutionLawFamilies, institutionLawKinds, institutionLawOptions } from "./game/institutions.ts";
+import { institutionLawDetails, institutionLawFamilies, institutionLawKinds, institutionLawOptions, technologyName } from "./game/institutions.ts";
 import { laborLawCategory, laborLawFamilies } from "./game/labor.ts";
 import { taxLaws } from "./game/taxation.ts";
 import { isTradeLaw, tradeLaws } from "./game/trade-policy.ts";
@@ -21,27 +22,34 @@ import { civicLawCategory, civicLawFamilies, enactedCivicLaws } from "./game/civ
 import { authorityBudget, constitutionalForms, constitutionLawCategory, representationLaw, representationLaws, stateForm } from "./game/constitution.ts";
 import { governanceLaw, governanceLaws, isGovernanceLaw } from "./game/governance.ts";
 import { economicLaw, economicLaws, isEconomicLaw } from "./game/ownership.ts";
+import {
+  compromiseCost, constitutionalCompromiseError, constitutionalCrisisWarning, constitutionalSupportByState,
+} from "./game/constitutional-crises.ts";
+import type { Scenario } from "./scenario/scenario.ts";
+import { civilWarEscalationDays } from "./game/civil-war.ts";
+import { isMilitaryServiceLaw, militaryServiceLaw, militaryServiceLaws } from "./game/military-service.ts";
 
 const otherLaws = laws.filter((law) => !institutionLawDetails(law) && !laborLawCategory(law) &&
   !(taxLaws as readonly Law[]).includes(law) && !isTradeLaw(law) && !civicLawCategory(law) &&
-  !constitutionLawCategory(law) && !isGovernanceLaw(law) && !isEconomicLaw(law));
+  !constitutionLawCategory(law) && !isGovernanceLaw(law) && !isEconomicLaw(law) && !isMilitaryServiceLaw(law));
+const reformStageNames = { organization: "组织支持", debate: "争论修正", implementation: "实施" };
 interface Props {
+  scenario: Scenario;
   game: GameState;
   playerId: string;
   year: number;
   busy: boolean;
   send: (cmd: GameCommand) => void;
 }
-export function PoliticsPanel({ game, playerId: id, year, busy, send }: Props) {
-  const n = game.nations[id],
-    sites = ownedSocieties(game, id),
-    people = sites.flatMap((site) => site.pops),
-    power = influence(sites, id, n);
+export function PoliticsPanel({ scenario, game, playerId: id, year, busy, send }: Props) {
+  const n = game.nations[id], sites = ownedSocieties(game, id);
+  const people = sites.flatMap((site) => site.pops);
+  const { influence: power, supporters, organization, leadership } = politicalRepresentation(sites, id, n);
+  const attitudes = politicalAttitudes(people);
   const [selected, setLaw] = useState<Law>("工资税改革");
   const law = n.reform ?? selected,
-    conditions = reformConditions(n, power, law, unrestOf(people));
+    conditions = reformConditions(n, power, law, attitudes.radicals, game.elapsedDays);
   const progress = n.reformProgress / reformWork;
-  const stage = progress < 1 / 3 ? "组织支持" : progress < 2 / 3 ? "争论修正" : "实施";
   const literacy = literacyOf(people);
   const worldReport = game.lastEconomy;
   const universityStaff = worldReport ? Object.entries(worldReport.states).reduce((sum, [siteId, snapshot]) =>
@@ -50,9 +58,14 @@ export function PoliticsPanel({ game, playerId: id, year, busy, send }: Props) {
   const { innovation, cap } = researchCapacity(universityStaff, literacy);
   const proposal = { type: "proposeLaw", countryId: id, law } as const;
   const reason = politicsError(game, proposal);
+  const compromise = { type: "compromiseReform", countryId: id } as const;
+  const compromiseError = n.reform && politicsError(game, compromise);
   const effectiveLaws = n.laws.filter((law) => !civicLawCategory(law) && !constitutionLawCategory(law) && !isGovernanceLaw(law) &&
-    !isEconomicLaw(law));
+    !isEconomicLaw(law) && !isMilitaryServiceLaw(law));
   const authority = authorityBudget(game, id);
+  const crisis = constitutionalCrisisWarning(game, id);
+  const crisisState = game.constitutionalCrises?.[id];
+  const compromiseReason = crisis && constitutionalCompromiseError(game, id);
   return (
     <section className="economy">
       <header className="economy-heading">
@@ -65,7 +78,30 @@ export function PoliticsPanel({ game, playerId: id, year, busy, send }: Props) {
             <h3>政府与利益集团</h3>
             <span>{stateForm(n)} · {distributionName[powerDistribution(n)]} · 合法性 {conditions.legitimacy} / 100</span>
           </header>
+          {crisis && (
+            <div className="control-block">
+              <h4>全国政体冲突预警</h4>
+              <p>反对派要求实施{crisis.demand}。政体冲突已持续 {game.elapsedDays - crisis.since} 天。</p>
+              <p>冲突持续 {civilWarEscalationDays} 天可升级为内战。</p>
+              <details>
+                <summary>各州支持分布</summary>
+                <ul>
+                  {constitutionalSupportByState(game, id, crisis.demand).map(({ stateId, opposition }) => (
+                    <li key={stateId}>{scenario.states[stateId].name} · 反对派 {opposition}% · 政府 {100 - opposition}%</li>
+                  ))}
+                </ul>
+              </details>
+              <button type="button" disabled={busy || !!compromiseReason} title={compromiseReason}
+                onClick={() => send({ type: "offerConstitutionalCompromise", countryId: id })}>
+                协商并将诉求列入改革议程（{count(compromiseCost)}）
+              </button>
+            </div>
+          )}
+          {crisisState && "compromiseUntil" in crisisState && crisisState.compromiseUntil > game.elapsedDays && (
+            <p>政体协商期还剩 {crisisState.compromiseUntil - game.elapsedDays} 天。</p>
+          )}
           <div className="control-block">
+            <p>全国人口 · 忠诚 {attitudes.loyalists.toFixed(1)}% · 中立 {attitudes.neutral.toFixed(1)}% · 激进 {attitudes.radicals.toFixed(1)}%</p>
             <p>权威力可用 {authority.available} · 已占用 {authority.used} / {authority.capacity}</p>
             <p>勾选执政集团。议案需要政府支持，或至少 25% 的运动支持。</p>
             <div className="group-grid">
@@ -89,7 +125,14 @@ export function PoliticsPanel({ game, playerId: id, year, busy, send }: Props) {
                 </label>
               ))}
             </div>
-            <p>生效法律 · {[stateForm(n), representationLaw(n), governanceLaw(n.laws), economicLaw(n.laws),
+            <details>
+              <summary>人口支持与集团领袖</summary>
+              <ul>{groups.map((group) => <li key={group}>
+                {group} · 人口支持 {supporters[group].toFixed(1)}% · 组织系数 {organization[group].toFixed(2)} ·
+                领袖能力 {leadership[group].ability} · 执政经验 {leadership[group].experience} 个月
+              </li>)}</ul>
+            </details>
+            <p>生效法律 · {[stateForm(n), representationLaw(n), governanceLaw(n.laws), economicLaw(n.laws), militaryServiceLaw(n.laws),
               ...effectiveLaws, ...enactedCivicLaws(n.laws)].join("、")}</p>
             <select
               value={law}
@@ -116,6 +159,9 @@ export function PoliticsPanel({ game, playerId: id, year, busy, send }: Props) {
               <optgroup label="贸易法">
                 {tradeLaws.map((l) => <option key={l}>{l}</option>)}
               </optgroup>
+              <optgroup label="军制">
+                {militaryServiceLaws.map((l) => <option key={l}>{l}</option>)}
+              </optgroup>
               {Object.values(civicLawFamilies).map(({ name, options }) => (
                 <optgroup key={name} label={name}>
                   {options.map((l) => <option key={l}>{l}</option>)}
@@ -136,13 +182,25 @@ export function PoliticsPanel({ game, playerId: id, year, busy, send }: Props) {
             </select>
             <p>{lawEffect[law]}</p>
             <p>
-              运动支持 {conditions.support.toFixed(1)}% · 激进人口 {conditions.resistance.toFixed(1)}%
+              运动支持 {conditions.support.toFixed(1)}% · 立法阻力 {conditions.resistance.toFixed(1)} / 100
               {" · "}{conditions.speed > 0 ? `按当前条件需约 ${Math.ceil((reformWork - n.reformProgress) / conditions.speed)} 周` : "审议暂停"}
             </p>
             {n.reform ? (
-              <p role="status">
-                {n.reform} · {stage} · {Math.floor(progress * 100)}%
-              </p>
+              <>
+                <p role="status">
+                  {n.reform} · {reformStageNames[conditions.stage]} · {Math.floor(progress * 100)}%
+                  {conditions.disputed && !conditions.hearing && " · 争论拖慢进度"}
+                  {conditions.hearing > 0 && ` · 协商还剩 ${conditions.hearing} 天`}
+                  {conditions.negotiated && " · 协商已降低阻力"}
+                </p>
+                <div className="diplomacy-actions">
+                  {conditions.disputed && !n.reformConsultation &&
+                    <button type="button" disabled={busy || !!compromiseError} title={compromiseError || undefined}
+                      onClick={() => send(compromise)}>延长审议并协商</button>}
+                  <button type="button" disabled={busy}
+                    onClick={() => send({ type: "withdrawReform", countryId: id })}>撤回议案</button>
+                </div>
+              </>
             ) : (
               <>
                 <button className="build" disabled={busy || !!reason} onClick={() => send(proposal)}>
@@ -163,9 +221,9 @@ export function PoliticsPanel({ game, playerId: id, year, busy, send }: Props) {
             {techs.map((t) => (
               <div key={t} className="research-row">
                 <strong>
-                  {researchCategory[t]} · {t}
+                  {researchCategory[t]} · {technologyName(t)}
                 </strong>
-                <progress aria-label={t + "进度"} max={100} value={n.knowledge[t]} />
+                <progress aria-label={technologyName(t) + "进度"} max={100} value={n.knowledge[t]} />
                 <small>
                   {n.knowledge[t].toFixed(2)}% · 本周扩散 +{n.diffusion[t].toFixed(2)} · 成本 {count(researchCost(t, year))} 点 · {techEffect[t]}
                 </small>
@@ -174,7 +232,7 @@ export function PoliticsPanel({ game, playerId: id, year, busy, send }: Props) {
                   disabled={busy || !!n.research || !availableTech(n, t)}
                   onClick={() => send({ type: "startResearch", countryId: id, tech: t })}
                 >
-                  {n.knowledge[t] === 100 ? "已掌握" : n.research === t ? "研究中" : "研究" + t}
+                  {n.knowledge[t] === 100 ? "已掌握" : n.research === t ? "研究中" : "研究" + technologyName(t)}
                 </button>
               </div>
             ))}

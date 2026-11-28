@@ -1,21 +1,26 @@
 import { useMemo } from "react";
 import { facilityNames, facilityTypes, livingStandardOf, socialTags } from "./game/society.ts";
-import { civicPolicy, civicStanding } from "./game/civic-policy.ts";
-import { privateShareOf, projectDeposit, projectPoints, remainingProjectPoints, weeklyBudgets } from "./game/economy.ts";
+import { civicPolicy, civicStanding, nationalIdentity } from "./game/civic-policy.ts";
+import { privateShareOf, projectDeposit, projectName, projectPoints, remainingProjectPoints, weeklyBudgets } from "./game/economy.ts";
 import { count, silver } from "./format.ts";
-import { buildingCapacity, constructionError, workForce } from "./game/economy.ts";
+import { fiscalRiskNames } from "./game/fiscal.ts";
+import { publicPayBands, publicPayBandSchema, publicPayNames } from "./game/public-pay.ts";
+import { CommodityDetails } from "./CommodityDetails.tsx";
+import { buildingCapacity, constructionError, productiveBuildingActivity, workForce } from "./game/economy.ts";
 import type { EconomyReport } from "./game/economy.ts";
 import type { GameCommand, GameState } from "./game/engine.ts";
-import { goods, industrialGoods, industries, isGood } from "./game/industry.ts";
+import { goods, industrialGoods, industries, outputGood, productiveBuildings, productiveDefinitions } from "./game/industry.ts";
+import { industryMethodAt, isIndustrialRetrofit, productionTierAt } from "./game/industrial.ts";
+import { productionProject, productionTierNames, productionTiers } from "./game/production-methods.ts";
 import type { Scenario } from "./scenario/scenario.ts";
-import { affinityLevel, culturalAffinityOf } from "./game/culture.ts";
+import { affinityLevel, culturalAffinityOf, cultureName } from "./game/culture.ts";
 import { governanceLaw, governanceModeAllowed, governanceModes, governanceOf, governanceRules,
   integrationDuration, integrationStaffNeeded, localGovernanceRule } from "./game/governance.ts";
 import type { GovernanceMode } from "./game/governance.ts";
 import { TradePanel } from "./TradePanel.tsx";
 import { portCapacity } from "./game/transport.ts";
 import { effectiveConvoyCapacity, maxConvoyOrder, rubberPerMotor, shipGoodsPerConvoy, shipGoodsPerMotor } from "./game/fleet.ts";
-import { incidentNames, unrestEffects } from "./game/unrest.ts";
+import { incidentNames, localIncidentMonths, unrestEffects } from "./game/unrest.ts";
 import { basicEquivalentSupply, extraGoods } from "./game/households.ts";
 import { institutionCommands, institutionGoods, institutionLawLimit, institutionLevelError,
   institutionNames, institutions } from "./game/institutions.ts";
@@ -24,13 +29,7 @@ import { exciseGoods, taxBandNames, taxBands, taxPolicy } from "./game/taxation.
 import { tariffBandNames, tariffBands, tariffRate, tariffRates, tradeLaw } from "./game/trade-policy.ts";
 import { authorityBudget, countryDisplayName, localNegotiationAuthority } from "./game/constitution.ts";
 import { ownedLevels, ownershipKinds, ownershipNames } from "./game/ownership.ts";
-
-function cultureName(scenario: Scenario, id: string) {
-  const separator = id.indexOf("-");
-  if (separator === -1 || id.startsWith("country_")) return scenario.countries[id]?.name ?? id;
-  const state = scenario.states[id.slice(separator + 1)];
-  return state ? state.name + "地方文化" : id;
-}
+import { opiumLaw } from "./game/opium.ts";
 
 interface Props {
   scenario: Scenario;
@@ -57,11 +56,15 @@ function StateIndustry({
   const local = game.stateEconomies[stateId];
   const { industries: activity, populationChange, conscripts } = report.states[stateId];
   const monthlyChange = game.lastPopulation?.changes[stateId];
+  const movements = game.lastPopulation?.moves?.reduce((totals, { from, to, people }) => ({
+    entered: totals.entered + (to === stateId ? people : 0),
+    left: totals.left + (from === stateId ? people : 0),
+  }), { entered: 0, left: 0 });
   const employed = goods.reduce((sum, good) => sum + activity[good].employed, report.states[stateId].subsistence?.employed ?? 0);
   const society = game.societies[stateId];
   const workforce =
     (report.states[stateId].workforce ?? workForce(local.population, society.laborParticipation)) -
-    conscripts -
+    (report.states[stateId].draftWorkforce ?? conscripts) -
     report.states[stateId].builders -
     (report.states[stateId].constructionMaintenance?.workers ?? 0) -
     report.states[stateId].regulars -
@@ -104,6 +107,8 @@ function StateIndustry({
             {monthlyChange !== undefined && (
               <small>（上次月结 {monthlyChange > 0 ? "+" : ""}{count(monthlyChange)}）</small>
             )}
+            {movements && (movements.entered > 0 || movements.left > 0) &&
+              <small>上次月结迁入 {count(movements.entered)} · 迁出 {count(movements.left)}</small>}
             {monthlyChange === undefined && populationChange !== undefined && populationChange !== 0 && (
               <small>
                 （{populationChange > 0 ? "+" : ""}
@@ -159,14 +164,21 @@ function StateIndustry({
         {conscripts > 0 && (
           <div>
             <dt>征兵占用</dt>
-            <dd>{count(conscripts)} 人</dd>
+            <dd>{count(conscripts)} 人{snapshot.draftWorkforce !== undefined && ` · 周内等效占用 ${count(snapshot.draftWorkforce)} 人`}</dd>
+          </div>
+        )}
+        {snapshot.militaryWages && (
+          <div>
+            <dt>周军饷实付</dt>
+            <dd>军人 {silver(snapshot.militaryWages.enlisted)} · 军官 {silver(snapshot.militaryWages.officers)}</dd>
           </div>
         )}
       </dl>
       <ul className="industry-list">
-        {goods.map((good) => {
-          const industry = industries[good];
-          const jobs = activity[good];
+        {productiveBuildings.map((good) => {
+          const industry = productiveDefinitions[good], commodity = outputGood(good);
+          const jobs = productiveBuildingActivity(snapshot, good);
+          const tier = productionTierAt(good, society), method = industryMethodAt(good, society);
           const owned = ownedLevels(good, local.buildings[good], local.ownership);
           const problem = isOwnState ? constructionError(scenario, game, playerId, stateId, good) : undefined;
           return (
@@ -178,10 +190,28 @@ function StateIndustry({
                   {ownershipKinds.filter((kind) => owned[kind] > 0).map((kind) => ` · ${ownershipNames[kind]} ${owned[kind]}`).join("")}
                 </span>
                 <p>
-                  {jobs.electric && "电动生产 · "}就业 {count(jobs.employed)} 人 · 周产出 {count(jobs.output)} · 本地价{" "}
-                  {silver(snapshot.localPrices[good])} · 人均周工资{" "}
+                  {productionTierNames[tier]}工序 · 就业 {count(jobs.employed)} 人 · 周产出 {count(jobs.output)} {industries[commodity].goodName} · 本地价{" "}
+                  {silver(snapshot.localPrices[commodity])} · 人均周工资{" "}
                   {jobs.employed === 0 ? "—" : silver(jobs.wages / jobs.employed)}
                 </p>
+                {local.buildings[good] > 0 && <details>
+                  <summary>生产方式</summary>
+                  <p>每级满员 {count(method.jobs)} 人 · 基础周产 {count(method.output)}
+                    {method.power > 0 && ` · 每级需电力 ${count(method.power)}`}</p>
+                  <p>每级周投入 {industrialGoods.filter((material) => method.recipe[material]).map((material) =>
+                    `${industries[material].goodName} ${count(method.recipe[material]!)}`).join(" · ")}</p>
+                  {isOwnState && <div className="diplomacy-actions">
+                    {productionTiers.filter((target) => target !== tier).map((target) => {
+                      const project = productionProject(good, target);
+                      const reason = constructionError(scenario, game, playerId, stateId, project);
+                      return <button type="button" key={target} className="build" disabled={busy || reason !== undefined}
+                        onClick={() => send({ type: "queueConstruction", countryId: playerId, stateId, good: project })}>
+                        改造为{productionTierNames[target]}工序
+                        <small>{reason ?? `按周实付 · ${projectPoints(project)} 施工点`}</small>
+                      </button>;
+                    })}
+                  </div>}
+                </details>}
               </div>
               {isOwnState && (
                 <button
@@ -209,7 +239,8 @@ function StateIndustry({
           return <details key={kind}>
             <summary>{name} · {level} 级{level > limit ? ` · 法律上限 ${limit} 级` : ""}</summary>
             {service && <>
-              <p>周结 {service.level} 级 · 覆盖 {Math.round(service.coverage * 100)}% · 实付岗位 {count(service.staff)} / {count(service.needed)} 人</p>
+              <p>{service.equivalentLevel === undefined ? `周结 ${service.level} 级` : `周均运行 ${service.equivalentLevel.toFixed(2)} 级`}
+                {" · "}覆盖 {Math.round(service.coverage * 100)}% · 实付岗位 {count(service.staff)} / {count(service.needed)} 人</p>
               <p>工资 {silver(service.wages)} · 采购 {silver(service.spending)} · 到货{" "}
                 {institutionGoods.map((good) =>
                   `${industries[good].goodName} ${count(service.delivered[good])} / ${count(service.orders[good])}`).join(" · ")}</p>
@@ -257,6 +288,14 @@ function StateIndustry({
           <p>可用资金 {silver(snapshot.householdExtras.budget)} · 实付 {silver(snapshot.householdExtras.spending)}</p>
           <ul>{extraGoods.map((good) => <li key={good}>{industries[good].goodName} {count(snapshot.householdExtras!.delivered[good])} / {count(snapshot.householdExtras!.orders[good])}</li>)}</ul>
         </details>}
+        {snapshot.opium && <details>
+          <summary>鸦片消费与依赖</summary>
+          <p>{opiumLaw(nation.laws)} · 地方依赖负担 {(society.opiumBurden ?? 0).toFixed(1)} / 100</p>
+          {snapshot.opium.recoverySupport !== undefined && <p>实付教育、救助及医疗支持 {Math.round(snapshot.opium.recoverySupport * 100)}%</p>}
+          <p>医疗采购 {count(snapshot.opium.medical.delivered)} / {count(snapshot.opium.medical.ordered)} · 机构实付 {silver(snapshot.opium.medical.spending)}</p>
+          <p>非医疗消费 {count(snapshot.opium.nonMedical.consumed)} / {count(snapshot.opium.nonMedical.ordered)} · 家庭实付 {silver(snapshot.opium.nonMedical.spending)}</p>
+          {snapshot.opium.illicit && <p>非法流量尝试 {count(snapshot.opium.illicit.attempted)} · 查缉 {count(snapshot.opium.illicit.seized)} · 到货 {count(snapshot.opium.illicit.delivered)}</p>}
+        </details>}
         {snapshot.industrial && <details>
           <summary>工业库存与周转资金</summary>
           <p>周转金 {silver(snapshot.industrial.capital)} · 销售 {silver(snapshot.industrial.sales)} · 采购 {silver(snapshot.industrial.spent)} · 可分配结余 {silver(snapshot.industrial.distributed)}</p>
@@ -289,8 +328,8 @@ function StateIndustry({
         <div className="diplomacy-actions">
           {facilityTypes.filter((g) => {
             if (g === "port") return site.coastal;
-            if (g === "electrifyTools") return local.buildings.tools > 0;
-            if (g === "electrifySteel") return local.buildings.steel > 0;
+            if (g === "administrativeArchive") return society.bureaucracy > 0;
+            if (isIndustrialRetrofit(g)) return false;
             return true;
           }).map((g) => {
             const problem = isOwnState ? constructionError(scenario, game, playerId, stateId, g) : undefined;
@@ -301,12 +340,13 @@ function StateIndustry({
               disabled={!isOwnState || busy || problem !== undefined}
               onClick={() => send({ type: "queueConstruction", countryId: playerId, stateId, good: g })}
             >
-              {g === "electrifyTools" || g === "electrifySteel"
-                ? `${facilityNames[g]}${society[g] ? " · 已投产" : ""}`
+              {g === "administrativeArchive"
+                ? `${facilityNames[g]}${society[g] ? " · 已启用" : ""}`
                 : `${facilityNames[g]} ${society[g]} 级 · 扩建`}
               <small>
                 {problem ?? `按周实付 · ${projectPoints(g)} 施工点`}
               </small>
+          {snapshot.industrialWage !== undefined && <small>产业普通岗位周薪 {silver(snapshot.industrialWage)}</small>}
             </button>
             );
           })}
@@ -317,7 +357,7 @@ function StateIndustry({
             <table>
               <thead>
                 <tr>
-                  {["职业 / 阶层", "文化 / 信仰", "人口", "财富", "生活水平", "识字率", "激进比例"].map((h) => (
+                  {["职业 / 阶层", "文化 / 信仰", "人口", "财富", "生活水平", "识字率", "忠诚", "中立", "激进"].map((h) => (
                     <th key={h}>{h}</th>
                   ))}
                 </tr>
@@ -331,13 +371,15 @@ function StateIndustry({
                         {p.occupation} / {socialTags[p.occupation][0]}
                       </td>
                       <td>
-                        {cultureName(scenario, p.culture)} / {p.religion === owner ? "国教" : "其他信仰"} ·{" "}
+                        {cultureName(scenario, p.culture)} / {p.religion === nationalIdentity(owner) ? "国教" : "其他信仰"} ·{" "}
                         {standing === 1 ? "完整待遇" : standing > 0 ? "有限待遇" : "受限制"}
                       </td>
                       <td>{count(p.people)}</td>
                       <td>{p.wealth.toFixed(1)}</td>
                       <td>{p.livingStandard.toFixed(1)}</td>
                       <td>{p.literacy.toFixed(1)}%</td>
+                      <td>{p.loyalists.toFixed(1)}%</td>
+                      <td>{Math.max(0, 100 - p.radicals - p.loyalists).toFixed(1)}%</td>
                       <td>{p.radicals.toFixed(1)}%</td>
                     </tr>
                   );
@@ -378,7 +420,8 @@ function StateIndustry({
           </>}
           {stability && <p>地方动乱 {stability.unrest.toFixed(1)} / 100</p>}
           {incident && <>
-            <p>{incidentNames[incident.cause]} · 已持续 {count(game.elapsedDays - incident.since)} 天{incident.negotiated && " · 已达成减税协议"}</p>
+            <p>{incidentNames[incident.cause]} · 已持续 {count(game.elapsedDays - incident.since)} 天 · 最长 {localIncidentMonths} 个月
+              {incident.calmSince !== undefined && " · 诱因正在缓解"}{incident.negotiated && " · 已达成减税协议"}</p>
             <p>当地产出 {Math.round(localEffects.output * 100)}% · 中央征收效率 {Math.round(localEffects.collection * 100)}% · 运力 {Math.round(localEffects.transport * 100)}%</p>
             {isOwnState && !incident.negotiated && <button className="build" disabled={busy || occupied || negotiationAuthority < localNegotiationAuthority}
               onClick={() => send({ type: "negotiateLocalUnrest", countryId: playerId, stateId })}>
@@ -431,7 +474,9 @@ function StateIndustry({
   );
 }
 
-export function EconomyPanel({ scenario, game, playerId, selectedId, report, busy, send, onPopulationOpen }: Props) {
+export function EconomyPanel(
+  { scenario, game, playerId, selectedId, report, busy, send, onPopulationOpen, onCommodityOpen }: Props & { onCommodityOpen: () => void },
+) {
   const marketId = selectedId === null ? playerId : game.ownerByStateId[selectedId];
   const country = scenario.countries[marketId];
   const countryReport = report.countries[marketId];
@@ -444,7 +489,6 @@ export function EconomyPanel({ scenario, game, playerId, selectedId, report, bus
     .filter(([stateId]) => game.ownerByStateId[stateId] === marketId).flatMap(([, site]) => site.pops)),
   [game.societies, game.ownerByStateId, marketId]);
   const fiscal = game.countryEconomies[marketId].fiscal;
-  const riskNames = { stable: "稳定", warning: "信用预警", restricted: "限制新工程", defaulted: "违约" };
 
   return (
     <section className="economy" aria-labelledby="economy-title">
@@ -494,6 +538,9 @@ export function EconomyPanel({ scenario, game, playerId, selectedId, report, bus
               })}
               {military.procurement && <small>军粮 {silver(military.procurement.grain)} · 军服 {silver(military.procurement.cloth)} ·
                 武器 {silver(military.procurement.arms ?? 0)} · 弹药 {silver(military.procurement.ammo ?? 0)}</small>}
+              {military.payroll && <small>军饷 {military.payroll.paid === undefined ? "预估应付 " : "实付 "}
+                {silver(military.payroll.paid ?? military.payroll.due)}
+                {military.payroll.paid !== undefined && ` ／应付 ${silver(military.payroll.due)}`}</small>}
             </div>
             {report.countries[marketId].universityWages !== undefined && <div>
               <dt>大学实付工资</dt>
@@ -541,6 +588,16 @@ export function EconomyPanel({ scenario, game, playerId, selectedId, report, bus
             </div>
           </dl>
           {marketId === playerId && <details className="control-block">
+            <summary>公共工资 · {publicPayNames[nation.publicPay]}档</summary>
+            <label>下一周工资档位{" "}
+              <select value={nation.pendingPublicPay ?? nation.publicPay} disabled={busy}
+                onChange={(event) => send({ type: "setPublicPay", countryId: playerId, band: publicPayBandSchema.parse(event.target.value) })}>
+                {publicPayBands.map((band) => <option key={band} value={band}>{publicPayNames[band]}档</option>)}
+              </select>
+            </label>
+            <p>低档 80% · 标准档 100% · 高档 120%。调整在本周结账后生效。</p>
+          </details>}
+          {marketId === playerId && <details className="control-block">
             <summary>税收设置 · {policy.system} · {taxBandNames[nation.taxBand]}档</summary>
             <label>税率档位{" "}
               <select value={nation.taxBand} disabled={busy}
@@ -559,7 +616,7 @@ export function EconomyPanel({ scenario, game, playerId, selectedId, report, bus
             </fieldset>}
           </details>}
           {fiscal && <details className="control-block">
-            <summary>财政信用 · {riskNames[fiscal.week.risk]} · 债务 {silver(fiscal.debt)}</summary>
+            <summary>财政信用 · {fiscalRiskNames[fiscal.week.risk]} · 债务 {silver(fiscal.debt)}</summary>
             <p>信用上限 {silver(fiscal.week.creditLimit)} · 年利率 {(fiscal.week.annualRate * 100).toFixed(2)}%</p>
             <p>本周借款 {silver(fiscal.week.borrowed)} · 偿还本金 {silver(fiscal.week.repaid)}</p>
             <p>支付利息 {silver(fiscal.week.interestPaid)} · 未付利息 {silver(fiscal.arrears)}</p>
@@ -588,6 +645,8 @@ export function EconomyPanel({ scenario, game, playerId, selectedId, report, bus
               </div>
             </fieldset>}
           </details>}
+          <CommodityDetails scenario={scenario} game={game} report={report} countryId={marketId}
+            onInspect={() => { if (marketId === playerId) onCommodityOpen(); }} />
           <div className="economy-table">
             <table aria-label={`${country.name}商品供需`}>
               <thead>
@@ -654,7 +713,7 @@ export function EconomyPanel({ scenario, game, playerId, selectedId, report, bus
                     {queue.map((job, i) => (
                       <li key={i}>
                         {scenario.states[job.stateId].name} ·{" "}
-                        {isGood(job.good) ? industries[job.good].name : facilityNames[job.good]}{job.levels && ` × ${job.levels}`} ·
+                        {projectName(job.good)}{job.levels && ` × ${job.levels}`} ·
                         余 {remainingProjectPoints(job).toFixed(2)} 点
                         {marketId === playerId && <button disabled={busy} onClick={() => send({
                           type: "cancelConstruction", countryId: playerId, index: i, stateId: job.stateId, good: job.good,

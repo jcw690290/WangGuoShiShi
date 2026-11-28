@@ -1,7 +1,7 @@
 import { GameRuleError } from "./rules.ts";
 import type { GameState } from "./engine.ts";
 import type { EconomyReport } from "./economy.ts";
-import { institutionLawDetails, institutionRequiredTech } from "./institutions.ts";
+import { institutionLawDetails, institutionRequiredTech, technologyName } from "./institutions.ts";
 import { laborLawCategory, laborLawTechnology } from "./labor.ts";
 import { isTaxLaw } from "./taxation.ts";
 import { isTradeLaw } from "./trade-policy.ts";
@@ -9,7 +9,9 @@ import { civicLawCategory, civicLawOf, civicPolicy } from "./civic-policy.ts";
 import { constitutionLawCategory, representationLaw, stateForm } from "./constitution.ts";
 import { governanceLaw, isGovernanceLaw } from "./governance.ts";
 import { economicLaw, isEconomicLaw } from "./ownership.ts";
-import { groups, influence, literacyOf, reformConditions, reformWork, techs, unrestOf } from "./society.ts";
+import { isOpiumLaw, opiumLaw } from "./opium.ts";
+import { isMilitaryServiceLaw, militaryServiceLaw } from "./military-service.ts";
+import { groups, influence, literacyOf, reformConditions, reformConsultationDays, reformStage, reformWork, techs, unrestOf } from "./society.ts";
 import type { Group, Law, Nation, SiteSocial, Tech } from "./society.ts";
 
 export const textileResearch = { outputBonus: 25, weeks: 4 };
@@ -30,6 +32,18 @@ export const researchCategory = {
   社会保障: "社会",
   大众政治: "社会",
   现代税制: "社会",
+  常备军组织: "军事",
+  线列训练: "军事",
+  后膛装备: "军事",
+  参谋组织: "军事",
+  连发装备: "军事",
+  现代火炮: "军事",
+  装甲舰艇: "军事",
+  机械化组织: "军事",
+  农业改良: "生产",
+  机械工具: "生产",
+  先进材料: "生产",
+  官僚改良: "社会",
 } as const;
 const categories = ["生产", "军事", "社会"] as const;
 const prerequisite: Partial<Record<Tech, Tech>> = {
@@ -46,12 +60,31 @@ const prerequisite: Partial<Record<Tech, Tech>> = {
   社会保障: "劳工保障",
   大众政治: "劳工保障",
   现代税制: "公共教育",
+  线列训练: "常备军组织",
+  后膛装备: "线列训练",
+  参谋组织: "常备军组织",
+  连发装备: "后膛装备",
+  现代火炮: "后膛装备",
+  装甲舰艇: "规模化钢铁",
+  机械化组织: "连发装备",
+  机械工具: "机械织造",
+  先进材料: "电气化",
 };
+const technologyEras: Partial<Record<Tech, 0 | 1 | 2 | 3>> = {
+  常备军组织: 0, 线列训练: 0, 后膛装备: 1, 参谋组织: 1, 连发装备: 2, 现代火炮: 2,
+  装甲舰艇: 2, 机械化组织: 3, 农业改良: 0, 机械工具: 1, 先进材料: 3, 官僚改良: 0,
+};
+const eraCosts = [4000, 10000, 22000, 45000];
+const eraYears = [1820, 1850, 1880, 1910];
 export function availableTech(n: Nation, t: Tech) {
   const prior = prerequisite[t];
-  return n.knowledge[t] < 100 && (!prior || n.knowledge[prior] === 100);
+  return n.knowledge[t] < 100 && (!prior || n.knowledge[prior] === 100) &&
+    (t !== "机械化组织" || n.knowledge["内燃机"] === 100);
 }
 export function researchCost(tech: Tech, year: number) {
+  const era = technologyEras[tech];
+  if (era !== undefined)
+    return Math.round(eraCosts[era] * (1 + 0.02 * Math.max(0, eraYears[era] - year)));
   const advanced = prerequisite[tech] !== undefined;
   const late = tech === "规模化钢铁" || tech === "电气化" || tech === "公共卫生" || tech === "劳工保障" || tech === "大众政治";
   const modern = tech === "内燃机" || tech === "社会保障";
@@ -68,7 +101,7 @@ export const techEffect: Record<Tech, string> = {
   野战后勤: "有效战力 +25%",
   运输调度: "前线运输容量 +30%",
   公共教育: "解锁《公共学校》，实付大学教学也可提升识字率",
-  高等教育: "解锁《普及教育》，提高大学教学的识字增益",
+  高等教育: "解锁《普及教育》，大学有薪教职带来的识字增益翻倍",
   蒸汽动力: "研究铁路的前置技术",
   铁路: "允许建设铁路，改善市场接入和陆运",
   规模化钢铁: "研究电气化的前置技术",
@@ -79,6 +112,18 @@ export const techEffect: Record<Tech, string> = {
   社会保障: "解锁《社会保险》",
   大众政治: "解锁《妇女平等权》",
   现代税制: "解锁比例、累进所得税和消费税制",
+  常备军组织: "陆军改编与新兵营训练缩短为 10 周，允许提出义务兵役法",
+  线列训练: "解锁步兵与骑兵的线列训练方案",
+  后膛装备: "解锁步兵与骑兵的后膛装备",
+  参谋组织: "每级将领指挥上限由 300 提至 400 人",
+  连发装备: "解锁步兵与骑兵的连发装备",
+  现代火炮: "解锁炮兵的现代火炮",
+  装甲舰艇: "解锁使用更多船材建造和维护的装甲舰",
+  机械化组织: "需要内燃机与连发装备，解锁使用石油和橡胶的机械化步兵",
+  农业改良: "解锁粮食、副食品和纤维产业的机械化工序",
+  机械工具: "解锁其他商业产业的机械化工序",
+  先进材料: "解锁各产业的先进工序，通常需要州内发电",
+  官僚改良: "解锁行政档案室改造，每级行政办事处可多容纳 50 个实际行政岗位",
 };
 export const lawEffect: Record<Law, string> = {
   工资税改革: "沿用 14% 工资税与 5% 经营所得税",
@@ -133,17 +178,25 @@ export const lawEffect: Record<Law, string> = {
   中央集权: "边疆中央税收份额提至 90%，行政与整合岗位需求增加 15%，限制新设间接辖区",
   地方自治: "中央税收份额最高 80%，中央征用额度降至原来的 80%，行政与整合岗位需求降低 15%，限制新设殖民辖区",
   殖民特许: "殖民辖区中央税收份额提高至 75%，征用份额降至 65%，提高当地行政与整合成本",
+  鸦片许可经营: "允许医疗采购和家庭购买，国内产业与对外贸易照常",
+  鸦片限医疗: "仅开放医疗机构采购，允许合法生产与贸易",
+  鸦片禁令: "暂停合法生产、建设、贸易与采购，地方依赖继续按周恢复",
+  地方民兵: "每级兵营 70 名常备军，每级征兵中心最多 400 名预备役，基础动员 42 天",
+  职业常备军: "每级兵营 100 名常备军，每级征兵中心最多 500 名预备役，基础动员 28 天",
+  义务兵役: "每级兵营 100 名常备军，每级征兵中心最多 750 名预备役，基础动员 21 天",
 };
 
 function exclusiveLawCategory(law: Law) {
   return institutionLawDetails(law)?.kind ?? laborLawCategory(law) ?? civicLawCategory(law) ?? constitutionLawCategory(law) ??
     (isTaxLaw(law) ? "tax" : isTradeLaw(law) ? "trade" : isGovernanceLaw(law) ? "governance" :
-      isEconomicLaw(law) ? "economy" :
+      isEconomicLaw(law) ? "economy" : isOpiumLaw(law) ? "opium" : isMilitaryServiceLaw(law) ? "militaryService" :
       law === "小农自耕" || law === "地主租佃" ? "land" : undefined);
 }
 export type PoliticsCommand =
   | { type: "setGovernment"; countryId: string; government: Group[] }
   | { type: "proposeLaw"; countryId: string; law: Law }
+  | { type: "compromiseReform"; countryId: string }
+  | { type: "withdrawReform"; countryId: string }
   | { type: "startResearch"; countryId: string; tech: Tech };
 export function ownedSocieties(state: GameState, id: string) {
   return Object.keys(state.societies)
@@ -154,6 +207,17 @@ export function politicsError(state: GameState, command: PoliticsCommand) {
   const id = command.countryId,
     nation = state.nations[id];
   if (!nation || state.playerCountryId === null) return "请先选择剧本内国家";
+  if (command.type === "compromiseReform" || command.type === "withdrawReform") {
+    if (nation.reform === null) return "当前没有改革议案";
+    if (command.type === "withdrawReform") return;
+    if (nation.reformConsultation) return "该议案已安排过协商";
+    if (reformStage(nation.reformProgress) !== "debate") return "只能在争论修正阶段协商";
+    const sites = ownedSocieties(state, id);
+    const conditions = reformConditions(nation, influence(sites, id, nation), nation.reform,
+      unrestOf(sites.flatMap((site) => site.pops)), state.elapsedDays);
+    if (!conditions.disputed) return "当前立法阻力较低";
+    return;
+  }
   if (command.type === "setGovernment") {
     if (
       !command.government.length ||
@@ -173,12 +237,14 @@ export function politicsError(state: GameState, command: PoliticsCommand) {
         currentConstitution === command.law ||
         (isGovernanceLaw(command.law) && governanceLaw(nation.laws) === command.law) ||
         (isEconomicLaw(command.law) && economicLaw(nation.laws) === command.law) ||
+        (isOpiumLaw(command.law) && opiumLaw(nation.laws) === command.law) ||
+        (isMilitaryServiceLaw(command.law) && militaryServiceLaw(nation.laws) === command.law) ||
         (civicCategory && civicLawOf(nation.laws, civicCategory) === command.law)) return "已有议案或该法已生效";
     const institution = institutionLawDetails(command.law);
     const modernTax = isTaxLaw(command.law) && command.law !== "传统土地身份税" && command.law !== "工资税改革";
-    const technology = modernTax ? "现代税制" :
+    const technology = command.law === "义务兵役" ? "常备军组织" : modernTax ? "现代税制" :
       institution ? institutionRequiredTech(institution.kind, institution.level) : laborLawTechnology[command.law];
-    if (technology && nation.knowledge[technology] !== 100) return `立项需要掌握${technology}技术`;
+    if (technology && nation.knowledge[technology] !== 100) return `立项需要掌握${technologyName(technology)}技术`;
     const sites = ownedSocieties(state, id);
     const power = influence(sites, id, nation);
     if (!reformConditions(nation, power, command.law, unrestOf(sites.flatMap((site) => site.pops))).speed)
@@ -188,15 +254,20 @@ export function politicsError(state: GameState, command: PoliticsCommand) {
 export function applyPolitics(state: GameState, command: PoliticsCommand): GameState {
   const error = politicsError(state, command);
   if (error) throw new GameRuleError(error);
-  const change =
-    command.type === "setGovernment"
-      ? { government: command.government }
-      : command.type === "startResearch"
-        ? { research: command.tech }
-        : { reform: command.law, reformProgress: 0 };
+  const nation = state.nations[command.countryId];
+  let change: Partial<Nation>;
+  switch (command.type) {
+    case "setGovernment": change = { government: command.government }; break;
+    case "startResearch": change = { research: command.tech }; break;
+    case "proposeLaw": change = { reform: command.law, reformProgress: 0 }; break;
+    case "withdrawReform": change = { reform: null, reformProgress: 0, reformConsultation: undefined }; break;
+    case "compromiseReform": change = { reformConsultation: {
+      law: nation.reform!, endsDay: state.elapsedDays + reformConsultationDays,
+    } }; break;
+  }
   return {
     ...state,
-    nations: { ...state.nations, [command.countryId]: { ...state.nations[command.countryId], ...change } },
+    nations: { ...state.nations, [command.countryId]: { ...nation, ...change } },
   };
 }
 export function advancePolitics(state: GameState, report: EconomyReport, year: number, yearFraction: number): GameState {
@@ -217,6 +288,10 @@ export function advancePolitics(state: GameState, report: EconomyReport, year: n
       knowledge: { ...previous.knowledge },
       diffusion: { ...previous.diffusion },
     };
+    if (nation.pendingPublicPay) {
+      nation.publicPay = nation.pendingPublicPay;
+      delete nation.pendingPublicPay;
+    }
     const sites = locals[id],
       people = sites.flatMap((s) => s.pops);
     if (people.length) {
@@ -237,7 +312,8 @@ export function advancePolitics(state: GameState, report: EconomyReport, year: n
         if (nation.research === tech && nation.knowledge[tech] === 100) nation.research = null;
       }
       if (nation.reform) {
-        nation.reformProgress += reformConditions(nation, influence(sites, id, nation), nation.reform, unrestOf(people)).speed;
+        nation.reformProgress += reformConditions(nation, influence(sites, id, nation), nation.reform,
+          unrestOf(people), state.elapsedDays).speed;
         if (nation.reformProgress >= reformWork - 1e-9) {
           const reform = nation.reform;
           const category = exclusiveLawCategory(reform);
@@ -246,6 +322,7 @@ export function advancePolitics(state: GameState, report: EconomyReport, year: n
           nation.laws = [...retained, reform];
           nation.reform = null;
           nation.reformProgress = 0;
+          delete nation.reformConsultation;
         }
       }
     }

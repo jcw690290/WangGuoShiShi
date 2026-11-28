@@ -56,6 +56,7 @@ test("新工具厂的周转金来自项目费用，实际采购后余额可对�
     ...scenario.states[stateId], buildings: { grain: 0, cloth: 0 },
   } } };
   const initial = start(map);
+  initial.stateEconomies[stateId].constructionStock = { public: { wood: 240, tools: 60, iron: 60 }, private: { wood: 0, tools: 0, iron: 0 } };
   let game = dispatch(map, initial, { type: "queueConstruction", countryId, stateId, good: "tools" });
   assert.equal(initial.countryEconomies[countryId].treasury - game.countryEconomies[countryId].treasury, projectDeposit("tools"));
   assert.equal(game.stateEconomies[stateId].industrial, undefined);
@@ -90,7 +91,7 @@ test("造纸和服务使用实际原料与共享技术劳动力，服务在本�
   assert.equal(local.industries.paper.output, 100);
   assert.equal(local.industries.services.output, 100);
   assert.equal(local.industries.services.wages, 12_500);
-  assert.equal(local.industrial?.skilledWages, 14_700);
+  assert.equal(local.industrial?.skilledWages, 14_700 - 50 * 150);
   assert.deepEqual(local.industrial?.used, { ...byIndustrialGood(() => 0), wood: 60, iron: 30, coal: 15, tools: 10, paper: 2 });
   assert.equal(local.householdConsumption?.services, 100);
   assert.equal(report.states.Guangxi.householdConsumption?.services, 0);

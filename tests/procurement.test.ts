@@ -28,7 +28,7 @@ test("实付军粮和军服从商品供给发出，国库与生产企业只各�
   const { industries: production, industrial, access } = settled.lastEconomy!.states[stateId];
   assert.deepEqual(m.procurement, forecast.countries[countryId].military.procurement);
   assert.ok(m.grainDrawn > 0 && m.equipment.uniforms.delivered > 0);
-  assert.deepEqual(m.procurement, { grain: m.grainDrawn * 125, cloth: m.equipment.uniforms.delivered * 360, arms: 0, ammo: 0 });
+  assert.deepEqual(m.procurement, { grain: m.grainDrawn * 125, cloth: m.equipment.uniforms.delivered * 360, arms: 0, ammo: 0, oil: 0, rubber: 0 });
   assert.equal(production.grain.output, market.grain.supply + m.grainDrawn);
   assert.equal(production.cloth.output, market.cloth.supply + m.equipment.uniforms.delivered);
   assert.equal(access, 1);
@@ -38,8 +38,8 @@ test("实付军粮和军服从商品供给发出，国库与生产企业只各�
   const { treasury, fiscal } = settled.countryEconomies[countryId];
   assert.equal(fiscal!.week.upkeepPaid, upkeep);
   assert.deepEqual(constructionMaintenance, { workers: 10, wages: 1000, tools: 0, materials: 0 });
-  assert.equal(upkeep, purchases + m.regulars * 12 + constructionMaintenance.wages);
-  assert.equal(treasury, initial.countryEconomies[countryId].treasury + tax - upkeep);
+  assert.equal(upkeep, purchases + m.payroll!.paid! + constructionMaintenance.wages);
+  assert.equal(treasury, initial.countryEconomies[countryId].treasury + tax + settled.lastEconomy!.countries[countryId].publicIndustryIncome! - upkeep);
   assert.deepEqual(parseSave(scenario, { version: saveVersion, scenarioId: scenario.id, state: settled }), settled);
 });
 
@@ -52,7 +52,7 @@ test("预付受现款限制，剩余物资进入市场，当周税收不补记�
   // Standby payroll and the highest possible price of its tool are reserved before military orders.
   assert.equal(military.grainDrawn, 28);
   assert.equal(military.equipment.uniforms.delivered, 0);
-  assert.deepEqual(military.procurement, { grain: 3_500, cloth: 0, arms: 0, ammo: 0 });
+  assert.deepEqual(military.procurement, { grain: 3_500, cloth: 0, arms: 0, ammo: 0, oil: 0, rubber: 0 });
   assert.equal(market.grain.supply, settled.lastEconomy!.states[stateId].industries.grain.output - 28);
   assert.equal(military.readiness, 0);
 });
@@ -73,9 +73,9 @@ test("国库现款用完后可动用已核定授信采购，汇总借款与债�
   const { fiscal, treasury } = next.countryEconomies[countryId];
   const cost = militaryProcurementCost(military.procurement);
   assert.ok(cost > 0 && cost <= priorFiscal.week.creditLimit - priorFiscal.debt);
-  assert.equal(fiscal!.week.borrowed, cost);
-  assert.equal(fiscal!.debt, priorFiscal.debt + cost - fiscal!.week.repaid);
-  assert.equal(treasury, tax + fiscal!.week.borrowed - upkeep - fiscal!.week.interestPaid - fiscal!.week.repaid);
+  assert.ok(fiscal!.week.borrowed >= cost);
+  assert.equal(fiscal!.debt, priorFiscal.debt + fiscal!.week.borrowed - fiscal!.week.repaid);
+  assert.equal(treasury, tax + next.lastEconomy!.countries[countryId].publicIndustryIncome! + fiscal!.week.borrowed - upkeep - fiscal!.week.interestPaid - fiscal!.week.repaid);
   assert.deepEqual(parseSave(scenario, { version: saveVersion, scenarioId: scenario.id, state: next }), next);
 });
 
@@ -98,6 +98,7 @@ test("炼钢和军工消耗原料，国库为实际交付的武器和弹药付�
     weapons: { demand: 5, delivered: 5 },
     ammunition: { demand: 5, delivered: 5 },
     uniforms: { demand: 10, delivered: 10 },
+    fuel: { demand: 0, delivered: 0 }, spares: { demand: 0, delivered: 0 },
   });
   assert.equal(military.procurement!.arms, 5 * industries.arms.basePrice);
   assert.equal(military.procurement!.ammo, 5 * industries.ammo.basePrice);
@@ -113,7 +114,9 @@ test("炼钢和军工消耗原料，国库为实际交付的武器和弹药付�
   assert.equal(constrained.countries[countryId].military.equipment.weapons.delivered, 0);
   assert.equal(constrained.countries[countryId].military.procurement!.arms, 0);
   const next = dispatch(map, game, { type: "advanceWeek" });
-  assert.deepEqual(next.lastEconomy!.countries[countryId].military, military);
+  assert.deepEqual(next.lastEconomy!.countries[countryId].military, {
+    ...military, payroll: { due: military.payroll!.due, paid: military.payroll!.due },
+  });
   assert.deepEqual(parseSave(map, { version: saveVersion, scenarioId: map.id, state: next }), next);
 });
 

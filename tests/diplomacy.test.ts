@@ -5,6 +5,9 @@ import { createGame, dispatch } from "../src/game/engine.ts";
 import type { GameState, GameCommand } from "../src/game/engine.ts";
 import { projectEconomy, projectOpeningCapital } from "../src/game/economy.ts";
 import { infamyLevel, planWar, swayCost } from "../src/game/diplomacy.ts";
+import { applyMilitaryLoss } from "../src/game/military-health.ts";
+import { publicSalary } from "../src/game/public-pay.ts";
+import { TICKS_PER_WEEK } from "../src/game/time.ts";
 import { parseSave, saveVersion } from "../src/game/storage.ts";
 import { borderScenario as scenario } from "../src/scenario/scenario.ts";
 const a = "country_01",
@@ -66,6 +69,27 @@ test("常备军和平支薪，征兵占用产业工人；战线受命令和补�
   assert.equal(g.borderDispute!.phase, "countdown");
   g = week(g);
   assert.equal(g.borderDispute!.phase, "war");
+  const nearClose = { ...g, elapsedDays: g.elapsedDays + 6, tickInDay: 3 };
+  const lateOrder = load(send(nearClose, { type: "mobilize", countryId: a }));
+  const lastTick = lateOrder.borderDispute!.mobilization![a];
+  assert.equal(lastTick.orderedTickInDay, 3);
+  const lateReadyDay = { ...lateOrder, elapsedDays: lastTick.readyDay, tickInDay: 2 };
+  assert.equal(planWar(scenario, lateReadyDay)!.routes[a].draftReady, false);
+  assert.equal(planWar(scenario, { ...lateReadyDay, tickInDay: 3 })!.routes[a].draftReady, true);
+
+  const noCallUp = send(nearClose, { type: "advanceTick" }).lastEconomy!;
+  const partial = send(lateOrder, { type: "advanceTick" }).lastEconomy!;
+  const rate = publicSalary(120, g.nations[a].publicPay);
+  let addedPay = 0;
+  for (const [id, line] of Object.entries(partial.states)) {
+    if (g.ownerByStateId[id] !== a || line.conscripts === 0) continue;
+    assert.equal(line.draftWorkforce, Math.floor(line.conscripts / TICKS_PER_WEEK));
+    addedPay += Math.floor(line.conscripts * rate / TICKS_PER_WEEK);
+  }
+  assert.ok(addedPay > 0);
+  assert.equal(partial.countries[a].military.payroll!.due - noCallUp.countries[a].military.payroll!.due, addedPay);
+  assert.equal(partial.countries[a].military.grainDemand - noCallUp.countries[a].military.grainDemand,
+    Math.round(partial.countries[a].military.conscripts / TICKS_PER_WEEK));
   const before = projectEconomy(g, planWar(scenario, g));
   assert.equal(before.countries[a].military.conscripts, 0);
   g = send(g, { type: "mobilize", countryId: a });
@@ -74,15 +98,37 @@ test("常备军和平支薪，征兵占用产业工人；战线受命令和补�
     mobilized.states.Yunnan.industries.grain.employed < before.states.Yunnan.industries.grain.employed,
   );
   assert.ok(mobilized.countries[a].military.conscripts > 0);
+  assert.equal(mobilized.countries[a].military.deployedConscripts, 0);
+  assert.ok(mobilized.countries[a].upkeep > before.countries[a].upkeep);
+  const readyDay = g.borderDispute!.mobilization![a].readyDay;
+  assert.ok(readyDay - g.elapsedDays >= 28);
+  const ready = { ...load(g), elapsedDays: readyDay };
+  const deployed = projectEconomy(ready, planWar(scenario, ready)).countries[a].military;
+  assert.equal(deployed.deployedConscripts, deployed.conscripts);
   assert.equal(mobilized.states.Annam.conscripts, 0);
   assert.ok(mobilized.countries[a].military.grainDrawn <= mobilized.countries[a].military.grainTransport);
   assert.equal(g.borderDispute!.progress, 0);
   assert.throws(() => send(g, { type: "signTreaty", countryId: a }), /战线进度/);
   g = send(g, { type: "orderAdvance", countryId: a });
-  assert.deepEqual(week(load(g)), week(g));
-  const signed = send(week(g), { type: "armistice", countryId: a });
+  const fighting = week(g);
+  assert.deepEqual(week(load(g)), fighting);
+  const militaryPopulation = (state: GameState) => state.societies.Yunnan.pops.reduce((sum, pop) =>
+    sum + (pop.occupation === "军人" || pop.occupation === "军官" ? pop.people : 0), 0);
+  assert.ok(militaryPopulation(fighting) > militaryPopulation(g));
+  const receipts = Object.entries(fighting.lastEconomy!.states).reduce((sum, [id, site]) => {
+    if (fighting.ownerByStateId[id] !== a || !site.militaryWages) return sum;
+    return sum + site.militaryWages.enlisted + site.militaryWages.officers;
+  }, 0);
+  assert.equal(receipts, fighting.lastEconomy!.countries[a].military.payroll!.paid);
+  const loss = structuredClone(fighting);
+  applyMilitaryLoss(loss, "Yunnan", { regularDead: 0, conscriptDead: 1, regularInjured: 0, conscriptInjured: 0 });
+  assert.equal(militaryPopulation(loss), militaryPopulation(fighting) - 1);
+  assert.equal(loss.stateEconomies.Yunnan.population, fighting.stateEconomies.Yunnan.population - 1);
+  const signed = send(fighting, { type: "armistice", countryId: a });
   assert.equal(signed.ownerByStateId.Tonkin, b);
-  assert.equal(week(signed).lastEconomy!.countries[a].military.conscripts, 0);
+  const demobilized = week(signed);
+  assert.equal(demobilized.lastEconomy!.countries[a].military.conscripts, 0);
+  assert.ok(militaryPopulation(demobilized) < militaryPopulation(fighting));
 });
 test("后方驻军使用本地物资，前线运输限额仅约束参战部队", () => {
   let g = demand(startWithGrain({ Tonkin: 24 }));

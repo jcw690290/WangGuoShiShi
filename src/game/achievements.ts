@@ -4,7 +4,7 @@ import { participants } from "./diplomacy.ts";
 import type { EconomyReport } from "./economy.ts";
 import type { GameState } from "./engine.ts";
 import { governanceOf } from "./governance.ts";
-import { goods } from "./industry.ts";
+import { productiveBuildings } from "./industry.ts";
 import { difficultySchema } from "./settings.ts";
 import { facilityTypes } from "./society.ts";
 import { DAY_MS } from "./time.ts";
@@ -63,7 +63,7 @@ export function advanceAchievements(before: GameState, game: GameState, date: Da
       game.ownerByStateId[stateId] === countryId && before.ownerByStateId[stateId] === countryId,
     );
     award("construction", !earned.has("construction") && holdings.some((site) =>
-      goods.some((good) => game.stateEconomies[site].buildings[good] > before.stateEconomies[site].buildings[good]) ||
+      productiveBuildings.some((good) => game.stateEconomies[site].buildings[good] > before.stateEconomies[site].buildings[good]) ||
       facilityTypes.some((facility) => game.societies[site][facility] > before.societies[site][facility]),
     ));
     const country = weekly.countries[countryId];

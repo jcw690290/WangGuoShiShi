@@ -1,6 +1,9 @@
 import { useEffect, useRef, useState } from "react";
 import { count, silver } from "./format.ts";
-import { difficultyNames } from "./game/settings.ts";
+import { difficultyLevels, difficultyNames, difficultySchema } from "./game/settings.ts";
+import { interfaceVolumeSchema, playbackSpeedSchema, tickRates } from "./launcher-preferences.ts";
+import type { LauncherPreferences } from "./launcher-preferences.ts";
+import { version } from "../package.json";
 import { defaultEndYear, guideSteps } from "./game/campaign.ts";
 import type { Campaign, EndingRecord } from "./game/campaign.ts";
 import { listAchievements, listEndings } from "./game/storage.ts";
@@ -8,8 +11,11 @@ import { achievementCatalog, achievementKey } from "./game/achievements.ts";
 import type { AchievementRecord } from "./game/achievements.ts";
 import { endingCatalog, endingStory, endingTitle } from "./scenario/endings.ts";
 import type { Scenario } from "./scenario/scenario.ts";
+import type { GameState } from "./game/engine.ts";
+import { projectName, remainingProjectPoints } from "./game/economy.ts";
 
-export function StartMenu({ saveCount, busy, hasCurrent, newGame, resume, gallery, returnToGame, notice }: {
+export function StartMenu({ saveCount, busy, hasCurrent, newGame, resume, gallery, returnToGame, notice,
+  preferences, updatePreferences, previewSound }: {
   saveCount: number | null;
   busy: boolean;
   hasCurrent: boolean;
@@ -18,6 +24,9 @@ export function StartMenu({ saveCount, busy, hasCurrent, newGame, resume, galler
   gallery: () => void;
   returnToGame: () => void;
   notice: string;
+  preferences: LauncherPreferences;
+  updatePreferences: (value: LauncherPreferences) => void;
+  previewSound: () => void;
 }) {
   return <section className="launcher" aria-labelledby="launcher-title">
     <h1 id="launcher-title">万国史诗</h1>
@@ -31,6 +40,30 @@ export function StartMenu({ saveCount, busy, hasCurrent, newGame, resume, galler
     {saveCount === 0 && <small>暂无存档</small>}
     {saveCount === null && !notice && <small>正在检查存档</small>}
     {hasCurrent && <button className="launcher-secondary" onClick={returnToGame}>返回当前战役</button>}
+    <details className="launcher-settings">
+      <summary>设置</summary>
+      <label>新游戏默认难度
+        <select value={preferences.difficulty} onChange={(event) =>
+          updatePreferences({ ...preferences, difficulty: difficultySchema.parse(event.target.value) })}>
+          {difficultyLevels.map((level) => <option key={level} value={level}>{difficultyNames[level]}</option>)}
+        </select>
+      </label>
+      <label>新游戏默认速度
+        <select value={preferences.speed} onChange={(event) =>
+          updatePreferences({ ...preferences, speed: playbackSpeedSchema.parse(Number(event.target.value)) })}>
+          {tickRates.map((rate) => <option key={rate} value={rate}>{rate} tick／秒</option>)}
+          <option value={5}>最高速度</option>
+        </select>
+      </label>
+    </details>
+    <div className="launcher-volume">
+      <label>提示音 {preferences.volume}%
+        <input type="range" min={0} max={100} value={preferences.volume}
+          onChange={(event) => updatePreferences({ ...preferences, volume: interfaceVolumeSchema.parse(Number(event.target.value)) })} />
+      </label>
+      <button type="button" className="launcher-secondary" disabled={preferences.volume === 0} onClick={previewSound}>试听</button>
+    </div>
+    <small>版本 {version}</small>
     {notice && <p role="status">{notice}</p>}
   </section>;
 }
@@ -108,11 +141,13 @@ export function EndingsGallery({ scenario, close }: { scenario: Scenario; close:
   </dialog>;
 }
 
-export function TutorialGuide({ campaign, skip }: { campaign: Campaign; skip: () => void }) {
+export function TutorialGuide({ campaign, reviewReady, skip }: { campaign: Campaign; reviewReady: boolean; skip: () => void }) {
   const current = guideSteps[campaign.guideStep];
+  const hint = reviewReady ? "本周已结算。打开经济与人口复盘施工。" :
+    campaign.guideStep === 7 && campaign.guideProject ? "短期工程已安排。继续推进至下一次周结。" : current?.[1];
   return <aside className="tutorial-guide" aria-label="新手教程">
     {!campaign.guideSkipped && current && <>
-      <p><strong>{campaign.guideStep + 1}/{guideSteps.length} {current[0]}</strong> {current[1]}</p>
+      <p><strong>{campaign.guideStep + 1}/{guideSteps.length} {current[0]}</strong> {hint}</p>
       <button className="menu-button" onClick={skip}>跳过教程</button>
     </>}
     <details>
@@ -120,4 +155,22 @@ export function TutorialGuide({ campaign, skip }: { campaign: Campaign; skip: ()
       <ol>{guideSteps.map(([title, text]) => <li key={title}><strong>{title}</strong> {text}</li>)}</ol>
     </details>
   </aside>;
+}
+
+export function TutorialConstructionReview({ scenario, game, countryId, onReview }: {
+  scenario: Scenario; game: GameState; countryId: string; onReview: () => void;
+}) {
+  const project = game.campaign!.guideProject;
+  const construction = game.lastEconomy!.countries[countryId].construction!;
+  const queue = project?.privateBuild ? game.nations[countryId].privateQueue : game.countryEconomies[countryId].queue;
+  const pending = project && queue.find(({ stateId, good }) => stateId === project.stateId && good === project.good);
+  const spending = project?.privateBuild ? construction.private : construction.public;
+  return <section className="panel control-block" aria-label="教程施工复盘">
+    <h3>施工复盘</h3>
+    {project && <p>{scenario.states[project.stateId].name} · {projectName(project.good)}
+      {" · "}{pending ? `队列剩余 ${remainingProjectPoints(pending).toFixed(2)} 点` : "已离开队列，可查看该州设施"}。</p>}
+    <p>{project?.privateBuild ? "私人" : "政府"}施工最近周投入 {spending.points.toFixed(2)} 点 ·
+      实付工资 {silver(spending.wages)} · 材料 {silver(spending.materials)}。</p>
+    <button type="button" className="menu-button" onClick={onReview}>已核对本周施工</button>
+  </section>;
 }

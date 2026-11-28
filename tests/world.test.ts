@@ -26,7 +26,7 @@ test("1820 年开局宗藩、朝贡贸易和共主关系保有独立主权与财
     assert.ok(Object.values(initial.ownerByStateId).includes(id));
     assert.equal(entries[id].tribute, 0);
     assert.equal(settled.countryEconomies[id].treasury - initial.countryEconomies[id].treasury,
-      entries[id].tax - entries[id].upkeep);
+      entries[id].tax + entries[id].publicIndustryIncome! - entries[id].upkeep);
   }
   const command = { type: "endDiplomaticTie", countryId: hanover, partnerId: britain } as const;
   assert.throws(() => applyPlayerCommand(scenario, initial, qing, command), /只能操作自己控制的国家/);
@@ -68,7 +68,7 @@ test("两个附属国的贡金分别扣款，宗主国面板的经常收支等�
   const paid = countries[vietnam].tribute + countries[korea].tribute;
   assert.ok(countries[vietnam].tribute > 0 && countries[korea].tribute > 0);
   assert.equal(budgets[qing].tributeReceived, paid);
-  assert.equal(budgets[qing].balance, countries[qing].tax - countries[qing].upkeep + paid);
+  assert.equal(budgets[qing].balance, countries[qing].tax + countries[qing].publicIndustryIncome! - countries[qing].upkeep + paid);
   for (const id of [qing, vietnam, korea]) {
     assert.equal(settled.countryEconomies[id].treasury - game.countryEconomies[id].treasury, budgets[id].balance);
   }

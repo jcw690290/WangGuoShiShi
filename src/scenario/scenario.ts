@@ -22,6 +22,7 @@ interface ScenarioState {
   name: string;
   label: [number, number];
   ownerId: string | null;
+  unownedStatus?: "UNCLAIMED" | "LOCAL_POLITY";
   startingOffices?: number;
   cropland?: number;
   population: number;
@@ -151,6 +152,8 @@ const textileExportDistricts = new Set(["Norrland", "Flanders", "Lancashire", "G
 // Resource capacity is a scenario balance assumption. Production has to be built.
 const oilDistricts = new Set(["Pennsylvania", "Texas", "Fars", "Khuzestan", "Elizavetpol", "East_Borneo", "South_Sumatra"]);
 const rubberDistricts = new Set(["Para", "Amazonas", "Ceylon", "Malaya", "West_Java", "North_Borneo", "South_Sumatra", "Congo"]);
+// Provisional market setup for the game's 1820 commodity balance.
+const opiumDistricts = new Set(["Bihar", "Assam", "Punjab", "Yunnan", "Sichuan", "Burma"]);
 export const atlas = z.record(z.string(), siteSchema).parse(
   Object.fromEntries(Object.entries(rawWorld).map(([id, state]) => {
     // The available 1820 map has terrain and population but no mineral survey.
@@ -175,7 +178,7 @@ export const atlas = z.record(z.string(), siteSchema).parse(
       ...state, name: (stateNames as Record<string, string>)[id],
       capacity: { ...convertCommercialLevels(state.capacity), wood, iron, coal, tools, paper, services, food, fiber,
         dailyGoods, luxury, steel: 3, arms: 3, ammo: 3, shipGoods: state.coastal ? 3 : 0, electricity: 4,
-        oil: oilDistricts.has(id) ? 6 : 0, rubber: rubberDistricts.has(id) ? 6 : 0 },
+        oil: oilDistricts.has(id) ? 6 : 0, rubber: rubberDistricts.has(id) ? 6 : 0, opium: opiumDistricts.has(id) ? 4 : 0 },
       buildings: {
         ...regionalBuildings,
         wood: owned ? Math.min(wood, Math.max(1, Math.ceil(state.population / 24_000))) : 0,
@@ -193,6 +196,7 @@ export const atlas = z.record(z.string(), siteSchema).parse(
         electricity: 0,
         oil: 0,
         rubber: 0,
+        opium: owned && (id === "Bihar" || id === "Yunnan") ? 1 : 0,
         arms: owned ? 1 : 0,
         ammo: owned ? 1 : 0,
       },
@@ -217,6 +221,11 @@ if (
 ) {
   throw new Error("世界剧本的国家、邻接或容量数据无效");
 }
+// The registry leaves these districts outside modeled state authority. The frontier list is a scenario balance assumption.
+const openFrontiers = new Set([
+  "Greenland", "Patagonia", "South_Atlantic_Islands", "East_Sahara", "Egyptian_Desert", "Sahara",
+  "Northern_Territory", "Western_Australia", "South_Australia", "Equatoria", "Ubangi_Shari",
+]);
 export const scenario: Scenario = {
   id: "world-1820",
   name: "1820 世界剧本",
@@ -254,7 +263,8 @@ export const scenario: Scenario = {
       const arable = Math.max(legacy.capacity.grain * 600 + smallCrops, Math.floor(site.population * ruralShare)) +
         legacy.buildings.grain * croplandPerLegacyFarm;
       const cropland = Math.max(occupiedCropland(site.buildings), farmland, arable);
-      return [id, { ...site, id, ownerId: source ? source.countryId : null, startingOffices: source ? 1 : 0, cropland }];
+      return [id, { ...site, id, ownerId: source ? source.countryId : null, startingOffices: source ? 1 : 0, cropland,
+        ...(source ? {} : { unownedStatus: openFrontiers.has(id) ? "UNCLAIMED" as const : "LOCAL_POLITY" as const }) }];
     }),
   ),
 };

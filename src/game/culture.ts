@@ -1,4 +1,12 @@
 import type { Pop, SiteSocial } from "./society.ts";
+import type { Scenario } from "../scenario/scenario.ts";
+
+export function cultureName(scenario: Scenario, id: string) {
+  const separator = id.indexOf("-");
+  if (separator === -1 || id.startsWith("country_")) return scenario.countries[id]?.name ?? id;
+  const site = scenario.states[id.slice(separator + 1)];
+  return site ? site.name + "地方文化" : id;
+}
 
 export function cultureShares(pops: readonly Pop[]) {
   const shares = new Map<string, number>();

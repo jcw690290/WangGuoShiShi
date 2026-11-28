@@ -6,6 +6,7 @@ import { goods, industries } from "../src/game/industry.ts";
 import { clearMarket, nextPrice, targetPrice } from "../src/game/market.ts";
 import { parseSave, saveVersion } from "../src/game/storage.ts";
 import { scenario } from "../src/scenario/scenario.ts";
+import { claimError, settlementAt } from "../src/game/territory.ts";
 
 test("隔绝州只成交本地货物，连通州按份额成交且尾差守恒", () => {
   const result = clearMarket([
@@ -69,9 +70,10 @@ test("开局预估、建设、领土变更和读档均不会推进已经结算�
   const original = settled.countryEconomies[countryId].referenceQuotes!;
   const built = dispatch(scenario, settled, { type: "queueConstruction", countryId, stateId: siteId, good: "infrastructure" });
   assert.deepEqual(built.countryEconomies[countryId].referenceQuotes, original);
-  const claimedSite = Object.keys(scenario.states).find((id) => !settled.ownerByStateId[id])!;
+  const claimedSite = Object.keys(scenario.states).find((id) => !claimError(scenario, built, id))!;
   const claimed = dispatch(scenario, built, { type: "claimState", stateId: claimedSite });
-  assert.equal(claimed.lastEconomy, null);
+  assert.equal(claimed.lastEconomy, built.lastEconomy);
+  assert.equal(settlementAt(claimed, claimedSite)!.progress, 0);
   const saved = parseSave(scenario, { version: saveVersion, scenarioId: scenario.id, state: claimed });
   const preview = projectEconomy(saved);
   assert.deepEqual(projectEconomy(saved), preview);

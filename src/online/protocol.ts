@@ -1,7 +1,9 @@
 import { z } from "zod";
-import { disputeSchema, goals, peaceGoalsSchema } from "../game/diplomacy.ts";
+import { disputeSchema, goals, peaceGoalsSchema, supplyPriorities } from "../game/diplomacy.ts";
 import { dispatch } from "../game/engine.ts";
 import type { GameState } from "../game/engine.ts";
+import { civilSides, controlledCivilCountry } from "../game/civil-war.ts";
+import { publicPayBandSchema } from "../game/public-pay.ts";
 import { GameRuleError } from "../game/rules.ts";
 import { groups, laws, projectTypes, techs } from "../game/society.ts";
 import { governanceModes } from "../game/governance.ts";
@@ -10,7 +12,9 @@ import { institutionCommands, institutionLevelSchema } from "../game/institution
 import { exciseGoodsSchema, taxBandSchema } from "../game/taxation.ts";
 import { tariffBandSchema } from "../game/trade-policy.ts";
 import { industrySubsidyLimit } from "../game/industrial.ts";
-import { battalionKinds, battalionSlotSchema } from "../game/military.ts";
+import { battalionEquipment, battalionKinds, battalionSlotSchema } from "../game/military.ts";
+import { navalMissionSchema } from "../game/naval-operations.ts";
+import { warshipModels } from "../game/navy.ts";
 import { treatyKindSchema } from "../game/foreign-relations.ts";
 import { tradeLimit, tradeModes } from "../game/trade.ts";
 import { parseSave } from "../game/storage.ts";
@@ -22,7 +26,9 @@ export type Speed = (typeof speeds)[number];
 const id = z.string().regex(/^[\w-]{1,64}$/);
 const seq = z.int().nonnegative();
 const commandSchema = z.discriminatedUnion("type", [
-  z.strictObject({ type: z.literal("claimState"), stateId: id }),
+  z.strictObject({ type: z.literal("claimState"), stateId: id, countryId: id.optional() }),
+  z.strictObject({ type: z.literal("cancelTerritorialSettlement"), stateId: id, countryId: id }),
+  z.strictObject({ type: z.literal(["declareTerritorialClaim", "renounceTerritorialClaim"]), stateId: id, countryId: id }),
   z.strictObject({ type: z.literal("setLocalGovernance"), countryId: id, stateId: id, mode: z.enum(governanceModes) }),
   z.strictObject({ type: z.literal(["startIntegration", "cancelIntegration"]), countryId: id, stateId: id }),
   z.strictObject({ type: z.literal("negotiateLocalUnrest"), countryId: id, stateId: id }),
@@ -35,29 +41,43 @@ const commandSchema = z.discriminatedUnion("type", [
   z.strictObject({ type: z.literal("queueConstruction"), countryId: id, stateId: id, good: z.enum(projectTypes), privateBuild: z.boolean().optional() }),
   z.strictObject({ type: z.literal("cancelConstruction"), countryId: id, index: seq, stateId: id, good: z.enum(projectTypes), privateBuild: z.boolean().optional() }),
   z.strictObject({ type: z.literal("setConvoyOrder"), countryId: id, stateId: id, operation: z.enum(["add", "move", "cancel"]) }),
+  z.strictObject({ type: z.literal("setWarshipOrder"), countryId: id, stateId: id,
+    operation: z.enum(["add", "move", "cancel"]), model: z.enum(warshipModels).optional() })
+    .refine((order) => order.operation === "add" || order.model === undefined),
   z.strictObject({ type: z.literal("setFleetMotorization"), countryId: id, stateId: id, enabled: z.boolean() }),
   z.strictObject({ type: z.enum(institutionCommands), countryId: id, stateId: id, level: institutionLevelSchema }),
   z.strictObject({ type: z.literal("setTaxBand"), countryId: id, band: taxBandSchema }),
+  z.strictObject({ type: z.literal("setPublicPay"), countryId: id, band: publicPayBandSchema }),
   z.strictObject({ type: z.literal("setExciseGoods"), countryId: id, goods: exciseGoodsSchema }),
   z.strictObject({ type: z.literal("setTariffBand"), countryId: id, band: tariffBandSchema }),
   z.strictObject({ type: z.literal("setTradePartner"), countryId: id, partnerId: id, allowed: z.boolean() }),
   z.strictObject({ type: z.literal("setIndustrySubsidy"), countryId: id, stateId: id, limit: industrySubsidyLimit }),
   z.strictObject({ type: z.literal("reorganizeBattalion"), countryId: id, stateId: id, slot: battalionSlotSchema, kind: z.enum(battalionKinds) }),
+  z.strictObject({ type: z.literal("setBattalionEquipment"), countryId: id, stateId: id, slot: battalionSlotSchema, equipment: z.enum(battalionEquipment).nullable() }),
   z.strictObject({ type: z.literal("setGovernment"), countryId: id, government: z.array(z.enum(groups)).max(groups.length) }),
+  z.strictObject({ type: z.literal("offerConstitutionalCompromise"), countryId: id }),
+  z.strictObject({ type: z.literal("chooseCivilWarSide"), countryId: id, side: z.enum(civilSides) }),
   z.strictObject({ type: z.literal("proposeLaw"), countryId: id, law: z.enum(laws) }),
+  z.strictObject({ type: z.literal(["compromiseReform", "withdrawReform"]), countryId: id }),
   z.strictObject({ type: z.literal("startResearch"), countryId: id, tech: z.enum(techs) }),
   z.strictObject({ type: z.literal("declareInterest"), countryId: id, targetStateId: id }),
   z.strictObject({ type: z.literal("demandBorder"), countryId: id, targetStateId: id, goal: z.enum(goals) }),
   z.strictObject({ type: z.literal("addGoal"), countryId: id, goal: z.enum(goals) }),
   z.strictObject({ type: z.literal("proposePeace"), countryId: id, goals: peaceGoalsSchema, commercial: z.boolean() }),
   z.strictObject({ type: z.literal(["acceptPeace", "rejectPeace"]), countryId: id }),
-  z.strictObject({ type: z.literal("sway"), countryId: id, allyId: id }),
+  z.strictObject({ type: z.literal("sway"), countryId: id, allyId: id, useObligation: z.boolean().optional() }),
   z.strictObject({ type: z.literal("joinUnion"), countryId: id, leaderId: id }),
   z.strictObject({ type: z.literal("endDiplomaticTie"), countryId: id, partnerId: id }),
+  z.strictObject({ type: z.literal("joinContainment"), countryId: id }),
+  z.strictObject({ type: z.literal("challengeTerritorialSettlement"), countryId: id, stateId: id }),
+  z.strictObject({ type: z.literal("demandOpiumCompensation"), countryId: id, stateId: id }),
   z.strictObject({ type: z.literal("improveRelations"), countryId: id, partnerId: id }),
+  z.strictObject({ type: z.literal(["offerDiplomaticAid", "acceptDiplomaticAid", "declineDiplomaticAid"]), countryId: id, partnerId: id }),
   z.strictObject({ type: z.literal(["offerTreaty", "acceptTreaty", "declineTreaty", "endTreaty"]),
     countryId: id, partnerId: id, kind: treatyKindSchema }),
-  z.strictObject({ type: z.literal(["backDown", "mobilize", "orderAdvance", "orderDefend", "raid", "signTreaty", "armistice", "promoteGeneral", "leaveUnion"]), countryId: id }),
+  z.strictObject({ type: z.literal("setFrontOrder"), countryId: id, objective: id.nullable(), priority: z.enum(supplyPriorities) }),
+  z.strictObject({ type: z.literal("setNavalMission"), countryId: id, mission: navalMissionSchema.nullable() }),
+  z.strictObject({ type: z.literal(["backDown", "mobilize", "orderAdvance", "orderDefend", "orderRetreat", "raid", "signTreaty", "armistice", "promoteGeneral", "leaveUnion"]), countryId: id }),
 ]);
 export const memberSchema = z.object({ user: z.uuid(), country: id.nullable() });
 export const commandResultSchema = z.object({ id: seq, error: z.string().nullable() });
@@ -84,7 +104,8 @@ export function applyPlayerCommand(scenario: Scenario, state: GameState, country
   const parsed = commandSchema.safeParse(input);
   if (!parsed.success) throw new GameRuleError("无效的联机指令");
   const command = parsed.data;
-  if ("countryId" in command && command.countryId !== country)
+  if ("countryId" in command && command.countryId !==
+      (command.type === "chooseCivilWarSide" ? country : controlledCivilCountry(state, country)))
     throw new GameRuleError("只能操作自己控制的国家");
   const result = dispatch(scenario, { ...state, playerCountryId: country }, command);
   return { ...result, playerCountryId: state.playerCountryId };

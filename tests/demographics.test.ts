@@ -6,6 +6,7 @@ import { parseSave, saveVersion } from "../src/game/storage.ts";
 import { decodeSnapshot, encodeSnapshot } from "../src/online/protocol.ts";
 import { borderScenario } from "../src/scenario/scenario.ts";
 import { affinityLevel } from "../src/game/culture.ts";
+import { literacyOf } from "../src/game/society.ts";
 
 const countryId = "country_01";
 const start = (scenario = borderScenario) => dispatch(scenario, createGame(scenario), { type: "selectCountry", countryId });
@@ -13,7 +14,8 @@ const start = (scenario = borderScenario) => dispatch(scenario, createGame(scena
 test("月结仅在日界触发，按闰年实际天数算增长并使用实际供给", async () => {
   const scenario = borderScenario;
   const initial = start();
-  initial.nations[countryId].knowledge["公共教育"] = 100;
+  const site = initial.societies.Yunnan;
+  site.populationServices = { school: 0.2, healthcare: 0.12, treatment: 0, policing: 0, university: 0 };
   const report = projectEconomy(initial);
   report.states.Yunnan.foodFulfillment = 1;
   report.states.Guangxi.foodFulfillment = 0;
@@ -24,15 +26,18 @@ test("月结仅在日界触发，按闰年实际天数算增长并使用实际�
   const after = dispatch(scenario, before, { type: "advanceTick" });
   assert.equal(isPopulationMonth(scenario, after), true);
   assert.equal(after.lastPopulation!.day, 31);
+  const schoolCoverage = 0.2 / 4;
+  const healthCoverage = 0.12 / 4;
+  const fertility = 0.036 - 0.008 * schoolCoverage * literacyOf(site.pops) / 100;
+  const mortality = 0.030 * (1 - 0.25 * healthCoverage);
   assert.equal(after.lastPopulation!.changes.Yunnan,
-    Math.round(initial.stateEconomies.Yunnan.population * (0.036 - 0.030) * 31 / 366));
+    Math.round(initial.stateEconomies.Yunnan.population * (fertility - mortality) * 31 / 366));
   assert.equal(after.lastPopulation!.changes.Guangxi,
     Math.round(initial.stateEconomies.Guangxi.population * (0.036 - 0.030 - 0.030) * 31 / 366));
-  const site = initial.societies.Yunnan;
   const pop = site.pops[0];
-  const coverage = Math.min(1, site.university * 100_000 / initial.stateEconomies.Yunnan.population);
-  const expected = pop.literacy + 100 * ((0.0001 + 0.0006 * coverage) * (1 - pop.literacy / 100));
+  const expected = pop.literacy + 100 * ((0.0001 + 0.0006 * 3 * schoolCoverage) * (1 - pop.literacy / 100));
   assert.equal(after.societies.Yunnan.pops[0].literacy, expected);
+  assert.equal(after.societies.Yunnan.populationServices, undefined);
   const subsequent = dispatch(scenario, after, { type: "advanceTick" });
   assert.equal(isPopulationMonth(scenario, subsequent), false);
   assert.strictEqual(subsequent.lastPopulation, after.lastPopulation);
@@ -55,7 +60,9 @@ test("周结和月结同一天先结算市场，旧档续算保持月结进度",
   for (const [id, site] of Object.entries(next.lastEconomy.states)) {
     const shortage = Math.max(0, 1 - site.foodFulfillment! / 0.8);
     const expected = Math.round(initial.stateEconomies[id].population * (0.036 - 0.030 - 0.030 * shortage) * 7 / 366);
-    assert.equal(next.lastPopulation!.changes[id], expected === 0 ? 0 : expected);
+    const netMigration = next.lastPopulation!.moves!.reduce((net, move) =>
+      net + (move.to === id ? move.people : 0) - (move.from === id ? move.people : 0), 0);
+    assert.equal(next.lastPopulation!.changes[id], netMigration + expected);
   }
   assert.deepEqual(next, dispatch(scenario, prior, { type: "advanceTick" }));
   assert.deepEqual(parseSave(scenario, { version: saveVersion, scenarioId: scenario.id, state: next }), next);
@@ -79,7 +86,7 @@ test("文化亲近按月从居民、邻州接触和实付教育增加，远方�
   assert.deepEqual(after.societies.Yunnan.pops.map((p) => p.culture), from.pops.map((p) => p.culture));
   assert.deepEqual([0, 25, 50, 75].map(affinityLevel), ["陌生", "接触", "熟悉", "亲近"]);
   const funded = structuredClone(before);
-  funded.lastEconomy.states.Yunnan.universityStaff = 500;
+  funded.societies.Yunnan.populationServices = { school: 0, healthcare: 0, treatment: 0, policing: 0, university: 1 };
   const educated = dispatch(borderScenario, funded, { type: "advanceTick" });
   assert.ok(educated.societies.Yunnan.culturalAffinity![adjacentCulture] > updated[adjacentCulture]);
   assert.deepEqual(await decodeSnapshot(borderScenario, await encodeSnapshot(borderScenario, educated)), educated);

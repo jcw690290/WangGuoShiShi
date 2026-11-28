@@ -1,20 +1,20 @@
 import { z } from "zod";
-import { industries } from "./industry.ts";
+import { industries, productiveDefinitions } from "./industry.ts";
 import type { Good, ScenarioLevels } from "./industry.ts";
 import type { Nation } from "./society.ts";
 
-const cropGoods = ["grain", "food", "fiber", "rubber"] as const;
+const cropGoods = ["grain", "food", "fiber", "rubber", "opium", "cashCrops"] as const;
 export const croplandPerLegacyFarm = 200;
 export function isCrop(good: string): good is typeof cropGoods[number] {
   return (cropGoods as readonly string[]).includes(good);
 }
 
 export function occupiedCropland(buildings: ScenarioLevels) {
-  return cropGoods.reduce((used, good) => used + (buildings[good] ?? 0) * industries[good].jobs, 0);
+  return cropGoods.reduce((used, good) => used + (buildings[good] ?? 0) * productiveDefinitions[good].jobs, 0);
 }
 
 export function reservedCropland(buildings: ScenarioLevels, projects: readonly { good: string; levels?: number }[]) {
-  return projects.reduce((used, { good, levels = 1 }) => used + (isCrop(good) ? industries[good].jobs * levels : 0), occupiedCropland(buildings));
+  return projects.reduce((used, { good, levels = 1 }) => used + (isCrop(good) ? productiveDefinitions[good].jobs * levels : 0), occupiedCropland(buildings));
 }
 
 const quantity = z.int().nonnegative();

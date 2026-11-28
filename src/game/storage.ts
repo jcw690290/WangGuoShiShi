@@ -4,12 +4,14 @@ import { z } from "zod";
 import { disputeSchema, participants } from "./diplomacy.ts";
 import { createGame, DAY_MS, elapsedTicks, getGameDate, isPopulationMonth, TICKS_PER_DAY } from "./engine.ts";
 import type { GameState } from "./engine.ts";
-import { byIndustrialGood, commercialLevels, goods, industries, isGood, isIndustrialGood, isLocalGood } from "./industry.ts";
+import { byIndustrialGood, commercialLevels, goods, industries, isGood, isIndustrialGood, isLocalGood,
+  isProductiveBuilding, productiveBuildings } from "./industry.ts";
 import { initialIndustrialAccount, industrialAccountSchema, industrialReportSchema,
-  industrySubsidyLimit, industrySubsidyReportSchema } from "./industrial.ts";
+  industrialRetrofits, industrySubsidyLimit, industrySubsidyReportSchema, isIndustrialRetrofit, productionTierAt } from "./industrial.ts";
 import { officeReportSchema } from "./administration.ts";
 import { byInstitution, institutionLawDetails, institutionLawKinds, institutionLawOptions,
-  institutionReportSchema, welfareReliefSchema } from "./institutions.ts";
+  institutionReportSchema, validInstitutionDuty, welfareReliefSchema } from "./institutions.ts";
+import { completedServiceWeeks } from "./population-services.ts";
 import { basicPurchasesSchema, extrasReportSchema, openingBasicBudget, substituteOrdersSchema } from "./households.ts";
 import { reservedCropland, subsistenceReportSchema } from "./subsistence.ts";
 import { migrateCommercialProduction } from "./commercialMigration.ts";
@@ -19,11 +21,16 @@ import { isTaxLaw, taxLaws, taxReceiptSchema } from "./taxation.ts";
 import { isTradeLaw, tradeLaws } from "./trade-policy.ts";
 import { startingStateForm } from "./constitution.ts";
 import { industryOwnershipSchema, ownershipAmountsSchema, ownershipKinds, ownershipSchema } from "./ownership.ts";
-import { foreignPairKey, foreignRelationSchema, foreignTreatySchema, treatyOfferSchema } from "./foreign-relations.ts";
-import { barracksCapacity, battalionSize, battalionTrainingDays } from "./military.ts";
-import { buildingCapacity, militaryProcurementCost, projects, unusedPrepaidConstruction } from "./economy.ts";
+import { aidOfferSchema, foreignObligationSchema, foreignPairKey, foreignRelationSchema, foreignTreatySchema, treatyOfferSchema } from "./foreign-relations.ts";
+import { barracksCapacity, battalionSize, battalionTrainingDays, equipmentDetails } from "./military.ts";
+import { injuredPersonnel, replacementTrainingDays } from "./military-health.ts";
+import { settlementAt, territorialClaim, territorialClaimSchema, territorialSettlementSchema } from "./territory.ts";
+import { seaVoyageCargoCost } from "./transport.ts";
+import { buildingCapacity, militaryProcurementCost, productionUpgradeFor, projects, unusedPrepaidConstruction } from "./economy.ts";
+import { isProductionProject, productionProjectDefinitions, productionTiers } from "./production-methods.ts";
+import { industryLaborSchema } from "./private-labor.ts";
 import { constructionMaintenanceSchema, constructionReportSchema, constructionStockSchema, constructionSpending, constructionWage } from "./construction.ts";
-import { nationSchema, siteSocialSchema, projectTypes } from "./society.ts";
+import { initialGroupLeadership, nationSchema, siteSocialSchema, projectTypes, reformConsultationDays, reformStage } from "./society.ts";
 import { importRegionalSave } from "./legacySave.ts";
 import { borderScenario } from "../scenario/scenario.ts";
 import type { Scenario } from "../scenario/scenario.ts";
@@ -35,6 +42,10 @@ import { syncOccupation } from "./occupation.ts";
 import { diplomaticTieSchema } from "./diplomatic-ties.ts";
 import { routeTransport, tradeDeliverySchema, tradeRouteKey, tradeRouteSchema } from "./trade.ts";
 import { fleetReportSchema, fleetSpending, maximumConvoyCapacity } from "./fleet.ts";
+import { navyReportSchema } from "./navy.ts";
+import { opiumLossKey, opiumLossSchema, opiumReportSchema, opiumSmugglingSchema } from "./opium.ts";
+import { compromiseDays, constitutionalCrisisSchema } from "./constitutional-crises.ts";
+import { civilWarResultSchema, civilWarSchema, oppositionId, scenarioWithCivilWar } from "./civil-war.ts";
 import { achievementKey, achievementRecordSchema } from "./achievements.ts";
 import type { AchievementRecord } from "./achievements.ts";
 const storeName = "saves";
@@ -213,21 +224,36 @@ const market = z.object({
 })
   .refine((good) => good.traded === undefined || good.traded <= Math.min(good.supply, good.demand));
 const industry = z.object({ employed: uint, output: uint, wages: uint, sold: uint.optional(), bought: uint.optional(),
+  unsold: uint.positive().optional(), unfilled: uint.positive().optional(),
+  buyers: z.object({ households: uint, construction: uint, industry: uint, publicServices: uint }).optional(),
+  method: z.enum(productionTiers).optional(),
   electric: z.literal(true).optional() })
-  .refine((good) => good.sold === undefined || good.sold <= good.output);
+  .refine((good) => good.sold === undefined || good.sold <= good.output)
+  .refine(({ buyers, bought }) => !buyers ||
+    buyers.households + buyers.construction + buyers.industry + buyers.publicServices === bought);
 const issue = z.object({ demand: uint, delivered: uint }).refine((i) => i.delivered <= i.demand);
 const military = z.object({
+  payroll: z.object({ due: uint, paid: uint.optional() })
+    .refine(({ due, paid }) => paid === undefined || paid <= due).optional(),
   regulars: uint,
   trainedRegulars: uint.optional(),
   conscripts: uint,
+  trainedConscripts: uint.optional(),
+  deployedConscripts: uint.optional(),
+  injuredTroops: uint.optional(),
   grainDemand: uint,
   grainDrawn: uint,
   grainTransport: uint,
   seaCargoUsed: uint.optional(),
-  procurement: z.object({ grain: uint, cloth: uint, arms: uint.optional(), ammo: uint.optional() }).optional(),
-  equipment: z.object({ weapons: issue, ammunition: issue, uniforms: issue }),
+  procurement: z.object({ grain: uint, cloth: uint, arms: uint.optional(), ammo: uint.optional(),
+    oil: uint.optional(), rubber: uint.optional() }).optional(),
+  equipment: z.object({ weapons: issue, ammunition: issue, uniforms: issue, fuel: issue.optional(), spares: issue.optional() }),
   readiness: fraction,
-}).refine((force) => force.trainedRegulars === undefined || force.trainedRegulars <= force.regulars);
+  supplyRatio: fraction.optional(),
+}).refine((force) =>
+  (force.trainedRegulars ?? 0) <= force.regulars &&
+  (force.trainedConscripts ?? 0) <= force.conscripts &&
+  (force.deployedConscripts ?? 0) <= (force.trainedConscripts ?? 0));
 const countryReport = z.object({
   market: z.object({ grain: market, cloth: market, ...byIndustrialGood((good) =>
     market.default({ supply: 0, demand: 0, price: industries[good].basePrice })) }),
@@ -257,21 +283,27 @@ const countryReport = z.object({
   tradeTariff: uint.optional(),
   tradeSeaCargo: uint.optional(),
   fleet: fleetReportSchema.optional(),
+  navy: navyReportSchema.optional(),
 }).refine((country) => country.taxReceipts === undefined ||
   country.taxReceipts.income + country.taxReceipts.excise + (country.tradeTariff ?? 0) === country.tax
 ).refine((country) => (country.officeUpkeep ?? 0) + (country.healthcareUpkeep ?? 0) + (country.policingUpkeep ?? 0) +
   (country.welfareUpkeep ?? 0) + (country.educationUpkeep ?? 0) + militaryProcurementCost(country.military.procurement) +
   (country.construction === undefined ? 0 : constructionSpending(country.construction.public)) +
   (country.constructionMaintenance === undefined ? 0 : constructionSpending(country.constructionMaintenance)) +
-  (country.fleet === undefined ? 0 : fleetSpending(country.fleet)) <= country.upkeep);
+  (country.fleet === undefined ? 0 : fleetSpending(country.fleet)) + (country.navy?.spending ?? 0) <= country.upkeep);
 const siteReport = z.object({
+  industrialWage: uint.positive().optional(),
+  militaryWages: z.object({ enlisted: uint, officers: uint }).optional(),
+  draftWorkforce: uint.optional(),
   industries: z.object({ grain: industry, cloth: industry, ...byIndustrialGood(() =>
     industry.default({ employed: 0, output: 0, wages: 0 })) }),
+  cashCrops: industry.optional(),
   populationChange: cash.optional(),
   foodFulfillment: fraction.optional(),
   householdConsumption: goodsNumbers.optional(),
   householdBasicPurchases: basicPurchasesSchema.optional(),
   householdBasicOrders: goodsNumbers.optional(),
+  opium: opiumReportSchema.optional(),
   householdSubstituteOrders: substituteOrdersSchema.optional(),
   subsistence: subsistenceReportSchema.optional(),
   householdExtras: extrasReportSchema.optional(),
@@ -289,6 +321,7 @@ const siteReport = z.object({
   welfareRelief: welfareReliefSchema.optional(),
   consumptionIndex: z.number().nonnegative().optional(),
   conscripts: uint,
+  deployedConscripts: uint.optional(),
   regulars: uint,
   universityStaff: z.number().nonnegative().optional(),
   workforce: uint.optional(),
@@ -303,31 +336,53 @@ const siteReport = z.object({
   dividends: uint,
   ownershipIncome: ownershipAmountsSchema.optional(),
   investment: uint,
-}).refine((site) => site.power === undefined ||
+}).refine((site) => (site.deployedConscripts ?? 0) <= site.conscripts &&
+  (site.draftWorkforce ?? 0) <= site.conscripts
+).refine(({ cashCrops, industries: { luxury } }) => cashCrops === undefined ||
+  (cashCrops.output <= luxury.output && cashCrops.employed <= luxury.employed && cashCrops.wages <= luxury.wages &&
+    (cashCrops.sold ?? 0) <= Math.min(cashCrops.output, luxury.sold ?? 0))
+).refine((site) => site.power === undefined ||
   site.power.delivered <= Math.min(site.industries.electricity.output, site.power.requested)
-).refine((site) => site.construction === undefined ||
-  site.construction.public.wages + site.construction.private.wages === site.builders * constructionWage
-).refine((site) => site.householdConsumption === undefined
+).refine((site) => {
+  if (!site.construction) return true;
+  const { public: government, private: company } = site.construction;
+  const publicRate = government.wageRate ?? constructionWage, privateRate = company.wageRate ?? constructionWage;
+  return government.wages % publicRate === 0 && company.wages % privateRate === 0 &&
+    government.wages / publicRate + company.wages / privateRate === site.builders;
+}).refine((site) => site.householdConsumption === undefined
   ? site.consumptionIndex === undefined
   : site.consumptionIndex !== undefined && site.foodFulfillment !== undefined);
-export function parseSave(scenario: Scenario, save: unknown): GameState {
+export function parseSave(baseScenario: Scenario, save: unknown): GameState {
   const header = z.object({ version: z.int(), scenarioId: z.string(), weeklyConstruction: z.literal(true).optional() }).safeParse(save);
   if (!header.success) throw new Error("存档数据无效");
   if (header.data.version >= 1 && header.data.version <= 4) {
     const source =
-      header.data.scenarioId === borderScenario.id && scenario.id === "world-1820"
+      header.data.scenarioId === borderScenario.id && baseScenario.id === "world-1820"
         ? borderScenario
-        : scenario;
-    return syncOccupation(scenario, importRegionalSave(source, scenario, save));
+        : baseScenario;
+    return syncOccupation(baseScenario, importRegionalSave(source, baseScenario, save));
   }
+  const civilHeader = z.object({ state: z.object({ civilWar: civilWarSchema.optional() }) }).safeParse(save);
+  if (!civilHeader.success) throw new Error("存档内战记录无效", { cause: civilHeader.error });
+  const { civilWar } = civilHeader.data.state;
+  if (civilWar && !Object.hasOwn(baseScenario.countries, civilWar.countryId)) throw new Error("存档内战所属国家无效");
+  const scenario = scenarioWithCivilWar(baseScenario, civilWar);
   const sites = z.enum(Object.keys(scenario.states)),
     countries = z.enum(Object.keys(scenario.countries));
+  const registeredCountries = z.enum(Object.keys(baseScenario.countries));
   // A valid map ID is optional until claimed; enum-keyed records require every ID.
   const activeSite = z.string().refine((id) => Object.hasOwn(scenario.states, id));
+  const activeCountry = z.string().refine((id) => Object.hasOwn(scenario.countries, id));
   const project = z.object({ stateId: sites, good: z.enum(projectTypes), weeksLeft: z.number().positive(),
     levels: uint.positive().optional(), ownership: ownershipSchema.optional() });
-  const lastPopulation = z.object({ day: uint.positive(), changes: z.record(activeSite, cash) }).nullable();
-  const stateEconomy = z.object({ population: z.int().positive(), buildings: goodsNumbers, localQuotes: quotes.optional(),
+  const lastPopulation = z.object({
+    day: uint.positive(), changes: z.record(activeSite, cash),
+    moves: z.array(z.object({ from: activeSite, to: activeSite, people: uint.positive() })
+      .refine(({ from, to }) => from !== to)).optional(),
+  }).nullable();
+  const stateEconomy = z.object({ population: z.int().positive(),
+    buildings: goodsNumbers.extend({ cashCrops: uint.default(0) }), localQuotes: quotes.optional(),
+    industryLabor: industryLaborSchema.optional(),
     industrial: industrialAccountSchema.optional(), basicBudget: uint, discretionaryBudget: uint.optional(), cropland: uint.optional(),
     constructionStock: constructionStockSchema.optional(), localTreasury: uint.optional(),
     ownership: industryOwnershipSchema.optional(),
@@ -337,7 +392,7 @@ export function parseSave(scenario: Scenario, save: unknown): GameState {
     .transform((local) => ({ ...local, basicBudget: local.basicBudget ?? openingBasicBudget(local.population) })));
   const stateSchema = z.object({
     elapsedDays: uint.max(Math.floor((8.64e15 - Date.parse(scenario.startDate)) / DAY_MS)),
-    playerCountryId: countries,
+    playerCountryId: registeredCountries,
     rng: uint.max(0xffffffff),
     ownerByStateId: z.record(activeSite, countries),
     stateEconomies: z.record(activeSite, stateEconomy),
@@ -352,6 +407,14 @@ export function parseSave(scenario: Scenario, save: unknown): GameState {
     foreignRelations: z.array(foreignRelationSchema).optional(),
     foreignTreaties: z.array(foreignTreatySchema).optional(),
     treatyOffers: z.array(treatyOfferSchema).optional(),
+    aidOffers: z.array(aidOfferSchema).optional(),
+    foreignObligations: z.array(foreignObligationSchema).optional(),
+    territorialClaims: z.array(territorialClaimSchema).optional(),
+    territorialSettlements: z.array(territorialSettlementSchema).optional(),
+    opiumLosses: z.array(opiumLossSchema).optional(),
+    constitutionalCrises: z.record(activeCountry, constitutionalCrisisSchema).optional(),
+    civilWar: civilWarSchema.optional(),
+    lastCivilWar: civilWarResultSchema.extend({ countryId: registeredCountries }).optional(),
     tradeRoutes: z.array(tradeRouteSchema.extend({ from: sites, to: sites, exporter: countries, importer: countries })).optional(),
     occupation: z.object({ stateId: sites, controllerId: countries }).optional(),
     lastEconomy: z
@@ -359,6 +422,7 @@ export function parseSave(scenario: Scenario, save: unknown): GameState {
         states: z.record(activeSite, siteReport),
         countries: z.record(countries, countryReport),
         trade: z.array(tradeDeliverySchema).optional(),
+        opiumSmuggling: z.array(opiumSmugglingSchema).optional(),
       })
       .nullable(),
     lastPopulation: lastPopulation.optional(),
@@ -405,6 +469,9 @@ export function parseSave(scenario: Scenario, save: unknown): GameState {
   const owned = Object.keys(state.ownerByStateId);
   const campaign = state.campaign;
   if (campaign) {
+    if (campaign.guideProject && (!scenario.states[campaign.guideProject.stateId] || campaign.guideWeek === null ||
+        (campaign.guideStep !== 4 && campaign.guideStep !== 7))) invalid();
+    if (campaign.guideWeek !== null && campaign.guideWeek > Math.floor(state.elapsedDays / 7)) invalid();
     const ending = campaign.ending;
     const beginning = Date.parse(scenario.startDate);
     const currentTime = getGameDate(scenario, state).getTime();
@@ -428,7 +495,8 @@ export function parseSave(scenario: Scenario, save: unknown): GameState {
   if (population && (
     population.day > state.elapsedDays ||
     !isPopulationMonth(scenario, { ...state, elapsedDays: population.day, tickInDay: 0 }) ||
-    Object.keys(population.changes).some((id) => !Object.hasOwn(state.ownerByStateId, id))
+    Object.keys(population.changes).some((id) => !Object.hasOwn(state.ownerByStateId, id)) ||
+    population.moves?.some(({ from, to }) => !Object.hasOwn(population.changes, from) || !Object.hasOwn(population.changes, to))
   )) invalid();
   const sameSites = (record: object) =>
     Object.keys(record).length === owned.length && owned.every((id) => Object.hasOwn(record, id));
@@ -441,7 +509,7 @@ export function parseSave(scenario: Scenario, save: unknown): GameState {
   if (data.version >= 9 && owned.some((id) => state.stateEconomies[id].commercialRecipes !== true)) invalid();
   for (const id of owned) {
     const { ownership, buildings } = state.stateEconomies[id];
-    if (ownership && goods.some((good) => {
+    if (ownership && productiveBuildings.some((good) => {
       const levels = ownership[good];
       return levels && ownershipKinds.reduce((total, kind) => total + levels[kind], 0) !== buildings[good];
     })) invalid();
@@ -489,6 +557,48 @@ export function parseSave(scenario: Scenario, save: unknown): GameState {
     if (treatyKeys.has(key) || !liveCountries.has(offer.from) || !liveCountries.has(offer.to) || offer.offeredDay > state.elapsedDays) invalid();
     treatyKeys.add(key);
   }
+  const aidKeys = new Set<string>();
+  for (const obligation of state.foreignObligations ?? []) {
+    const { creditor, debtor, incurredDay } = obligation;
+    const key = foreignPairKey(creditor, debtor);
+    if (aidKeys.has(key) || !liveCountries.has(creditor) || !liveCountries.has(debtor) || incurredDay > state.elapsedDays) invalid();
+    aidKeys.add(key);
+  }
+  for (const offer of state.aidOffers ?? []) {
+    const key = foreignPairKey(offer.from, offer.to);
+    if (aidKeys.has(key) || !liveCountries.has(offer.from) || !liveCountries.has(offer.to) || offer.offeredDay > state.elapsedDays) invalid();
+    aidKeys.add(key);
+  }
+  const claimKeys = new Set<string>();
+  for (const claim of state.territorialClaims ?? []) {
+    const key = JSON.stringify([claim.claimantId, claim.stateId]);
+    if (claimKeys.has(key) || !Object.hasOwn(scenario.states, claim.stateId) ||
+        !liveCountries.has(claim.claimantId) || state.ownerByStateId[claim.stateId] === claim.claimantId ||
+        claim.recognizedBy.some((id) => !liveCountries.has(id)) || claim.declaredDay > state.elapsedDays) invalid();
+    claimKeys.add(key);
+  }
+  const settlementKeys = new Set<string>();
+  for (const project of state.territorialSettlements ?? []) {
+    const site = scenario.states[project.stateId], anchor = scenario.states[project.anchorId];
+    if (!site || !anchor || settlementKeys.has(site.id) || Object.hasOwn(state.ownerByStateId, site.id) ||
+        !liveCountries.has(project.countryId) || project.startedDay > state.elapsedDays ||
+        (site.unownedStatus === "LOCAL_POLITY") !== (project.mode === "INDIRECT") ||
+        (project.sea ? !site.coastal || !anchor.coastal || seaVoyageCargoCost(site.label, anchor.label) > 2 :
+          !site.neighbors.includes(anchor.id))) invalid();
+    settlementKeys.add(site.id);
+  }
+  const opiumLossKeys = new Set<string>();
+  for (const entry of state.opiumLosses ?? []) {
+    const key = opiumLossKey(entry);
+    if (opiumLossKeys.has(key) || !Object.hasOwn(scenario.states, entry.stateId) ||
+        !Object.hasOwn(state.nations, entry.exporter) || !Object.hasOwn(state.nations, entry.importer) ||
+        entry.day > state.elapsedDays) invalid();
+    opiumLossKeys.add(key);
+  }
+  for (const crisis of Object.values(state.constitutionalCrises ?? {})) {
+    if ("demand" in crisis ? crisis.since > state.elapsedDays : crisis.compromiseUntil > state.elapsedDays + compromiseDays)
+      throw new Error("存档政体冲突计时无效");
+  }
   if (data.version !== saveVersion && migrateCommercialProduction(state) && campaign?.outcome?.baseline && campaign.ending === null) {
     const fresh = openingMetrics(createGame(scenario, 1820, state.settings.difficulty), state.playerCountryId!);
     campaign.outcome = { ...campaign.outcome, metrics: {}, lossSince: null, victorySince: null, genericSince: null,
@@ -516,6 +626,10 @@ export function parseSave(scenario: Scenario, save: unknown): GameState {
   }
   if (state.lastEconomy?.trade?.some(({ from, to, mode, good }) => isLocalGood(good) || !routeTransport(scenario, from, to, mode) ||
       !Object.hasOwn(state.ownerByStateId, from) || !Object.hasOwn(state.ownerByStateId, to))) invalid();
+  for (const shipment of state.lastEconomy?.opiumSmuggling ?? []) {
+    if (!routeTransport(scenario, shipment.from, shipment.to, shipment.mode) ||
+        state.ownerByStateId[shipment.from] !== shipment.exporter || state.ownerByStateId[shipment.to] !== shipment.importer) invalid();
+  }
   const configuredLevels = Object.fromEntries(Object.keys(state.nations).map((id) => [id, byInstitution(() => 1)]));
   for (const stateId of owned) {
     const levels = configuredLevels[state.ownerByStateId[stateId]];
@@ -526,6 +640,7 @@ export function parseSave(scenario: Scenario, save: unknown): GameState {
     if (subsidies && Object.keys(subsidies).some((stateId) => state.ownerByStateId[stateId] !== id ||
       state.stateEconomies[stateId].industrial === undefined)) invalid();
     n.startingStateForm ??= startingStateForm(id);
+    if (n.lastThreatDay !== undefined && n.lastThreatDay > state.elapsedDays) invalid();
     if (!n.laws.some(isTaxLaw)) n.laws.push(taxLaws[0]);
     if (!n.laws.some(isTradeLaw)) n.laws.push(tradeLaws[0]);
     if (n.tradePartners.some((partner) => partner === id || !Object.hasOwn(state.nations, partner))) invalid();
@@ -539,6 +654,9 @@ export function parseSave(scenario: Scenario, save: unknown): GameState {
     }
     const fiscal = state.countryEconomies[id].fiscal;
     if (fiscal && fiscal.week.day > state.elapsedDays) invalid();
+    const consultation = n.reformConsultation;
+    if (consultation && (consultation.law !== n.reform || consultation.endsDay > state.elapsedDays + reformConsultationDays ||
+        reformStage(n.reformProgress) === "organization")) invalid();
     if (
       (n.marketLeader &&
         (!state.nations[n.marketLeader] ||
@@ -549,41 +667,89 @@ export function parseSave(scenario: Scenario, save: unknown): GameState {
     )
       invalid();
     if (Boolean(n.overlord) !== Boolean(n.subjectType)) invalid();
+    n.groupLeadership ??= initialGroupLeadership(id, state.rng);
+    if (n.pendingPublicPay === n.publicPay) invalid();
     const queued = [...state.countryEconomies[id].queue, ...n.privateQueue];
-    for (const p of queued)
+    const retrofits = new Set<string>();
+    for (const p of queued) {
       if (state.ownerByStateId[p.stateId] !== id || p.weeksLeft > projects[p.good].weeks ||
-        (p.ownership !== undefined && !isGood(p.good)) ||
+        (p.ownership !== undefined && !isProductiveBuilding(p.good)) ||
         ((p.good === "port" || p.good === "shipGoods") && !scenario.states[p.stateId].coastal) ||
         (p.levels !== undefined && (!isGood(p.good) || isIndustrialGood(p.good) || p.levels !== commercialLevels[p.good]))) invalid();
+      if (isIndustrialRetrofit(p.good)) {
+        const key = JSON.stringify([p.stateId, p.good]);
+        const { good, technology } = industrialRetrofits[p.good];
+        if (retrofits.has(key) ||
+            state.stateEconomies[p.stateId].buildings[good] === 0 || n.knowledge[technology] !== 100) invalid();
+        retrofits.add(key);
+      }
+      if (isProductionProject(p.good)) {
+        const { good, technology, tier } = productionProjectDefinitions[p.good], local = state.stateEconomies[p.stateId];
+        if (local.buildings[good] === 0 || (technology && n.knowledge[technology] !== 100) ||
+            productionTierAt(good, state.societies[p.stateId]) === tier ||
+            (tier === "advanced" && good !== "electricity" && local.buildings.electricity === 0) ||
+            queued.some((other) => other !== p && other.stateId === p.stateId && productionUpgradeFor(other.good)?.good === good))
+          invalid();
+      }
+    }
+    const archives = state.countryEconomies[id].queue.filter((p) => p.good === "administrativeArchive");
+    const archiveSites = new Set<string>();
+    for (const p of archives) {
+      const site = state.societies[p.stateId];
+      if (archiveSites.has(p.stateId) || !site.bureaucracy || site.administrativeArchive || n.knowledge["官僚改良"] !== 100) invalid();
+      archiveSites.add(p.stateId);
+    }
     if (data.version !== saveVersion && header.data.weeklyConstruction !== true) {
       const account = state.countryEconomies[id];
       account.treasury += account.queue.reduce((sum, project) => sum + unusedPrepaidConstruction(project), 0);
       n.investment += n.privateQueue.reduce((sum, project) => sum + unusedPrepaidConstruction(project), 0);
     }
-    const order = n.fleet.order;
-    if (order && (state.ownerByStateId[order.stateId] !== id || !scenario.states[order.stateId]?.coastal)) invalid();
+    for (const order of [n.fleet.order, n.navy.order])
+      if (order && (state.ownerByStateId[order.stateId] !== id || !scenario.states[order.stateId]?.coastal)) invalid();
+    if ((n.navy.armored > 0 || n.navy.order?.model === "armored") && n.knowledge["装甲舰艇"] !== 100) invalid();
     const motorizationPort = n.fleet.motorizationPort;
     if (n.fleet.motorized > n.convoys || (motorizationPort !== null &&
         (state.ownerByStateId[motorizationPort] !== id || !scenario.states[motorizationPort]?.coastal))) invalid();
     if (state.lastEconomy) {
-      const { military: m, tradeSeaCargo, fleet } = state.lastEconomy.countries[id];
-      if (fleet?.port && !scenario.states[fleet.port]?.coastal) invalid();
+      const { military: m, tradeSeaCargo, fleet, navy } = state.lastEconomy.countries[id];
+      for (const port of [fleet?.port, navy?.port])
+        if (port && !scenario.states[port]?.coastal) invalid();
       if (m.grainDrawn > Math.min(m.grainDemand, m.grainTransport)) invalid();
       if ((m.seaCargoUsed ?? 0) + (tradeSeaCargo ?? 0) > maximumConvoyCapacity(n)) invalid();
     }
   }
   for (const [id, local] of Object.entries(state.stateEconomies)) {
-    const owner = state.ownerByStateId[id],
-      { pops, governance, stability, barracks, barracksTraining, battalionOrders } = state.societies[id];
+    const owner = state.ownerByStateId[id], site = state.societies[id];
+    const { pops, governance, stability, barracks, barracksTraining, battalionOrders, militaryHealth } = site;
+    if (militaryHealth && (injuredPersonnel(site).people > local.population ||
+        militaryHealth.injuries.some((group) => group.sufferedDay > state.elapsedDays) ||
+        militaryHealth.replacements.some((group) => group.readyDay > state.elapsedDays + replacementTrainingDays))) invalid();
     const latestTrainingDay = state.elapsedDays + battalionTrainingDays;
     if (battalionOrders?.some((order) => order.slot >= Math.ceil(barracks * barracksCapacity / battalionSize) ||
         order.readyDay > latestTrainingDay)) invalid();
+    for (const order of battalionOrders ?? []) {
+      for (const gear of [order.equipment, order.pendingEquipment]) {
+        if (gear === undefined) continue;
+        const tech = equipmentDetails[gear].technology;
+        if (tech !== null && state.nations[owner].knowledge[tech] !== 100) invalid();
+      }
+    }
     if (barracksTraining && (barracksTraining.reduce((sum, group) => sum + group.levels, 0) > barracks ||
         barracksTraining.some((group, index) => group.readyDay > latestTrainingDay ||
           (index > 0 && group.readyDay <= barracksTraining[index - 1].readyDay)))) invalid();
     if (governance?.integration && governance.integration.startedAtTick > elapsedTicks(state)) invalid();
-    if (stability && Object.values(stability.lastIncident).some((day) => day > state.elapsedDays)) invalid();
-    if (!local.industrial && goods.some((good) => local.buildings[good] > 0)) invalid();
+    const duty = state.societies[id].institutionDuty;
+    if (duty && Object.values(duty).some((interval) => !validInstitutionDuty(interval, elapsedTicks(state)))) invalid();
+    if (site.populationServices) {
+      const weeks = completedServiceWeeks(state.elapsedDays, state.lastPopulation?.day ?? 0);
+      if (Object.values(site.populationServices).some((coverage) => coverage > weeks) ||
+          site.populationServices.treatment > site.populationServices.healthcare) invalid();
+    }
+    if (stability && (Object.values(stability.lastIncident).some((day) => day > state.elapsedDays) ||
+        (stability.lastResolved && Object.entries(stability.lastResolved).some(([cause, day]) =>
+          day > state.elapsedDays || !(cause in stability.lastIncident))) ||
+        (stability.incident?.calmSince !== undefined && stability.incident.calmSince > state.elapsedDays))) invalid();
+    if (!local.industrial && productiveBuildings.some((good) => local.buildings[good] > 0)) invalid();
     if (local.industrial && local.industrial.stocks.electricity !== 0) invalid();
     if (local.buildings.shipGoods > 0 && !scenario.states[id].coastal) invalid();
     if (pops.reduce((sum, p) => sum + p.people, 0) !== local.population) invalid();
@@ -603,7 +769,7 @@ export function parseSave(scenario: Scenario, save: unknown): GameState {
       if (local.cropland !== undefined && reserved > local.cropland) invalid();
       if (local.cropland === undefined) local.cropland = Math.max(openingCropland!, reserved);
     }
-    for (const g of goods)
+    for (const g of productiveBuildings)
       if (
         local.buildings[g] + queue.reduce((count, p) => count + (p.stateId === id && p.good === g ? p.levels ?? 1 : 0), 0) >
         buildingCapacity(scenario.states[id], local, g)
@@ -611,6 +777,14 @@ export function parseSave(scenario: Scenario, save: unknown): GameState {
         invalid();
   }
   const d = state.borderDispute;
+  if (state.lastCivilWar && state.lastCivilWar.endedDay > state.elapsedDays) invalid();
+  if (civilWar) {
+    const rebel = oppositionId(civilWar.countryId);
+    if (!d || d.phase !== "war" || d.claimantId !== rebel || d.defenderId !== civilWar.countryId ||
+        d.goals.length !== 1 || d.goals[0] !== "regime" || d.allies.length || d.defenders.length || d.peaceOffer ||
+        d.outcome !== null || d.progress <= 0 || d.progress >= 100 ||
+        !liveCountries.has(rebel) || !liveCountries.has(civilWar.countryId)) invalid();
+  } else if (d?.goals.includes("regime")) invalid();
   if (d) {
     const parties = participants(d);
     if (
@@ -636,12 +810,55 @@ export function parseSave(scenario: Scenario, save: unknown): GameState {
         new Set([...d.goals, ...d.unacceptedGoals]).size !== d.goals.length + d.unacceptedGoals.length
       )) ||
       [...d.advance, ...d.mobilized, ...d.raid].some((id) => !parties.includes(id)) ||
+      (d.containment !== undefined && (d.containment.length > 3 ||
+        new Set(d.containment).size !== d.containment.length ||
+        d.containment.some((id) => !d.defenders.includes(id)))) ||
+      (d.retreating !== undefined && ((d.phase !== "war" && d.phase !== "resolved") ||
+        new Set(d.retreating).size !== d.retreating.length ||
+        d.retreating.some((id) => !parties.includes(id) || d.advance.includes(id)))) ||
+      (d.losses !== undefined && ((d.phase !== "war" && d.phase !== "resolved") ||
+        Object.keys(d.losses).some((id) => !parties.includes(id)))) ||
       d.promises.some((id) => !d.allies.includes(id))
     )
       invalid();
     const executed = d.agreedPeace?.goals ?? d.goals;
+    if (d.opiumClaim) {
+      if (d.goals[0] !== "opiumCompensation" ||
+          (d.opiumClaim.paid !== undefined) !== (d.phase === "resolved" && d.outcome === "victory" &&
+            executed.includes("opiumCompensation"))) invalid();
+    } else if (d.goals.includes("opiumCompensation")) invalid();
+    if (d.settlementStateId !== undefined) {
+      if (!Object.hasOwn(scenario.states, d.settlementStateId) || d.goals[0] !== "haltSettlement") invalid();
+      if (d.phase !== "resolved") {
+        const project = settlementAt(state, d.settlementStateId);
+        if (!project || project.countryId !== d.defenderId || project.anchorId !== d.targetStateId ||
+            !territorialClaim(state, d.claimantId, d.settlementStateId)) invalid();
+      }
+    } else if (d.goals.includes("haltSettlement")) invalid();
+    if (d.goals.includes("recognition")) {
+      if (d.goals.includes("cession") || d.goals.includes("annex")) invalid();
+      const claim = territorialClaim(state, d.claimantId, d.targetStateId);
+      if (d.phase !== "resolved" && (!claim || claim.recognizedBy.includes(d.defenderId))) invalid();
+    }
+    const objectives = [d.targetStateId, ...scenario.states[d.targetStateId].neighbors];
+    for (const [id, order] of Object.entries(d.frontOrders ?? {})) {
+      if (!parties.includes(id) || (d.phase !== "war" && d.phase !== "resolved") ||
+          (order.objective !== null && !objectives.includes(order.objective))) invalid();
+    }
+    for (const [id, mission] of Object.entries(d.navalMissions ?? {})) {
+      if (!parties.includes(id) || d.raid.includes(id) || (d.phase !== "war" && d.phase !== "resolved") ||
+          !scenario.states[mission.portId]?.coastal) invalid();
+    }
     const transferred = d.outcome === "victory" && (executed.includes("cession") || executed.includes("annex"));
     if (state.ownerByStateId[d.targetStateId] !== (transferred ? d.claimantId : d.defenderId)) invalid();
+    for (const [id, order] of Object.entries(d.mobilization ?? {})) {
+      if (!d.mobilized.includes(id) ||
+          elapsedTicks({ elapsedDays: order.orderedDay, tickInDay: order.orderedTickInDay ?? 0 }) > elapsedTicks(state) ||
+          (d.phase !== "war" && d.phase !== "resolved") ||
+          (d.phase === "war" ? order.orderedDay < d.since : order.orderedDay > d.since) ||
+          order.origins.some((siteId) => !Object.hasOwn(state.societies, siteId) ||
+            (d.phase === "war" && state.ownerByStateId[siteId] !== id))) invalid();
+    }
   }
   const controlled = syncOccupation(scenario, state);
   if (state.occupation && controlled !== state) invalid();

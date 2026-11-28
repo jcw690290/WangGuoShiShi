@@ -2,16 +2,17 @@ import { GameRuleError } from "./rules.ts";
 import { changeDifficulty, initialSettings, openingReserve } from "./settings.ts";
 import type { Difficulty, GameSettings, RuleTuning } from "./settings.ts";
 import type { Scenario } from "../scenario/scenario.ts";
-import { advanceFront, aiDiplomacy, applyBorderCommand, planWar, tickDiplomacy } from "./diplomacy.ts";
+import { advanceFront, aiDiplomacy, applyBorderCommand, attacking, participants, planWar, tickDiplomacy } from "./diplomacy.ts";
 import type { BorderCommand, BorderDispute } from "./diplomacy.ts";
-import { chooseConstruction, chooseElectrification, choosePort, chooseRailway, chooseUniversity, constructionError,
+import { chooseAdministrativeArchive, chooseConstruction, chooseElectrification, chooseIndustrialRetrofit, choosePort, chooseRailway, chooseUniversity, constructionError,
   initialStateEconomy, projectDeposit, projectOpeningCapital, projects, settleEconomy } from "./economy.ts";
 import type { Building, CountryEconomy, EconomyReport, StateEconomy } from "./economy.ts";
 import { advancePolitics, applyPolitics, availableTech, ownedSocieties, politicsError } from "./politics.ts";
 import type { PoliticsCommand } from "./politics.ts";
-import { initSociety, techs, hash, literacyOf } from "./society.ts";
+import { assignMilitaryHouseholds, initSociety, techs, hash, literacyOf } from "./society.ts";
 import type { Law, Nation, SiteSocial } from "./society.ts";
-import { applyClaim } from "./territory.ts";
+import { advanceTerritorialSettlements, applyTerritorialClaim, applyTerritorialSettlement, chooseTerritorialSettlement } from "./territory.ts";
+import type { TerritorialClaim, TerritorialClaimCommand, TerritorialSettlement, TerritorialSettlementCommand } from "./territory.ts";
 import { settlePopulationMonth } from "./demographics.ts";
 import type { PopulationMonth } from "./demographics.ts";
 import { finalizeCampaign, startCampaign } from "./campaign.ts";
@@ -21,16 +22,16 @@ import type { Occupation } from "./occupation.ts";
 import type { DiplomaticTie } from "./diplomatic-ties.ts";
 import { applyGovernanceCommand, chooseIntegration } from "./governance.ts";
 import type { GovernanceCommand } from "./governance.ts";
-import { DAY_MS, elapsedTicks, TICKS_PER_DAY } from "./time.ts";
-import { applyTradeCommand } from "./trade.ts";
+import { DAY_MS, elapsedTicks, TICKS_PER_DAY, TICKS_PER_WEEK } from "./time.ts";
+import { applyTradeCommand, chooseAITradeRoutes } from "./trade.ts";
 import type { TradeCommand, TradeRoute } from "./trade.ts";
 import { advanceAchievements } from "./achievements.ts";
 import { chooseLocalNegotiation, negotiateLocalUnrest } from "./unrest.ts";
 import type { LocalUnrestCommand } from "./unrest.ts";
-import { industries, isGood } from "./industry.ts";
+import { industries, isProductiveBuilding } from "./industry.ts";
 import { effectiveConvoyCapacity, maxConvoyOrder, shipGoodsPerConvoy } from "./fleet.ts";
 import { institutionCommands, institutionLawKinds, institutionLawLimit, institutionLawOptions, institutionLevelError,
-  institutionLevelSchema, institutionNames, institutionStaffNeed, institutions } from "./institutions.ts";
+  institutionLevelSchema, institutionNames, institutionStaffNeed, institutions, recordInstitutionDuty } from "./institutions.ts";
 import type { Institution } from "./institutions.ts";
 import { laborStatus } from "./labor.ts";
 import { exciseGoodsSchema, taxBands, taxBandSchema, taxPolicy } from "./taxation.ts";
@@ -40,10 +41,24 @@ import { civicLawOf } from "./civic-policy.ts";
 import { powerDistribution } from "./constitution.ts";
 import { projectOwnership } from "./ownership.ts";
 import { industrySubsidyLimit } from "./industrial.ts";
-import { applyForeignCommand, settleAiTreatyOffers } from "./foreign-relations.ts";
-import type { ForeignCommand, ForeignRelation, ForeignTreaty, TreatyOffer } from "./foreign-relations.ts";
-import { applyBattalionOrder, chooseBattalionOrder } from "./military.ts";
-import type { BattalionCommand } from "./military.ts";
+import { applyForeignCommand, settleAiForeignOffers } from "./foreign-relations.ts";
+import type { AidOffer, ForeignCommand, ForeignObligation, ForeignRelation, ForeignTreaty, TreatyOffer } from "./foreign-relations.ts";
+import { applyBattalionOrder, applyEquipmentOrder, chooseBattalionOrder, chooseEquipmentOrder, garrisonHeadcount } from "./military.ts";
+import type { BattalionCommand, BattalionEquipmentCommand } from "./military.ts";
+import { recoverMilitaryInjuries } from "./military-health.ts";
+import { applyNavalConstruction, warshipMaterials } from "./navy.ts";
+import type { NavalConstructionCommand } from "./navy.ts";
+import { opiumLaw } from "./opium.ts";
+import type { OpiumLoss } from "./opium.ts";
+import { advanceConstitutionalCrises, applyConstitutionalCompromise, compromiseCost, constitutionalCompromiseError } from "./constitutional-crises.ts";
+import type { ConstitutionalCrisis, ConstitutionalCrisisCommand } from "./constitutional-crises.ts";
+import {
+  advanceCivilWar, chooseCivilWarSide, controlledCivilCountry, mustChooseCivilSide, oppositionId, scenarioWithCivilWar,
+} from "./civil-war.ts";
+import type { CivilWar, CivilWarCommand, CivilWarResult } from "./civil-war.ts";
+import { militaryServiceLaw } from "./military-service.ts";
+import { publicPayBandSchema } from "./public-pay.ts";
+import type { PublicPayBand } from "./public-pay.ts";
 export { DAY_MS, elapsedTicks, TICKS_PER_DAY } from "./time.ts";
 
 export interface GameState {
@@ -66,6 +81,14 @@ export interface GameState {
   foreignRelations?: ForeignRelation[];
   foreignTreaties?: ForeignTreaty[];
   treatyOffers?: TreatyOffer[];
+  aidOffers?: AidOffer[];
+  foreignObligations?: ForeignObligation[];
+  territorialClaims?: TerritorialClaim[];
+  territorialSettlements?: TerritorialSettlement[];
+  opiumLosses?: OpiumLoss[];
+  constitutionalCrises?: Record<string, ConstitutionalCrisis>;
+  civilWar?: CivilWar;
+  lastCivilWar?: CivilWarResult;
   tradeRoutes?: TradeRoute[];
   occupation?: Occupation;
 }
@@ -76,27 +99,33 @@ export type GameCommand =
   | { type: "setRuleTuning"; tuning: RuleTuning | null }
   | { type: "continueSandbox" }
   | { type: "settleCampaignVictory" }
-  | { type: "claimState"; stateId: string }
+  | TerritorialSettlementCommand
+  | TerritorialClaimCommand
   | { type: "queueConstruction"; countryId: string; stateId: string; good: Building; privateBuild?: boolean }
   | { type: "cancelConstruction"; countryId: string; index: number; stateId: string; good: Building; privateBuild?: boolean }
   | { type: "setConvoyOrder"; countryId: string; stateId: string; operation: "add" | "move" | "cancel" }
   | { type: "setFleetMotorization"; countryId: string; stateId: string; enabled: boolean }
   | { type: (typeof institutionCommands)[Institution]; countryId: string; stateId: string; level: number }
   | { type: "setTaxBand"; countryId: string; band: Nation["taxBand"] }
+  | { type: "setPublicPay"; countryId: string; band: PublicPayBand }
   | { type: "setExciseGoods"; countryId: string; goods: Nation["exciseGoods"] }
   | { type: "setIndustrySubsidy"; countryId: string; stateId: string; limit: number }
   | { type: "advanceTick" | "advanceWeek" | "advanceDay" | "advanceHalfYear" }
   | PoliticsCommand
+  | ConstitutionalCrisisCommand
+  | CivilWarCommand
   | GovernanceCommand
   | TradeCommand
   | TradePolicyCommand
   | ForeignCommand
   | BattalionCommand
+  | BattalionEquipmentCommand
+  | NavalConstructionCommand
   | LocalUnrestCommand
   | BorderCommand;
 
 export function createGame(scenario: Scenario, seed = 1820, difficulty: Difficulty = "standard", campaign?: CampaignSetup): GameState {
-  const social = initSociety(scenario),
+  const social = initSociety(scenario, seed),
     countries = Object.values(scenario.countries),
     owned = Object.values(scenario.states).filter((s) => s.ownerId !== null);
   // One pioneer per category. Seeded starting knowledge is a scenario balance assumption.
@@ -104,7 +133,7 @@ export function createGame(scenario: Scenario, seed = 1820, difficulty: Difficul
     techs.slice(0, 3).forEach((tech, i) => {
       social.nations[countries[(seed + i) % countries.length].id].knowledge[tech] = 100;
     });
-  return {
+  const state: GameState = {
     elapsedDays: 0,
     tickInDay: 0,
     settings: initialSettings(difficulty),
@@ -127,6 +156,12 @@ export function createGame(scenario: Scenario, seed = 1820, difficulty: Difficul
       countries.map((c) => [c.id, { treasury: openingReserve(c.treasury, difficulty), queue: [] }]),
     ),
   };
+  for (const [id, owner] of Object.entries(state.ownerByStateId)) {
+    state.societies[id] = assignMilitaryHouseholds(
+      state.societies[id], garrisonHeadcount(state, id), 0, 0, state.nations[owner].laws,
+    );
+  }
+  return state;
 }
 export function getGameDate(scenario: Scenario, state: GameState) {
   return new Date(Date.parse(scenario.startDate) + DAY_MS * state.elapsedDays);
@@ -202,6 +237,21 @@ function chooseInstitutionLaw(state: GameState, report: EconomyReport, countryId
   }
 }
 
+function chooseMilitaryServiceLaw(state: GameState, report: EconomyReport, countryId: string): PoliticsCommand | undefined {
+  const dispute = state.borderDispute;
+  const risk = state.countryEconomies[countryId].fiscal!.week.risk;
+  const sustainable = risk === "stable" || risk === "warning";
+  const service = militaryServiceLaw(state.nations[countryId].laws);
+  const front = dispute?.phase === "war" && participants(dispute).includes(countryId) ? dispute : undefined;
+  const pressure = front && (attacking(front, countryId) ? front.progress < 40 : front.progress > 60);
+  const law = sustainable && pressure ? "义务兵役"
+    : !front && !sustainable && report.countries[countryId].military.regulars >= 100 ? "地方民兵"
+    : sustainable && service === "地方民兵" ? "职业常备军" : undefined;
+  if (!law) return;
+  const proposal = { type: "proposeLaw", countryId, law } as const;
+  if (!politicsError(state, proposal)) return proposal;
+}
+
 function chooseLaborLaw(state: GameState, countryId: string): PoliticsCommand | undefined {
   const laws = state.nations[countryId].laws;
   const proposals: Law[] = [];
@@ -240,14 +290,39 @@ function chooseCivicLaw(state: GameState, countryId: string): PoliticsCommand | 
   }
 }
 
+function chooseOpiumLaw(state: GameState, countryId: string): PoliticsCommand | undefined {
+  const law = opiumLaw(state.nations[countryId].laws);
+  if (law === "鸦片禁令") return;
+  let population = 0, affected = 0;
+  for (const [id, owner] of Object.entries(state.ownerByStateId)) {
+    if (owner !== countryId) continue;
+    const residents = state.stateEconomies[id].population;
+    population += residents;
+    affected += residents * (state.societies[id].opiumBurden ?? 0);
+  }
+  if (affected < population * (law === "鸦片许可经营" ? 15 : 35)) return;
+  const proposal = { type: "proposeLaw", countryId,
+    law: law === "鸦片许可经营" ? "鸦片限医疗" : "鸦片禁令" } as const;
+  if (!politicsError(state, proposal)) return proposal;
+}
+
 export function advanceTick(
-  scenario: Scenario,
+  baseScenario: Scenario,
   state: GameState,
   humanCountries: ReadonlySet<string | null> = new Set([state.playerCountryId]),
 ): GameState {
-  if (isScenarioFinished(scenario, state)) return state;
+  if (isScenarioFinished(baseScenario, state)) return state;
+  const war = state.civilWar;
+  if (war && humanCountries.has(war.countryId)) {
+    if (state.playerCountryId === war.countryId && state.campaign && war.side === null) return state;
+    const actors = new Set(humanCountries);
+    if (war.side !== "government") actors.add(oppositionId(war.countryId));
+    if (war.side === "opposition") actors.delete(war.countryId);
+    humanCountries = actors;
+  }
   const tickInDay = state.tickInDay + 1;
   if (tickInDay < TICKS_PER_DAY) return { ...state, tickInDay };
+  const scenario = scenarioWithCivilWar(baseScenario, war);
   const next = tickDiplomacy(scenario, { ...state, elapsedDays: state.elapsedDays + 1, tickInDay: 0 }, humanCountries);
   const date = getGameDate(scenario, next);
   const monthly = isPopulationMonth(scenario, next);
@@ -257,16 +332,29 @@ export function advanceTick(
       monthly || result.borderDispute !== state.borderDispute || result.ownerByStateId !== state.ownerByStateId);
   }
   const yearFraction = fiscalWeekFraction(date);
-  const weekly = settleEconomy(next, planWar(scenario, next), yearFraction, scenario);
+  const warPlan = planWar(scenario, next);
+  const weekly = settleEconomy(next, warPlan, yearFraction, scenario);
   const settled = monthly ? settlePopulationMonth(scenario, weekly, date) : weekly;
-  let result = advancePolitics(advanceFront(scenario, settled, settled.lastEconomy), settled.lastEconomy, date.getUTCFullYear(), yearFraction);
+  const battle = advanceFront(scenario, settled, settled.lastEconomy);
+  let recovered = recoverMilitaryInjuries(battle, settled.lastEconomy);
+  if (recovered.elapsedDays % 28 === 0) {
+    const routes = chooseAITradeRoutes(scenario, recovered, settled.lastEconomy, humanCountries, warPlan?.naval);
+    for (const route of routes) recovered = applyTradeCommand(scenario, recovered, route);
+  }
+  let result = advanceConstitutionalCrises(
+    advancePolitics(recovered, settled.lastEconomy, date.getUTCFullYear(), yearFraction),
+  );
   result.rng = (Math.imul(result.rng, 1664525) + 1013904223) >>> 0;
   const owners = new Set(Object.values(result.ownerByStateId));
   for (const id of owners) {
     const { market } = settled.lastEconomy.countries[id];
     if (!humanCountries.has(id)) {
+      const settlement = chooseTerritorialSettlement(scenario, result, id);
+      if (settlement) result = applyCommand(scenario, result, settlement);
       const job = chooseUniversity(scenario, result, id) ?? chooseRailway(scenario, result, id, settled.lastEconomy) ??
+        chooseAdministrativeArchive(scenario, result, id, settled.lastEconomy) ??
         choosePort(scenario, result, id, settled.lastEconomy) ?? chooseElectrification(scenario, result, id) ??
+        chooseIndustrialRetrofit(scenario, result, id, settled.lastEconomy) ??
         chooseConstruction(scenario, result, id, market);
       if (result.elapsedDays % 28 === 0) {
         const fiscal = result.countryEconomies[id].fiscal!;
@@ -275,6 +363,14 @@ export function advanceTick(
           result = applyCommand(scenario, result, { type: "setTaxBand", countryId: id, band: taxBands[band + 1] });
         }
         const nation = result.nations[id];
+        if (!nation.pendingPublicPay) {
+          const strained = fiscal.week.risk === "restricted" || fiscal.week.risk === "defaulted";
+          const recovered = fiscal.week.risk === "stable" && result.countryEconomies[id].treasury >= 4 * fiscal.week.upkeepDue;
+          if (strained && nation.publicPay !== "low")
+            result = applyCommand(scenario, result, { type: "setPublicPay", countryId: id, band: "low" });
+          if (recovered && nation.publicPay === "low")
+            result = applyCommand(scenario, result, { type: "setPublicPay", countryId: id, band: "standard" });
+        }
         const nextTariff = tariffBands[tariffBands.indexOf(nation.tariffBand) + 1];
         if (fiscal.week.risk === "restricted" && tariffRate(nation) > 0 && nextTariff) {
           const shipments = settled.lastEconomy.trade?.filter((row) => row.status === "shipped" && settled.ownerByStateId[row.to] === id);
@@ -303,6 +399,13 @@ export function advanceTick(
         result = applyCommand(scenario, result, { type: "setConvoyOrder", countryId: id, stateId: port, operation: "add" });
       }
       const fleetNation = result.nations[id];
+      const model = fleetNation.knowledge["装甲舰艇"] === 100 ? "armored" : "standard";
+      if (result.elapsedDays % 28 === 0 && port && result.occupation?.stateId !== port && !fleetNation.navy.order &&
+          fleetNation.navy.warships < 1 + Math.floor(fleetNation.convoys / 6) &&
+          result.countryEconomies[id].treasury >= warshipMaterials[model] * industries.shipGoods.basePrice * 2 &&
+          report.market.shipGoods.supply >= warshipMaterials[model]) {
+        result = applyCommand(scenario, result, { type: "setWarshipOrder", countryId: id, stateId: port, operation: "add", model });
+      }
       if (result.elapsedDays % 28 === 0 && port && result.occupation?.stateId !== port &&
           fleetNation.knowledge["内燃机"] === 100 && fleetNation.convoys > fleetNation.fleet.motorized &&
           fleetNation.fleet.motorizationPort === null && occupiedCargo > 0 &&
@@ -311,8 +414,11 @@ export function advanceTick(
             result.tradeRoutes?.some((route) => route.importer === id && route.to === port && route.good === good && !route.paused))) {
         result = applyCommand(scenario, result, { type: "setFleetMotorization", countryId: id, stateId: port, enabled: true });
       }
-      const armyOrder = chooseBattalionOrder(result, settled.lastEconomy, id);
+      const armyOrder = chooseEquipmentOrder(result, settled.lastEconomy, id) ?? chooseBattalionOrder(result, settled.lastEconomy, id);
       if (armyOrder) result = applyCommand(scenario, result, armyOrder);
+      if (result.countryEconomies[id].treasury >= 2 * compromiseCost && !constitutionalCompromiseError(result, id)) {
+        result = applyCommand(scenario, result, { type: "offerConstitutionalCompromise", countryId: id });
+      }
       const n = result.nations[id];
       const pending = techs.filter((t) => availableTech(n, t));
       if (!n.research && pending.length)
@@ -321,9 +427,14 @@ export function advanceTick(
           countryId: id,
           tech: pending[(result.rng + hash(id)) % pending.length],
         });
+      if (n.reform && result.elapsedDays % 28 === 0) {
+        const compromise = { type: "compromiseReform", countryId: id } as const;
+        if (!politicsError(result, compromise)) result = applyCommand(scenario, result, compromise);
+      }
       if (!n.reform) {
         const proposal = result.elapsedDays % 28 === 0
-          ? chooseLaborLaw(result, id) ?? chooseInstitutionLaw(result, settled.lastEconomy, id) ?? chooseCivicLaw(result, id)
+          ? chooseMilitaryServiceLaw(result, settled.lastEconomy, id) ?? chooseOpiumLaw(result, id) ?? chooseLaborLaw(result, id) ??
+            chooseInstitutionLaw(result, settled.lastEconomy, id) ?? chooseCivicLaw(result, id)
           : undefined;
         if (proposal) result = applyCommand(scenario, result, proposal);
         else if (powerDistribution(n) !== "universal") {
@@ -343,7 +454,9 @@ export function advanceTick(
       });
   }
   for (const cmd of aiDiplomacy(scenario, result, humanCountries)) result = applyCommand(scenario, result, cmd);
-  result = settleAiTreatyOffers(result, humanCountries);
+  result = settleAiForeignOffers(result, humanCountries);
+  result = advanceTerritorialSettlements(scenario, result, settled.lastEconomy);
+  result = advanceCivilWar(baseScenario, result);
   return finalizeCampaign(scenario, advanceAchievements(state, result, date, settled.lastEconomy), date, true);
 }
 export function dispatch(scenario: Scenario, state: GameState, cmd: GameCommand): GameState {
@@ -371,7 +484,12 @@ export function dispatch(scenario: Scenario, state: GameState, cmd: GameCommand)
     }
     default:
       if (isScenarioFinished(scenario, state)) throw new GameRuleError("剧本已结束");
-      const next = applyCommand(scenario, state, cmd);
+      if ("countryId" in cmd && cmd.type !== "chooseCivilWarSide" && mustChooseCivilSide(state, state.playerCountryId))
+        throw new GameRuleError("请先选择内战阵营");
+      if ("countryId" in cmd && cmd.type !== "chooseCivilWarSide" && state.civilWar?.countryId === state.playerCountryId &&
+          cmd.countryId !== controlledCivilCountry(state, state.playerCountryId))
+        throw new GameRuleError("只能操作已选择的内战阵营");
+      const next = applyCommand(scenarioWithCivilWar(scenario, state.civilWar), state, cmd);
       const date = getGameDate(scenario, next);
       const awarded = advanceAchievements(state, next, date);
       return finalizeCampaign(scenario, awarded, date, true);
@@ -396,6 +514,13 @@ function applyCommand(
     }
     case "setRuleTuning":
       return { ...state, settings: { ...state.settings, tuning: cmd.tuning } };
+    case "setPublicPay": {
+      const nation = state.nations[cmd.countryId];
+      if (!nation || !publicPayBandSchema.safeParse(cmd.band).success) throw new GameRuleError("公共工资档位或国家无效");
+      const { pendingPublicPay: _pending, ...current } = nation;
+      const changed = cmd.band === current.publicPay ? current : { ...current, pendingPublicPay: cmd.band };
+      return { ...state, nations: { ...state.nations, [cmd.countryId]: changed } };
+    }
     case "setTaxBand":
     case "setExciseGoods": {
       const nation = state.nations[cmd.countryId];
@@ -410,7 +535,11 @@ function applyCommand(
       return { ...state, nations: { ...state.nations, [cmd.countryId]: { ...nation, exciseGoods: selected.data } } };
     }
     case "claimState":
-      return applyClaim(scenario, state, cmd.stateId);
+    case "cancelTerritorialSettlement":
+      return applyTerritorialSettlement(scenario, state, cmd);
+    case "declareTerritorialClaim":
+    case "renounceTerritorialClaim":
+      return applyTerritorialClaim(scenario, state, cmd);
     case "setIndustrySubsidy": {
       const { countryId, stateId, limit } = cmd;
       if (state.ownerByStateId[stateId] !== countryId) throw new GameRuleError("只能补贴本国州的产业");
@@ -439,9 +568,16 @@ function applyCommand(
     case "acceptTreaty":
     case "declineTreaty":
     case "endTreaty":
+    case "offerDiplomaticAid":
+    case "acceptDiplomaticAid":
+    case "declineDiplomaticAid":
       return applyForeignCommand(state, cmd);
     case "reorganizeBattalion":
       return applyBattalionOrder(state, cmd);
+    case "setBattalionEquipment":
+      return applyEquipmentOrder(state, cmd);
+    case "setWarshipOrder":
+      return applyNavalConstruction(scenario, state, cmd);
     case "negotiateLocalUnrest":
       return negotiateLocalUnrest(state, cmd);
     case "queueConstruction": {
@@ -450,8 +586,8 @@ function applyCommand(
       if (error) throw new GameRuleError(error);
       const cost = projectDeposit(good), { weeks } = projects[good],
         job = { stateId, good, weeksLeft: weeks,
-          ...(isGood(good) ? { ownership: projectOwnership(good, state.nations[id].laws, privateBuild === true) } : {}) };
-      if (privateBuild && isGood(good)) {
+          ...(isProductiveBuilding(good) ? { ownership: projectOwnership(good, state.nations[id].laws, privateBuild === true) } : {}) };
+      if (privateBuild && isProductiveBuilding(good)) {
         const n = state.nations[id];
         return {
           ...state,
@@ -538,12 +674,24 @@ function applyCommand(
         const error = institutionLevelError(kind, level, nation.laws, nation.knowledge);
         if (error) throw new GameRuleError(error);
       }
-      return { ...state, societies: { ...state.societies, [stateId]: { ...site, [kind]: level } } };
+      const tick = elapsedTicks(state);
+      const updated = { ...site, [kind]: level };
+      if (tick % TICKS_PER_WEEK !== 0) updated.institutionDuty = {
+        ...site.institutionDuty,
+        [kind]: recordInstitutionDuty(site.institutionDuty?.[kind], site[kind], tick),
+      };
+      return { ...state, societies: { ...state.societies, [stateId]: updated } };
     }
     case "setGovernment":
     case "proposeLaw":
+    case "compromiseReform":
+    case "withdrawReform":
     case "startResearch":
       return applyPolitics(state, cmd);
+    case "offerConstitutionalCompromise":
+      return applyConstitutionalCompromise(state, cmd.countryId);
+    case "chooseCivilWarSide":
+      return chooseCivilWarSide(state, cmd);
     default:
       return applyBorderCommand(scenario, state, cmd);
   }

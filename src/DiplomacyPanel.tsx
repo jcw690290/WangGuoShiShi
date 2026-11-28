@@ -4,15 +4,21 @@ import {
   canAddGoal,
   canDemandGoal,
   canReach,
+  containmentCandidates,
   frontLine,
+  frontObjectives,
   goalNames,
   goals,
   holdings,
   infamyLevel,
   interested,
+  opiumDemandError,
   participants,
   peaceTermsError,
   swayCost,
+  swayError,
+  supplyPriorities,
+  supplyPriorityDetails,
   warWillingness,
 } from "./game/diplomacy.ts";
 import type { BorderDispute, Goal } from "./game/diplomacy.ts";
@@ -20,11 +26,17 @@ import type { EconomyReport } from "./game/economy.ts";
 import type { GameCommand, GameState } from "./game/engine.ts";
 import type { Scenario } from "./scenario/scenario.ts";
 import { tieNames, tiePartner } from "./game/diplomatic-ties.ts";
-import { diplomaticGiftCost, diplomaticTrust, foreignCommandError, influenceBudget, relationBetween,
+import { diplomaticAidCost, diplomaticGiftCost, diplomaticTrust, foreignCommandError, influenceBudget, obligationBetween, relationBetween,
   treatyBetween, treatyKinds, treatyNames } from "./game/foreign-relations.ts";
 import { countryDisplayName } from "./game/constitution.ts";
 import { silver } from "./format.ts";
-import { battalionDetails, battalionKinds, battalionOrderError, battalionSize, battalionsAt } from "./game/military.ts";
+import { battalionDetails, battalionEquipment, battalionKinds, battalionOrderError, battalionSize, battalionsAt,
+  commandCapacity, equipmentDetails, equipmentFits, equipmentOrderError, refitOrder } from "./game/military.ts";
+import { injuredPersonnel } from "./game/military-health.ts";
+import { maxWarshipOrder, warshipMaterials, warshipModels } from "./game/navy.ts";
+import { fleetPower, navalMissionTargets, navalTaskNames, navalTasks } from "./game/naval-operations.ts";
+import type { NavalMission } from "./game/naval-operations.ts";
+import { recentOpiumLosses } from "./game/opium.ts";
 interface Props {
   scenario: Scenario;
   game: GameState;
@@ -54,6 +66,8 @@ function ArmyRoster({ scenario, game, playerId, busy, send, selectedId }: Omit<P
   const active = sites.find((site) => site.id === district) ?? sites.find((site) => site.id === selectedId) ?? sites[0];
   if (!active) return null;
   const roster = battalionsAt(game, active.id);
+  const injured = injuredPersonnel(game.societies[active.id]);
+  const knowledge = game.nations[playerId].knowledge;
   return (
     <details>
       <summary>常备陆军</summary>
@@ -62,11 +76,14 @@ function ArmyRoster({ scenario, game, playerId, busy, send, selectedId }: Omit<P
           {sites.map((site) => <option key={site.id} value={site.id}>{site.name}</option>)}
         </select>
       </label>
+      {injured.people > 0 && <p>{injured.people} 人正在养伤。</p>}
       {roster.length === 0 && <p>当前可征募人口不足。</p>}
       {roster.map((unit) => (
         <div key={unit.slot} className="control-block">
           <p>第 {unit.slot + 1} 营 · {battalionDetails[unit.kind].name} · {unit.personnel} / {battalionSize} 人
+            {" · "}{equipmentDetails[unit.equipment].name}
             {unit.trained < unit.personnel && ` · 已训练 ${unit.trained} 人 · 最迟 ${unit.readyDay - game.elapsedDays} 天后完成`}
+            {unit.pendingEquipment && ` · 等待${equipmentDetails[unit.pendingEquipment].name}交付`}
           </p>
           <div className="diplomacy-actions">
             {battalionKinds.filter((kind) => kind !== unit.kind).map((kind) => {
@@ -78,10 +95,130 @@ function ArmyRoster({ scenario, game, playerId, busy, send, selectedId }: Omit<P
                 </button>
               );
             })}
+            {battalionEquipment.filter((gear) => {
+              const { technology } = equipmentDetails[gear];
+              return gear !== unit.equipment && gear !== unit.pendingEquipment && equipmentFits(unit.kind, gear) &&
+                (technology === null || knowledge[technology] === 100);
+            }).map((equipment) => {
+              const cmd = { type: "setBattalionEquipment", countryId: playerId, stateId: active.id, slot: unit.slot, equipment } as const;
+              const error = equipmentOrderError(game, cmd);
+              const needs = refitOrder({ ...unit, pendingEquipment: equipment });
+              const fuel = needs.fuel > 0 ? `、石油 ${needs.fuel}、橡胶 ${needs.spares}` : "";
+              return (
+                <button key={equipment} className="build" disabled={busy || !!error}
+                  title={error ?? `换装需要武器 ${needs.weapons}、弹药 ${needs.ammunition}${fuel}`} onClick={() => send(cmd)}>
+                  换装{equipmentDetails[equipment].name}
+                </button>
+              );
+            })}
+            {unit.pendingEquipment && <button className="build" disabled={busy || game.occupation?.stateId === active.id}
+              onClick={() => send({ type: "setBattalionEquipment", countryId: playerId, stateId: active.id, slot: unit.slot, equipment: null })}>
+              取消换装
+            </button>}
           </div>
         </div>
       ))}
     </details>
+  );
+}
+
+function FrontOrders({ scenario, game, dispute, playerId, busy, send }: Omit<Props, "report" | "selectedId"> & { dispute: BorderDispute }) {
+  const options = frontObjectives(scenario, game, dispute, playerId);
+  const current = dispute.frontOrders?.[playerId];
+  const objective = options.find(({ id }) => id === current?.objective)?.id ?? null;
+  const priority = current?.priority ?? "front";
+  return (
+    <div className="diplomacy-actions">
+      <label>战区目标{" "}
+        <select disabled={busy} value={objective ?? ""} onChange={(event) =>
+          send({ type: "setFrontOrder", countryId: playerId, objective: event.target.value || null, priority })}>
+          <option value="">随当前战线部署</option>
+          {options.map((site) => <option key={site.id} value={site.id}>{site.name}</option>)}
+        </select>
+      </label>
+      <label>补给优先级{" "}
+        <select disabled={busy} value={priority} onChange={(event) =>
+          send({ type: "setFrontOrder", countryId: playerId, objective, priority: supplyPriorities[event.target.selectedIndex] })}>
+          {supplyPriorities.map((level) => {
+            const details = supplyPriorityDetails[level];
+            return <option key={level} value={level}>{details.name} · 调用上限 {Math.round(details.share * 100)}%</option>;
+          })}
+        </select>
+      </label>
+    </div>
+  );
+}
+
+function NavalYard({ scenario, game, report, playerId, busy, send }: Omit<Props, "selectedId">) {
+  const [selectedPort, setPort] = useState("");
+  const navy = game.nations[playerId].navy;
+  const ports = holdings(scenario, game, playerId).filter((site) => site.coastal);
+  if (!ports.length && navy.warships === 0) return null;
+  const order = navy.order;
+  const port = ports.find((site) => site.id === selectedPort) ?? ports.find((site) => site.id === order?.stateId) ?? ports[0];
+  const week = report.countries[playerId].navy;
+  const canBuild = port && game.occupation?.stateId !== port.id;
+  const unlocked = game.nations[playerId].knowledge["装甲舰艇"] === 100;
+  return (
+    <details>
+      <summary>海军与造舰</summary>
+      <p>军舰 {navy.warships} 艘{navy.armored > 0 && `（装甲舰 ${navy.armored} 艘）`} · 舰况 {navy.condition}% · 库存船材 {navy.stores}</p>
+      {week && <p>周维护船材 {week.maintained} / {week.maintenanceDue} · 周采购 {week.delivered} / {week.ordered} · 已付 {silver(week.spending)}</p>}
+      {port && <div className="control-block">
+        <label>造舰港口{" "}
+          <select disabled={busy} value={port.id} onChange={(event) => setPort(event.target.value)}>
+            {ports.map((site) => <option key={site.id} value={site.id}>{site.name}</option>)}
+          </select>
+        </label>
+        {order && <p>{scenario.states[order.stateId].name}待交付 {order.remaining} 艘{order.model === "armored" ? "装甲舰" : "普通军舰"}</p>}
+        <div className="diplomacy-actions">
+          {warshipModels.filter((model) => model === "standard" || unlocked).map((model) => (
+            <button key={model} className="build" disabled={busy || !canBuild ||
+              !!(order && (order.stateId !== port.id || order.model !== model || order.remaining >= maxWarshipOrder))}
+              onClick={() => send({ type: "setWarshipOrder", countryId: playerId, stateId: port.id, operation: "add", model })}>
+              增订{model === "armored" ? "装甲舰" : "普通军舰"}（{warshipMaterials[model]} 船材）
+            </button>
+          ))}
+          {order && <>
+            <button className="build" disabled={busy || !canBuild || order.stateId === port.id}
+              onClick={() => send({ type: "setWarshipOrder", countryId: playerId, stateId: port.id, operation: "move" })}>转移订单</button>
+            <button className="build" disabled={busy}
+              onClick={() => send({ type: "setWarshipOrder", countryId: playerId, stateId: order.stateId, operation: "cancel" })}>取消造舰</button>
+          </>}
+        </div>
+      </div>}
+    </details>
+  );
+}
+
+function NavalOrders({ scenario, game, dispute, playerId, busy, send }: Omit<Props, "report" | "selectedId"> & { dispute: BorderDispute }) {
+  const current = dispute.navalMissions?.[playerId];
+  const [task, setTask] = useState<NavalMission["task"]>(current?.task ?? "escort");
+  const [portId, setPort] = useState(current?.portId ?? "");
+  const power = fleetPower(game, playerId);
+  if (power === 0 && !current && !dispute.raid.includes(playerId)) return null;
+  const targets = navalMissionTargets(scenario, game, dispute, playerId, task);
+  const target = targets.find((site) => site.id === portId) ?? targets[0];
+  return (
+    <div className="control-block">
+      <label>舰队任务{" "}
+        <select value={task} disabled={busy} onChange={(event) => setTask(navalTasks[event.target.selectedIndex])}>
+          {navalTasks.map((kind) => <option key={kind} value={kind}>{navalTaskNames[kind]}</option>)}
+        </select>
+      </label>
+      {target && <label> 目标港口{" "}
+        <select value={target.id} disabled={busy} onChange={(event) => setPort(event.target.value)}>
+          {targets.map((site) => <option key={site.id} value={site.id}>{site.name}</option>)}
+        </select>
+      </label>}
+      <div className="diplomacy-actions">
+        {target && <button className="build" disabled={busy || power === 0 || (current?.task === task && current.portId === target.id)}
+          onClick={() => send({ type: "setNavalMission", countryId: playerId, mission: { task, portId: target.id } })}>派遣舰队</button>}
+        {(current || dispute.raid.includes(playerId)) && <button className="build" disabled={busy}
+          onClick={() => send({ type: "setNavalMission", countryId: playerId, mission: null })}>结束舰队任务</button>}
+      </div>
+      {current && <p>{navalTaskNames[current.task]} · {scenario.states[current.portId].name}</p>}
+    </div>
   );
 }
 
@@ -127,7 +264,10 @@ function PeaceNegotiation({ game, dispute, id, busy, send }: {
   </div>;
 }
 
-export function DiplomacyPanel({ scenario, game, playerId: id, report, busy, send, selectedId }: Props) {
+export function DiplomacyPanel(
+  { view, scenario, game, playerId: id, report, busy, send, selectedId }: Props & { view: "diplomacy" | "military" },
+) {
+  const military = view === "military";
   const n = game.nations[id],
     d = game.borderDispute,
     countries = scenario.countries;
@@ -145,9 +285,12 @@ export function DiplomacyPanel({ scenario, game, playerId: id, report, busy, sen
   const foreignCountries = live.filter((countryId) => countryId !== id);
   const foreignPartner = foreignCountries.includes(foreignChoice) ? foreignChoice : foreignCountries[0];
   const relation = foreignPartner ? relationBetween(game, id, foreignPartner) : undefined;
+  const opiumLosses = recentOpiumLosses(game, id);
   const influence = influenceBudget(game, id);
   const incoming = game.treatyOffers?.filter((offer) => offer.to === id) ?? [];
   const outgoing = game.treatyOffers?.filter((offer) => offer.from === id) ?? [];
+  const incomingAid = game.aidOffers?.filter((offer) => offer.to === id) ?? [];
+  const outgoingAid = game.aidOffers?.filter((offer) => offer.from === id) ?? [];
   const leaders = live.filter((x) => x !== id && !game.nations[x].marketLeader);
   const leader = leaders.includes(union) ? union : leaders[0];
   const ties = game.diplomaticTies?.flatMap((tie) => {
@@ -157,6 +300,7 @@ export function DiplomacyPanel({ scenario, game, playerId: id, report, busy, sen
   const involved = d && participants(d).includes(id),
     claimant = d?.claimantId === id,
     primary = claimant || d?.defenderId === id;
+  const canJoinContainment = d && containmentCandidates(scenario, game, d).includes(id);
   const allies = d
     ? live.filter(
         (x) =>
@@ -176,8 +320,8 @@ export function DiplomacyPanel({ scenario, game, playerId: id, report, busy, sen
       | "backDown"
       | "orderAdvance"
       | "orderDefend"
+      | "orderRetreat"
       | "mobilize"
-      | "raid"
       | "signTreaty"
       | "armistice"
       | "leaveUnion",
@@ -188,24 +332,31 @@ export function DiplomacyPanel({ scenario, game, playerId: id, report, busy, sen
   return (
     <section className="economy">
       <header className="economy-heading">
-        <h2 id="diplomacy-title">外交与战争</h2>
-        <span>
+        <h2 id="diplomacy-title">{military ? "军事" : "外交"}</h2>
+        {!military && <span>
           恶名 {n.infamy.toFixed(1)}
           {" · "}{infamyLevel(n.infamy)} · 外交信誉 {n.prestige} · 外交影响力 {influence.available} / {influence.capacity}
-        </span>
+        </span>}
       </header>
       <div className="economy-grid">
         <section className="panel">
           <header className="panel-header">
-            <h3>外交博弈</h3>
+            <h3>{military ? "部队与战线" : game.civilWar ? "政体内战" : "外交博弈"}</h3>
             {d && <span>{phases[d.phase]}</span>}
           </header>
           <div className="control-block">
-            <ArmyRoster scenario={scenario} game={game} playerId={id} busy={busy} send={send} selectedId={selectedId} />
+            {military && <>
+              <ArmyRoster scenario={scenario} game={game} playerId={id} busy={busy} send={send} selectedId={selectedId} />
+              <NavalYard scenario={scenario} game={game} playerId={id} report={report} busy={busy} send={send} />
+            </>}
             {d && (
               <p role="status">
                 {countries[d.claimantId].name} → {countries[d.defenderId].name} ·{" "}
                 {scenario.states[d.targetStateId].name} · 核心要求 {goalNames[d.goals[0]]}
+                {game.civilWar && ` · 实施${game.civilWar.demand}`}
+                {d.settlementStateId && ` · 涉案项目 ${scenario.states[d.settlementStateId].name}`}
+                {d.opiumClaim && ` · 核定损失 ${silver(d.opiumClaim.loss)}`}
+                {d.opiumClaim?.paid !== undefined && ` · 实付赔偿 ${silver(d.opiumClaim.paid)}`}
                 {d.goals.length > 1 && ` · 追加 ${d.goals.slice(1).map((g) => goalNames[g]).join("、")}`}
                 {d.phase === "resolved" &&
                   " · " +
@@ -218,7 +369,20 @@ export function DiplomacyPanel({ scenario, game, playerId: id, report, busy, sen
                 {d.agreedPeace && ` · 双方同意 ${peaceSummary(d.agreedPeace.goals, d.agreedPeace.commercial)}`}
               </p>
             )}
-            {(!d || d.phase === "resolved") &&
+            {!military && !!d?.containment?.length && <p>地区防御联合 · {d.containment.map((countryId) => countries[countryId].name).join("、")}</p>}
+            {!military && canJoinContainment && btn("加入地区防御联合", { type: "joinContainment", countryId: id })}
+            {!military && opiumLosses.size > 0 && <details>
+              <summary>近期鸦片贸易损失</summary>
+              {[...opiumLosses].map(([stateId, amount]) => {
+                const problem = opiumDemandError(scenario, game, id, stateId);
+                return <div key={stateId} className="diplomacy-actions">
+                  <p>{scenario.states[stateId].name} · 查缉损失 {silver(amount)}</p>
+                  <button className="build" disabled={busy || !!problem} title={problem}
+                    onClick={() => send({ type: "demandOpiumCompensation", countryId: id, stateId })}>提出赔偿要求</button>
+                </div>;
+              })}
+            </details>}
+            {!military && (!d || d.phase === "resolved") &&
               (target ? (
                 <>
                   <label>
@@ -238,8 +402,8 @@ export function DiplomacyPanel({ scenario, game, playerId: id, report, busy, sen
                   <label>
                     外交要求
                     <select value={goal} onChange={(e) => setGoal(e.target.value as Goal)}>
-                      {goals.map((g) => (
-                        <option key={g} value={g}>
+                      {goals.filter((g) => g !== "haltSettlement" && g !== "opiumCompensation" && g !== "regime").map((g) => (
+                        <option key={g} value={g} disabled={!canDemandGoal(game, id, game.ownerByStateId[target.id], g, target.id)}>
                           {goalNames[g]}
                         </option>
                       ))}
@@ -249,7 +413,7 @@ export function DiplomacyPanel({ scenario, game, playerId: id, report, busy, sen
                     ? btn(
                         "提出外交要求",
                         { type: "demandBorder", countryId: id, targetStateId: target.id, goal },
-                        !!n.overlord || !canDemandGoal(game, id, game.ownerByStateId[target.id], goal),
+                        !!n.overlord || !canDemandGoal(game, id, game.ownerByStateId[target.id], goal, target.id),
                       )
                     : btn("声明沿海利益", {
                         type: "declareInterest",
@@ -260,7 +424,7 @@ export function DiplomacyPanel({ scenario, game, playerId: id, report, busy, sen
               ) : (
                 <p>当前没有可接触的外国州。</p>
               ))}
-            {d && d.phase !== "resolved" && d.phase !== "war" && (
+            {!military && d && d.phase !== "resolved" && d.phase !== "war" && (
               <>
                 <p>
                   本阶段已过 {game.elapsedDays - d.since} 天。提出要求 7 天，博弈 14 天，倒计时陆上 7 天、跨海
@@ -274,9 +438,10 @@ export function DiplomacyPanel({ scenario, game, playerId: id, report, busy, sen
                       .map((g) =>
                         btn("追加" + goalNames[g], { type: "addGoal", countryId: id, goal: g }, !d.maneuvers),
                       )}
-                    {partner && (
-                      <>
-                        <p>胜利条款生效时向该国支付 500 两，余额不足会降低信誉。</p>
+                    {partner && (() => {
+                      const cash = { type: "sway", countryId: id, allyId: partner } as const;
+                      const obligation = { ...cash, useObligation: true };
+                      return <>
                         <select
                           aria-label="拉拢国家"
                           value={partner}
@@ -289,18 +454,20 @@ export function DiplomacyPanel({ scenario, game, playerId: id, report, busy, sen
                           ))}
                         </select>
                         {btn(
-                          `拉拢支持 · ${swayCost(n.infamy)} 博弈点`,
-                          { type: "sway", countryId: id, allyId: partner },
-                          d.maneuvers < swayCost(n.infamy),
+                          `承诺胜后支付 500 两 · ${swayCost(n.infamy)} 博弈点`,
+                          cash,
+                          swayError(scenario, game, d, cash) !== undefined,
                         )}
-                      </>
-                    )}
+                        {obligationBetween(game, id, partner) && btn(`兑现外交义务 · ${swayCost(n.infamy)} 博弈点`,
+                          obligation, swayError(scenario, game, d, obligation) !== undefined)}
+                      </>;
+                    })()}
                   </>
                 )}
                 {primary && btn(claimant ? "撤回要求" : "让步并接受核心要求", simple("backDown"))}
               </>
             )}
-            {d?.phase === "war" && (
+            {military && d?.phase === "war" && (
               <>
                 <p>
                   当前战线{" "}
@@ -313,43 +480,53 @@ export function DiplomacyPanel({ scenario, game, playerId: id, report, busy, sen
                 <progress aria-label="战线进度" max={100} value={d.progress} />
                 {participants(d).map((x) => {
                   const m = report.countries[x].military;
+                  const orders = d.mobilization?.[x];
+                  const remaining = orders ? Math.max(0, orders.readyDay - game.elapsedDays) : 0;
+                  const losses = d.losses?.[x];
                   return (
                     <p key={x}>
                       {countries[x].name} · {attacking(d, x) ? "提出方" : "防守方"} ·{" "}
-                      {d.advance.includes(x) ? "推进" : "防御"} · 全国常备 {m.regulars} · 征兵 {m.conscripts} ·
+                      {d.retreating?.includes(x) ? "撤至后方" : d.advance.includes(x) ? "推进" : "防御"} ·
+                      全国常备 {m.regulars} · 征召 {m.conscripts} ·
+                      {remaining > 0 ? ` 动员准备剩 ${remaining} 天 ·` : ` 已部署征召兵 ${m.deployedConscripts ?? m.conscripts} ·`}
                       全军军粮 {m.grainDrawn} / {m.grainDemand} · 武器 {m.equipment.weapons.delivered}/
                       {m.equipment.weapons.demand}· 弹药 {m.equipment.ammunition.delivered}/
                       {m.equipment.ammunition.demand} · 军服 {m.equipment.uniforms.delivered}/
-                      {m.equipment.uniforms.demand} · 前线战备 {Math.round(m.readiness * 100)}% · 士气 {game.nations[x].morale.toFixed(0)}%
+                      {m.equipment.uniforms.demand} · 前线补给 {Math.round((m.supplyRatio ?? m.readiness) * 100)}% ·
+                      战备 {Math.round(m.readiness * 100)}% · 士气 {game.nations[x].morale.toFixed(0)}%
+                      {m.equipment.fuel && m.equipment.fuel.demand > 0 && ` · 石油 ${m.equipment.fuel.delivered}/${m.equipment.fuel.demand}`}
+                      {m.equipment.spares && m.equipment.spares.demand > 0 && ` · 橡胶 ${m.equipment.spares.delivered}/${m.equipment.spares.demand}`}
+                      {losses && ` · 累计阵亡 ${losses.dead} · 伤病 ${losses.injured}`}
                     </p>
                   );
                 })}
                 {involved && (
-                  <div className="diplomacy-actions">
-                    {btn("激活征兵", simple("mobilize"), d.mobilized.includes(id))}
-                    {btn("命令推进", simple("orderAdvance"), d.advance.includes(id))}
-                    {btn("命令防御", simple("orderDefend"), !d.advance.includes(id))}
-                    {btn(
-                      "舰队破交",
-                      simple("raid"),
-                      d.raid.includes(id) || !holdings(scenario, game, id).some((s) => s.coastal),
-                    )}
-                    {primary &&
-                      btn(
-                        "执行战争目标",
-                        simple("signTreaty"),
-                        d.lastChange === null || d.progress < scenario.borderDispute.cessionProgress,
-                      )}
-                    {claimant && btn("撤回战时要求", simple("armistice"), d.lastChange === null)}
-                  </div>
+                  <>
+                    <FrontOrders scenario={scenario} game={game} dispute={d} playerId={id} busy={busy} send={send} />
+                    <NavalOrders key={d.since} scenario={scenario} game={game} dispute={d} playerId={id} busy={busy} send={send} />
+                    <div className="diplomacy-actions">
+                      {btn("下令动员", simple("mobilize"), d.mobilized.includes(id))}
+                      {btn("命令推进", simple("orderAdvance"), d.advance.includes(id))}
+                      {btn("命令防御", simple("orderDefend"), !d.advance.includes(id) && !d.retreating?.includes(id))}
+                      {btn("撤至后方", simple("orderRetreat"), d.retreating?.includes(id))}
+                      {primary && !game.civilWar &&
+                        btn(
+                          "执行战争目标",
+                          simple("signTreaty"),
+                          d.lastChange === null || d.progress < scenario.borderDispute.cessionProgress,
+                        )}
+                      {game.civilWar ? btn("向对方投降", simple("armistice")) :
+                        claimant && btn("撤回战时要求", simple("armistice"), d.lastChange === null)}
+                    </div>
+                  </>
                 )}
               </>
             )}
-            {primary && d && (d.phase === "countdown" || d.phase === "war") &&
+            {!military && primary && !game.civilWar && d && (d.phase === "countdown" || d.phase === "war") &&
               <PeaceNegotiation key={`${d.claimantId}:${d.defenderId}:${d.since}`} game={game} dispute={d} id={id} busy={busy} send={send} />}
           </div>
         </section>
-        <section className="panel">
+        {!military && <section className="panel">
           <header className="panel-header">
             <h3>条约、共同市场与附属关系</h3>
           </header>
@@ -364,12 +541,27 @@ export function DiplomacyPanel({ scenario, game, playerId: id, report, busy, sen
                 </select>
               </label>
               <p>关系 {relation.standing} · 对方对本国信任 {diplomaticTrust(relation, foreignPartner)} / 100</p>
+              {obligationBetween(game, id, foreignPartner) && <p>对方欠本国一项外交义务。</p>}
+              {obligationBetween(game, foreignPartner, id) && <p>本国欠对方一项外交义务。</p>}
               {(() => {
                 const command = { type: "improveRelations", countryId: id, partnerId: foreignPartner } as const;
                 const problem = foreignCommandError(game, command);
                 return <>{btn(`赠送外交礼金 · ${silver(diplomaticGiftCost)}`, command, problem !== undefined)}
                   {problem && <small>{problem}</small>}</>;
               })()}
+              {(() => {
+                const offer = { type: "offerDiplomaticAid", countryId: id, partnerId: foreignPartner } as const;
+                return btn(`提议援助并约定义务 · ${silver(diplomaticAidCost)}`, offer, foreignCommandError(game, offer) !== undefined);
+              })()}
+              {outgoingAid.length > 0 && <p>等待回复的援助 · {outgoingAid.map((offer) => countries[offer.to].name).join("、")}</p>}
+              {incomingAid.map((offer) => {
+                const accept = { type: "acceptDiplomaticAid", countryId: id, partnerId: offer.from } as const;
+                return <div key={offer.from} className="diplomacy-actions">
+                  <p>{countries[offer.from].name}提议援助 {silver(diplomaticAidCost)}。接受后，对方可要求本国支持一次地区博弈。</p>
+                  {btn("接受援助", accept, foreignCommandError(game, accept) !== undefined)}
+                  {btn("拒绝援助", { ...accept, type: "declineDiplomaticAid" })}
+                </div>;
+              })}
               <p>防御同盟在盟国遭到外交进攻时履行防御承诺。签约未满 180 天解约会降低信任。</p>
               <div className="diplomacy-actions">
                 {treatyKinds.map((kind) => {
@@ -395,7 +587,7 @@ export function DiplomacyPanel({ scenario, game, playerId: id, report, busy, sen
               宗主国 · {n.overlord ? countries[n.overlord].name : "独立"} · 运输船队 {n.convoys}
             </p>
             <p>
-              将领 {n.generalRank} 级 · 指挥上限 {n.generalRank * 300} 人
+              将领 {n.generalRank} 级 · 指挥上限 {commandCapacity(n)} 人
             </p>
             {btn(
               "晋升将领 · 800 两",
@@ -441,7 +633,7 @@ export function DiplomacyPanel({ scenario, game, playerId: id, report, busy, sen
                   </>
                 )}
           </div>
-        </section>
+        </section>}
       </div>
     </section>
   );

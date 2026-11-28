@@ -1,6 +1,6 @@
 import { useEffect, useMemo, useRef, useState } from "react";
 import { defaultMaxTickRate, DeveloperPanel } from "./DeveloperPanel.tsx";
-import { EndingsGallery, StartMenu, TutorialGuide } from "./CampaignMenus.tsx";
+import { EndingsGallery, StartMenu, TutorialConstructionReview, TutorialGuide } from "./CampaignMenus.tsx";
 import { DiplomacyPanel } from "./DiplomacyPanel.tsx";
 import { EconomyPanel } from "./EconomyPanel.tsx";
 import { PoliticsPanel } from "./PoliticsPanel.tsx";
@@ -8,16 +8,20 @@ import { count, silver } from "./format.ts";
 import { projectEconomy } from "./game/economy.ts";
 import { campaignEndDate, createGame, dispatch, elapsedTicks, getGameDate, isScenarioFinished, spanDays, TICKS_PER_DAY } from "./game/engine.ts";
 import type { GameCommand, Span } from "./game/engine.ts";
-import { planWar } from "./game/diplomacy.ts";
+import { planWar, settlementChallengeError } from "./game/diplomacy.ts";
 import { archiveAchievements, archiveEnding, autoSaveSlot, autoSaveSlots, listGameSaves, loadGame, loadRecentGame, manualSaveSlots, saveGame, saveSlotSchema } from "./game/storage.ts";
 import type { SaveSlot, SaveSummary } from "./game/storage.ts";
 import { difficultyLevels, difficultyNames, difficultySchema } from "./game/settings.ts";
 import type { Difficulty } from "./game/settings.ts";
-import { canSettleVictory, completeGuideStep, defaultEndYear, endYearSchema } from "./game/campaign.ts";
-import { CLAIM_COST, claimError } from "./game/territory.ts";
+import { canSettleVictory, completeGuideStep, defaultEndYear, endYearSchema, noteTutorialProject, tutorialReviewReady } from "./game/campaign.ts";
+import { CLAIM_COST, claimError, settlementAt, settlementContested, territorialClaimError, territoryType } from "./game/territory.ts";
 import { StateMap } from "./map/StateMap.tsx";
 import { capitals } from "./map/capitals.ts";
 import { countryColor } from "./map/cartography.ts";
+import { mapLayerCells, mapLayerLegends, mapLayerNames } from "./map/layers.ts";
+import type { MapLayer } from "./map/layers.ts";
+import { DrawerGrip, governmentEntries, MapGovernmentMenu, TreasuryStatus } from "./MapGovernment.tsx";
+import type { GovernmentTab } from "./MapGovernment.tsx";
 import type { StateGeometry } from "./map/geometry.ts";
 import { RoomDialog, useOnlineRoom } from "./online/RoomDialog.tsx";
 import type { Speed } from "./online/protocol.ts";
@@ -25,45 +29,53 @@ import { atlas } from "./scenario/scenario.ts";
 import type { Scenario } from "./scenario/scenario.ts";
 import { endingStory, endingTitle } from "./scenario/endings.ts";
 import { countryDisplayName } from "./game/constitution.ts";
+import { constitutionalCrisisWarning } from "./game/constitutional-crises.ts";
+import { civilSides, controlledCivilCountry, mustChooseCivilSide, oppositionId, scenarioWithCivilWar } from "./game/civil-war.ts";
+import { garrisonHeadcount } from "./game/military.ts";
+import { loadLauncherPreferences, playbackSpeedSchema, playInterfaceCue, saveLauncherPreferences, tickRates } from "./launcher-preferences.ts";
+import type { LauncherPreferences } from "./launcher-preferences.ts";
 
 const dateFormat = new Intl.DateTimeFormat("zh-CN", { dateStyle: "long", timeZone: "UTC" });
-const tickRates = [1, 2, 4, 8];
 const periods = ["00:00", "06:00", "12:00", "18:00"];
 function DifficultyOptions() {
   return difficultyLevels.map((level) => <option key={level} value={level}>{difficultyNames[level]}</option>);
 }
-export function App({ scenario, geometry, initialSaves, initialSaveNotice }: {
+export function App({ scenario: baseScenario, geometry, initialSaves, initialSaveNotice }: {
   scenario: Scenario;
   geometry: StateGeometry;
   initialSaves: SaveSummary[] | null;
   initialSaveNotice: string;
 }) {
-  const [opening] = useState(() => createGame(scenario));
+  const [opening] = useState(() => createGame(baseScenario));
   const [soloGame, setGame] = useState(opening),
     [selected, setSelected] = useState<string | null>(null);
   const [screen, setScreen] = useState<"menu" | "new" | "tutorial" | "play">("menu");
   const [galleryOpen, setGalleryOpen] = useState(false);
-  const [mapLayer, setMapLayer] = useState<"owner" | "controller">("owner");
+  const [mapLayer, setMapLayer] = useState<MapLayer>("owner");
   const [governmentOpen, setGovernmentOpen] = useState(false);
+  const [drawerExpanded, setDrawerExpanded] = useState(false);
+  const [loadedSettings] = useState(loadLauncherPreferences);
+  const [preferences, setPreferences] = useState(loadedSettings.preferences);
+  const audio = useRef<AudioContext | null>(null);
   const [endYear, setEndYear] = useState(String(defaultEndYear));
   const [busy, setBusy] = useState(false),
-    [notice, setNotice] = useState(initialSaveNotice);
+    [notice, setNotice] = useState(initialSaveNotice || loadedSettings.message);
   const [saves, setSaves] = useState<SaveSummary[] | null>(initialSaves);
   const [activeSlot, setActiveSlot] = useState<SaveSlot>("local");
   const savedMonth = useRef(0);
-  const countries = Object.values(scenario.countries).filter((country) => country.selectable !== false),
-    backgroundCountries = Object.values(scenario.countries).filter((country) => country.selectable === false),
+  const countries = Object.values(baseScenario.countries).filter((country) => country.selectable !== false),
+    backgroundCountries = Object.values(baseScenario.countries).filter((country) => country.selectable === false),
     [choice, setChoice] = useState(countries[0].id);
   const [openingDifficulty, setOpeningDifficulty] = useState<Difficulty>("relaxed");
   const [span, setSpan] = useState<Span | "continuous">("continuous"),
     [until, setUntil] = useState<number | null>(null);
-  const [speed, setSpeed] = useState(2);
+  const [speed, setSpeed] = useState(preferences.speed);
   const [maxTickRate, setMaxTickRate] = useState(defaultMaxTickRate);
   const [developerOpen, setDeveloperOpen] = useState(false);
   const logoClicks = useRef({ count: 0, time: -Infinity });
   const menu = useRef<HTMLDialogElement>(null);
   const roomDialog = useRef<HTMLDialogElement>(null);
-  const online = useOnlineRoom(scenario, () => {
+  const online = useOnlineRoom(baseScenario, () => {
     setUntil(null);
     setSelected(null);
     setNotice("");
@@ -76,25 +88,41 @@ export function App({ scenario, geometry, initialSaves, initialSaveNotice }: {
   const game = useMemo(() => {
     return view?.game ? { ...view.game, playerCountryId: onlineCountry! } : soloGame;
   }, [view?.game, onlineCountry, soloGame]);
+  const scenario = useMemo(() => scenarioWithCivilWar(baseScenario, game.civilWar), [baseScenario, game.civilWar]);
   const onlinePlaying = view?.room.status === "playing";
   const canDrive = onlinePlaying && view.room.hostOnline && view.leased && !view.error;
-  const tabs = ["经济与人口", "政治与科技", "外交与战争"] as const;
-  const [tab, setTab] = useState<number>(0);
+  const [tab, setTab] = useState<GovernmentTab>("economy");
   const [search, setSearch] = useState("");
+  const seat = connection ? onlineCountry ?? null : screen === "play" ? game.playerCountryId : null;
+  const player = seat ? controlledCivilCountry(game, seat) : null;
+  const choosingSide = mustChooseCivilSide(game, seat);
+  const civilWar = game.civilWar;
   const finished = (onlinePlaying || (!connection && screen === "play")) && isScenarioFinished(scenario, game),
     running = !finished && (onlinePlaying
       ? view.room.hostOnline && view.room.speed > 0
-      : !connection && screen === "play" && until !== null && elapsedTicks(game) < until),
-    locked = connection
+      : !connection && screen === "play" && !choosingSide && until !== null && elapsedTicks(game) < until),
+    actionPending = connection
       ? online.busy || commandId !== null || !view?.room.hostOnline || Boolean(view.error)
       : busy || running,
-    player = connection ? onlineCountry ?? null : screen === "play" ? game.playerCountryId : null;
+    locked = actionPending || choosingSide;
   const site =
     selected ??
     (player
       ? (Object.keys(game.ownerByStateId).find((id) => game.ownerByStateId[id] === player) ?? null)
       : null);
   const owner = site ? game.ownerByStateId[site] : null;
+  const unownedLabels = { UNCLAIMED: "无主地区", LOCAL_POLITY: "地方势力", STATE_OWNED: "国家领土" };
+  const selectedTerritory = site ? territoryType(scenario, game, site) : null;
+  const settlement = site ? settlementAt(game, site) : undefined;
+  const settlementBlock = site && player && !owner && !settlement ? claimError(scenario, game, site, player) : undefined;
+  const claims = site ? (game.territorialClaims ?? []).filter((claim) => claim.stateId === site) : [];
+  const hasClaim = claims.some((claim) => claim.claimantId === player);
+  const challenge = player && site && hasClaim && settlement && settlement.countryId !== player ?
+    { type: "challengeTerritorialSettlement" as const, countryId: player, stateId: site } : null;
+  const declaration = player && site && owner !== player ? {
+    type: hasClaim ? "renounceTerritorialClaim" as const : "declareTerritorialClaim" as const,
+    countryId: player, stateId: site,
+  } : null;
   const countryNames = useMemo(() => Object.fromEntries(Object.entries(scenario.countries)
     .map(([id, country]) => [id, countryDisplayName(country, game.nations[id])])), [scenario.countries, game.nations]);
   const occupation = game.occupation;
@@ -102,6 +130,11 @@ export function App({ scenario, geometry, initialSaves, initialSaveNotice }: {
   const mapOwners = useMemo(() => mapLayer === "controller" && occupation
     ? { ...game.ownerByStateId, [occupation.stateId]: occupation.controllerId }
     : game.ownerByStateId, [mapLayer, game.ownerByStateId, occupation]);
+  const supplyDay = mapLayer === "supply" ? game.elapsedDays : null;
+  const layerCells = useMemo(() => player ? mapLayerCells(scenario, game, mapLayer) : undefined,
+    [player, scenario, mapLayer, game.societies, game.stateEconomies, game.ownerByStateId, game.lastEconomy,
+      game.borderDispute, game.nations, game.settings, occupation, supplyDay]);
+  const layerLegend = mapLayerLegends[mapLayer];
   const report = useMemo(
     () => governmentOpen ? game.lastEconomy ?? projectEconomy(game, planWar(scenario, game), scenario) : null,
     [governmentOpen, game.lastEconomy, game.ownerByStateId, game.countryEconomies, game.stateEconomies,
@@ -121,18 +154,42 @@ export function App({ scenario, geometry, initialSaves, initialSaveNotice }: {
   const ending = game.campaign?.ending;
   const achievements = game.campaign?.achievements?.records;
   const deadline = campaignEndDate(scenario, game);
+  function updatePreferences(value: LauncherPreferences) {
+    setPreferences(value);
+    try {
+      saveLauncherPreferences(value);
+    } catch {
+      setNotice("无法保存本机设置，本次打开游戏期间仍可使用。");
+    }
+  }
+  async function interfaceCue() {
+    if (preferences.volume === 0) return;
+    try {
+      audio.current ??= new AudioContext();
+      await playInterfaceCue(audio.current, preferences.volume);
+    } catch {
+      setNotice("无法播放提示音。");
+    }
+  }
+  useEffect(() => () => {
+    if (audio.current) void audio.current.close();
+    audio.current = null;
+  }, []);
+  const constitutionalWarning = player && constitutionalCrisisWarning(game, player);
   const picker = !connection && (screen === "new" || screen === "tutorial");
   function markGuide(step: number) {
     if (!connection) setGame((state) => completeGuideStep(state, step));
   }
   function openGovernment(nextTab = tab) {
+    if (!governmentOpen) void interfaceCue();
     setTab(nextTab);
     setGovernmentOpen(true);
-    if (nextTab === 0) markGuide(1);
   }
   function launch(tutorial: boolean) {
     setNotice("");
-    setOpeningDifficulty("relaxed");
+    void interfaceCue();
+    setOpeningDifficulty(tutorial ? "relaxed" : preferences.difficulty);
+    setSpeed(preferences.speed);
     setEndYear(String(defaultEndYear));
     if (tutorial && Object.hasOwn(scenario.countries, "country_12")) setChoice("country_12");
     setScreen(tutorial ? "tutorial" : "new");
@@ -143,7 +200,7 @@ export function App({ scenario, geometry, initialSaves, initialSaveNotice }: {
     savedMonth.current = 0;
     setUntil(null);
     setSelected(null);
-    setGame(dispatch(scenario, createGame(scenario, undefined, openingDifficulty, {
+    setGame(dispatch(baseScenario, createGame(baseScenario, undefined, openingDifficulty, {
       id: crypto.randomUUID(), endYear: year, tutorialEnabled: screen === "tutorial",
     }), { type: "selectCountry", countryId: choice }));
     setScreen("play");
@@ -178,8 +235,10 @@ export function App({ scenario, geometry, initialSaves, initialSaveNotice }: {
       return;
     }
     setGame((previous) => {
-      const next = dispatch(scenario, previous, cmd);
-      return cmd.type === "queueConstruction" ? completeGuideStep(completeGuideStep(next, 3), 7) : next;
+      const next = dispatch(baseScenario, previous, cmd);
+      return cmd.type === "queueConstruction" ? noteTutorialProject(next, {
+        stateId: cmd.stateId, good: cmd.good, privateBuild: cmd.privateBuild ?? false,
+      }) : next;
     });
   }
   const commandResult = view?.room.results.find((result) => result.id === commandId);
@@ -199,11 +258,17 @@ export function App({ scenario, geometry, initialSaves, initialSaveNotice }: {
     const timer = setInterval(() => {
       if (document.hidden) return;
       setGame((previous) => elapsedTicks(previous) < until
-        ? dispatch(scenario, previous, { type: "advanceTick" })
+        ? dispatch(baseScenario, previous, { type: "advanceTick" })
         : previous);
     }, 1000 / (speed === 5 ? maxTickRate : speed));
     return () => clearInterval(timer);
-  }, [running, until, speed, maxTickRate, scenario, connection]);
+  }, [running, until, speed, maxTickRate, baseScenario, connection]);
+  useEffect(() => {
+    if (!choosingSide) return;
+    setUntil(null);
+    setTab("military");
+    setGovernmentOpen(true);
+  }, [choosingSide]);
   useEffect(() => {
     function pauseHiddenGame() {
       if (document.hidden) setUntil(null);
@@ -225,29 +290,26 @@ export function App({ scenario, geometry, initialSaves, initialSaveNotice }: {
     if (!connection && screen === "play" && achievements?.length)
       void archiveAchievements(achievements).catch((error: unknown) => setNotice("成就归档失败 · " + String(error)));
   }, [connection, achievements, screen]);
-  const guideWeek = soloGame.campaign?.guideWeek;
   const guideStep = soloGame.campaign?.tutorialEnabled && !soloGame.campaign.guideSkipped ? soloGame.campaign.guideStep : null;
-  const currentWeek = Math.floor(soloGame.elapsedDays / 7);
+  const reviewReady = !connection && tutorialReviewReady(soloGame, player);
   const hasAdvanced = elapsedTicks(soloGame) > 0;
   useEffect(() => {
     if (!connection && screen === "play" && guideStep === 0 && !running && hasAdvanced)
       setGame((state) => completeGuideStep(state, 0));
   }, [connection, screen, guideStep, running, hasAdvanced]);
   useEffect(() => {
-    if (connection || screen !== "play" || guideStep !== 4 || guideWeek == null || currentWeek <= guideWeek) return;
-    setUntil(null);
-    setGame((state) => completeGuideStep(state, 4));
-  }, [connection, screen, guideStep, guideWeek, currentWeek]);
+    if (screen === "play" && reviewReady) setUntil(null);
+  }, [screen, reviewReady]);
   const populationDay = soloGame.lastPopulation?.day ?? 0;
   useEffect(() => {
     if (connection || !soloGame.playerCountryId || populationDay <= savedMonth.current) return;
     savedMonth.current = populationDay;
-    const slot = autoSaveSlot(getGameDate(scenario, { ...soloGame, elapsedDays: populationDay }));
-    void saveGame(scenario, soloGame, slot, true).then(
+    const slot = autoSaveSlot(getGameDate(baseScenario, { ...soloGame, elapsedDays: populationDay }));
+    void saveGame(baseScenario, soloGame, slot, true).then(
       (summary) => setSaves((entries) => [summary, ...(entries ?? []).filter((entry) => entry.slot !== slot)]),
       (error: unknown) => setNotice("自动存档失败 · " + String(error)),
     );
-  }, [connection, populationDay, scenario, soloGame]);
+  }, [connection, populationDay, baseScenario, soloGame]);
 
   async function slot(action: "save" | "load" | "recent") {
     setBusy(true);
@@ -256,13 +318,13 @@ export function App({ scenario, geometry, initialSaves, initialSaveNotice }: {
         const entries = await listGameSaves();
         const existing = entries.find((entry) => entry.slot === activeSlot);
         if (existing && !window.confirm(`覆盖此手动档（${existing.date ?? "旧存档"}）？`)) return;
-        const summary = await saveGame(scenario, game, activeSlot, existing !== undefined);
+        const summary = await saveGame(baseScenario, game, activeSlot, existing !== undefined);
         setSaves([summary, ...entries.filter((entry) => entry.slot !== activeSlot)]);
         setNotice("已存档 · " + dateFormat.format(date));
       } else {
         const result = action === "recent"
-          ? await loadRecentGame(scenario)
-          : { state: await loadGame(scenario, activeSlot), slot: activeSlot, skipped: 0 };
+          ? await loadRecentGame(baseScenario)
+          : { state: await loadGame(baseScenario, activeSlot), slot: activeSlot, skipped: 0 };
         if (result?.state) {
           savedMonth.current = result.state.lastPopulation?.day ?? 0;
           setActiveSlot(result.slot);
@@ -327,7 +389,7 @@ export function App({ scenario, geometry, initialSaves, initialSaveNotice }: {
             <span className="paused">{running ? "推进中" : "已暂停"}</span>
             <time dateTime={dateISO + "T" + periods[game.tickInDay]}>{dateFormat.format(date)} {periods[game.tickInDay]}</time>
             <select aria-label="单机推进速度" value={speed} disabled={finished}
-              onChange={(event) => setSpeed(Number(event.target.value))}>
+              onChange={(event) => setSpeed(playbackSpeedSchema.parse(Number(event.target.value)))}>
               {tickRates.map((rate) => <option key={rate} value={rate}>{rate} tick／秒</option>)}
               <option value={5}>{maxTickRate} tick／秒</option>
             </select>
@@ -344,7 +406,7 @@ export function App({ scenario, geometry, initialSaves, initialSaveNotice }: {
             </select>
             <button
               className="advance"
-              disabled={!player || busy || finished}
+              disabled={!player || busy || finished || choosingSide}
               onClick={() => {
                 if (running && elapsedTicks(game) > 0) markGuide(0);
                 setUntil(running ? null : span === "continuous"
@@ -357,22 +419,44 @@ export function App({ scenario, geometry, initialSaves, initialSaveNotice }: {
             </>}
           </div>}
           <div className="header-menus">
+            {choosingSide && <button className="menu-entry" aria-haspopup="dialog" onClick={() => openGovernment("military")}>
+              选择内战阵营
+            </button>}
+            {constitutionalWarning && <button className="menu-entry" aria-haspopup="dialog" onClick={() => openGovernment("politics")}>
+              政体冲突预警
+            </button>}
             <button className="menu-entry" aria-haspopup="dialog" onClick={() => roomDialog.current!.showModal()}>联机</button>
-            {(connection || player) && <button className="menu-entry" aria-haspopup="dialog" onClick={() => openGovernment()}>政务菜单</button>}
           </div>
         </div>
       </header>
       <main className="map-workspace">
-        <StateMap scenario={scenario} geometry={geometry} game={connection || player ? game : opening}
+        <StateMap scenario={baseScenario} geometry={geometry} game={connection || player ? game : opening}
           owners={connection || player ? mapOwners : opening.ownerByStateId}
+          cells={layerCells}
           selectedId={player ? selected : null} preview={picker ? choice : null} onSelect={setSelected} />
-        {player && <div className="map-layers" role="group" aria-label="地图图层">
-          <button className="menu-button" aria-pressed={mapLayer === "owner"} onClick={() => setMapLayer("owner")}>正式归属</button>
-          <button className="menu-button" aria-pressed={mapLayer === "controller"} onClick={() => setMapLayer("controller")}>实际控制</button>
+        {player && (!connection || onlinePlaying) && <>
+          <TreasuryStatus game={game} countryId={player} onInspect={() => markGuide(1)} />
+          <MapGovernmentMenu open={openGovernment} />
+        </>}
+        {player && <div className="map-layers">
+          <label className="sr-only" htmlFor="map-layer">地图图层</label>
+          <select id="map-layer" value={mapLayer} onChange={(event) => setMapLayer(event.target.value as MapLayer)}>
+            {Object.entries(mapLayerNames).map(([id, name]) => <option key={id} value={id}>{name}</option>)}
+          </select>
+          {layerLegend && <details key={mapLayer} className="map-legend">
+            <summary>图例</summary>
+            <div className="map-legend-panel">
+              {mapLayer === "culture" && <p>按人口最多的文化着色，有对应国家的文化沿用该国颜色。</p>}
+              <ul>{layerLegend.map(({ color, text }) => <li key={text}>
+                <i aria-hidden="true" className="swatch" style={{ background: color }} />{text}
+              </li>)}</ul>
+            </div>
+          </details>}
         </div>}
         {!connection && screen === "menu" && <StartMenu saveCount={saves?.length ?? null} busy={busy}
           hasCurrent={soloGame.playerCountryId !== null} newGame={launch} resume={() => void slot("recent")}
-          gallery={() => setGalleryOpen(true)} returnToGame={() => setScreen("play")} notice={notice} />}
+          gallery={() => { void interfaceCue(); setGalleryOpen(true); }} returnToGame={() => setScreen("play")} notice={notice}
+          preferences={preferences} updatePreferences={updatePreferences} previewSound={() => void interfaceCue()} />}
         {picker && <aside className="country-picker">
           <h1>选择国家</h1>
           {screen === "tutorial" && <p className="country-tip">推荐从瑞士或巴伐利亚开始。</p>}
@@ -401,25 +485,31 @@ export function App({ scenario, geometry, initialSaves, initialSaveNotice }: {
         </aside>}
         {player && (!connection || onlinePlaying) && selected && <button className="site-chip" onClick={() => {
           if (owner === player) markGuide(2);
-          openGovernment(0);
-        }}>{atlas[selected].name} · {owner ? countryNames[owner] : "无主领土"}
-          {actualController && `（${countryNames[actualController]}控制）`} ›</button>}
+          openGovernment("economy");
+        }}>{atlas[selected].name} · {owner ? countryNames[owner] : unownedLabels[selectedTerritory!]}
+          {actualController && `（${countryNames[actualController]}控制）`} ›
+          {layerCells && <small>{layerCells[selected].text}</small>}
+        </button>}
         {!connection && screen === "play" && game.campaign?.tutorialEnabled
-          && !finished && <TutorialGuide campaign={game.campaign} skip={() => setGame((state) => ({
+          && !finished && <TutorialGuide campaign={game.campaign} reviewReady={reviewReady} skip={() => setGame((state) => ({
             ...state, campaign: { ...state.campaign!, guideSkipped: true },
           }))} />}
       </main>
-      {galleryOpen && <EndingsGallery scenario={scenario} close={() => setGalleryOpen(false)} />}
+      {galleryOpen && <EndingsGallery scenario={baseScenario} close={() => setGalleryOpen(false)} />}
       {developerOpen && !connection && <DeveloperPanel maxTickRate={maxTickRate}
         settings={player && !finished ? game.settings : null}
         setMaxTickRate={setMaxTickRate} setTuning={(tuning) => send({ type: "setRuleTuning", tuning })}
         onClose={() => setDeveloperOpen(false)} />}
-      <RoomDialog scenario={scenario} online={online} dialog={roomDialog} />
-      <dialog className="government" ref={menu} aria-label="政务菜单" onClose={() => setGovernmentOpen(false)}>
+      <RoomDialog scenario={baseScenario} online={online} dialog={roomDialog} />
+      <dialog className="government" ref={menu} aria-label="政务菜单" data-expanded={drawerExpanded} onClose={() => {
+        setGovernmentOpen(false);
+        setDrawerExpanded(false);
+      }}>
         {governmentOpen && <>
+        <DrawerGrip expanded={drawerExpanded} setExpanded={setDrawerExpanded} />
         <header className="menu-tabs">
-          {tabs.map((title, i) => <button key={title} aria-pressed={tab === i}
-            onClick={() => openGovernment(i)}>{title}</button>)}
+          {governmentEntries.map(([entry, title]) => <button key={entry} aria-pressed={tab === entry}
+            onClick={() => openGovernment(entry)}>{title}</button>)}
           {!connection && <div className="slot-actions" role="group" aria-label="本地存档">
             <select aria-label="存档槽" value={activeSlot} disabled={locked || saves === null}
               onChange={(event) => setActiveSlot(saveSlotSchema.parse(event.target.value))}>
@@ -433,8 +523,29 @@ export function App({ scenario, geometry, initialSaves, initialSaveNotice }: {
           </div>}
           <button className="close-menu" aria-label="关闭菜单" onClick={() => menu.current!.close()}>×</button>
         </header>
+        <div className="menu-body" key={tab}>
         <p role="status" className="save-notice">{online.error || notice}</p>
-        <div className="menu-body">
+        {choosingSide && civilWar && (
+          <section className="panel control-block" aria-label="选择内战阵营">
+            <h3>政体内战 · 反对派要求实施{civilWar.demand}</h3>
+            {civilSides.map((side) => {
+              const actor = side === "government" ? civilWar.countryId : oppositionId(civilWar.countryId);
+              const provinces = Object.keys(game.ownerByStateId).filter((id) => game.ownerByStateId[id] === actor);
+              const population = provinces.reduce((sum, id) => sum + game.stateEconomies[id].population, 0);
+              const troops = provinces.reduce((sum, id) => sum + garrisonHeadcount(game, id), 0);
+              return <div className="diplomacy-actions" key={side}>
+                <button disabled={actionPending || finished}
+                  onClick={() => send({ type: "chooseCivilWarSide", countryId: civilWar.countryId, side })}>
+                  加入{side === "government" ? "政府" : "反对派"}
+                </button>
+                <span>{provinces.length} 个州 · 人口 {count(population)} · 常备军 {count(troops)}</span>
+              </div>;
+            })}
+          </section>
+        )}
+        {game.lastCivilWar?.countryId === seat && <p className="save-notice">
+          上次内战由{game.lastCivilWar.winner === "government" ? "政府" : "反对派"}赢得，双方辖区已统一。
+        </p>}
         {!connection && player && <div className="difficulty-control">
           <label>游戏难度
             <select aria-label="游戏难度" value={game.settings.difficulty} disabled={locked || finished}
@@ -485,7 +596,19 @@ export function App({ scenario, geometry, initialSaves, initialSaveNotice }: {
           </section>
         )}
           {player && report && (!connection || onlinePlaying) ? <>
-            {tab === 0 && <EconomyPanel
+            {tab === "country" && <section className="panel">
+              <header className="panel-header"><h2>{countryNames[player]}</h2></header>
+              <dl className="control-block country-overview">
+                <dt>辖州</dt><dd>{count(Object.values(game.ownerByStateId).filter((country) => country === player).length)}</dd>
+                <dt>人口</dt><dd>{count(Object.entries(game.stateEconomies).reduce((sum, [id, local]) =>
+                  sum + (game.ownerByStateId[id] === player ? local.population : 0), 0))}</dd>
+                <dt>现有国库</dt><dd>{silver(game.countryEconomies[player].treasury)}</dd>
+                <dt>政府集团</dt><dd>{game.nations[player].government.join("、")}</dd>
+              </dl>
+            </section>}
+            {tab === "economy" && reviewReady &&
+              <TutorialConstructionReview scenario={scenario} game={game} countryId={player} onReview={() => markGuide(guideStep!)} />}
+            {tab === "economy" && <EconomyPanel
               scenario={scenario}
               game={game}
               playerId={player}
@@ -493,13 +616,12 @@ export function App({ scenario, geometry, initialSaves, initialSaveNotice }: {
               report={report}
               busy={locked || finished}
               send={send}
-              onPopulationOpen={() => markGuide(5)}
+              onPopulationOpen={() => { if (owner === player) markGuide(5); }}
+              onCommodityOpen={() => markGuide(6)}
             />}
-            {tab === 0 && !connection && guideStep === 6 && game.lastEconomy && <button className="menu-button" onClick={() => markGuide(6)}>
-              已核对市场缺口
-            </button>}
-            {tab === 1 && <PoliticsPanel game={game} playerId={player} year={date.getUTCFullYear()} busy={locked || finished} send={send} />}
-            {tab === 2 && <DiplomacyPanel
+            {tab === "politics" && <PoliticsPanel scenario={scenario} game={game} playerId={player} year={date.getUTCFullYear()} busy={locked || finished} send={send} />}
+            {(tab === "diplomacy" || tab === "military") && <DiplomacyPanel
+              view={tab}
               scenario={scenario}
               game={game}
               playerId={player}
@@ -529,31 +651,55 @@ export function App({ scenario, geometry, initialSaves, initialSaveNotice }: {
                   <option value="">{matches.length} 个匹配州</option>
                   {matches.map(([id, s]) => (
                     <option key={id} value={id}>
-                      {s.name} · {countryNames[game.ownerByStateId[id]] ?? "无主领土"}
+                          {s.name} · {countryNames[game.ownerByStateId[id]] ?? unownedLabels[territoryType(scenario, game, id)]}
                     </option>
                   ))}
                 </select>
                 {site && (
                   <p aria-live="polite">
-                    <strong>{atlas[site].name}</strong> · {owner ? countryNames[owner] : "无主领土"}
+                    <strong>{atlas[site].name}</strong> · {owner ? countryNames[owner] : unownedLabels[selectedTerritory!]}
                     {actualController && ` · 实际控制 ${countryNames[actualController]}`}
-                    {!owner && " · 占领后加入本国市场"}
                   </p>
                 )}
+                {claims.map((claim) => (
+                  <p key={claim.claimantId}>
+                    {countryNames[claim.claimantId]}的外交宣称
+                    {claim.recognizedBy.length > 0 && ` · 承认方 ${claim.recognizedBy.map((id) => countryNames[id]).join("、")}`}
+                  </p>
+                ))}
+                {declaration && (() => {
+                  const reason = territorialClaimError(scenario, game, declaration);
+                  return (
+                    <button className="build" disabled={locked || finished || reason !== undefined} title={reason}
+                      onClick={() => send(declaration)}>
+                      {hasClaim ? "撤回本国领土宣称" : "登记领土宣称 · 1 外交影响力"}
+                    </button>
+                  );
+                })()}
                 {site && !owner && (
                   <div className="claim-territory">
-                    <p>无主领土可直接占领，无需宣战。一次支付 {silver(CLAIM_COST)}，立即获得州归属、人口和建设权限。</p>
-                    <button
-                      className="build"
-                      disabled={locked || finished || Boolean(claimError(scenario, game, site))}
-                      onClick={() => {
-                        send({ type: "claimState", stateId: site });
-                        if (!connection) setNotice(`已占领 ${atlas[site].name} · 支出 ${silver(CLAIM_COST)}`);
-                      }}
-                    >
-                      占领 {atlas[site].name}
-                    </button>
-                    <p role="status">{finished ? "剧本已结束" : claimError(scenario, game, site) ?? "可占领 · 不限制接壤或跨海"}</p>
+                    {settlement ? <>
+                      <p>{countryNames[settlement.countryId]} · {settlement.mode === "INDIRECT" ? "地方协议" : "移民开发"} ·
+                        行政来源 {atlas[settlement.anchorId].name} · 进度 {Math.floor(settlement.progress * 100)}%</p>
+                      {game.lastEconomy && <p>上周来源州行政覆盖 {Math.round((game.lastEconomy.states[settlement.anchorId].office?.coverage ?? 0) * 100)}%</p>}
+                      <progress aria-label="领土项目进度" max={1} value={settlement.progress} />
+                      {settlementContested(game, site) && <p role="status">项目因地区博弈暂停。</p>}
+                      {player === settlement.countryId && <button className="build" disabled={locked || finished || settlementContested(game, site)}
+                        onClick={() => send({ type: "cancelTerritorialSettlement", countryId: player, stateId: site })}>
+                        终止 {atlas[site].name} 项目
+                      </button>}
+                      {challenge && (() => {
+                        const reason = settlementChallengeError(scenario, game, challenge.countryId, challenge.stateId);
+                        return <button className="build" disabled={locked || finished || reason !== undefined} title={reason}
+                          onClick={() => send(challenge)}>对领土项目提出异议</button>;
+                      })()}
+                    </> : player && <>
+                      <button className="build" disabled={locked || finished || settlementBlock !== undefined} title={settlementBlock}
+                        onClick={() => send({ type: "claimState", countryId: player, stateId: site })}>
+                        {selectedTerritory === "LOCAL_POLITY" ? "洽谈地方协议" : "启动移民开发"} · {silver(CLAIM_COST)}
+                      </button>
+                      {settlementBlock && <p role="status">{settlementBlock}</p>}
+                    </>}
                   </div>
                 )}
               </div>

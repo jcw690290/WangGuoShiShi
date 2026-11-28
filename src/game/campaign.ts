@@ -9,6 +9,7 @@ import { calendarMonthsPassed } from "./time.ts";
 import { campaignBaselineSchema, measureCampaign, openingMetrics } from "./campaignMetrics.ts";
 import { GameRuleError } from "./rules.ts";
 import { constitutionalFormSchema, countryDisplayName, stateForm } from "./constitution.ts";
+import { projectTypes } from "./society.ts";
 
 export const defaultEndYear = 1936;
 export const endYearSchema = z.int().min(1821).max(9999);
@@ -49,6 +50,7 @@ export const campaignSchema = z.object({
   guideSkipped: z.boolean(),
   guideStep: z.int().min(0).max(8),
   guideWeek: z.int().nonnegative().nullable(),
+  guideProject: z.object({ stateId: z.string(), good: z.enum(projectTypes), privateBuild: z.boolean() }).optional(),
   sandbox: z.boolean(),
   ending: endingSchema.nullable(),
   achievements: achievementProgressSchema.optional(),
@@ -142,20 +144,40 @@ export function finalizeCampaign(
 
 export const guideSteps = [
   ["观察暂停", "开局已经暂停。继续推进，观察日期后再暂停。"],
-  ["核对财政", "打开政务菜单的经济页，区分国库余额和周收支。"],
-  ["查看属州", "点选一个本国州，查看人口、就业和市场接入。"],
-  ["安排项目", "查看费用和容量，在本国州安排一项可负担的建设。"],
-  ["推进施工", "推进至下一次周结，再检查队列和财政。"],
-  ["查看人口", "在州详情展开人口群体表，对照生活水平、工资和粮价。"],
-  ["查看瓶颈", "比较周供给、需求与未满足量，区分生产与接入限制。"],
-  ["设定目标", "根据刚看到的瓶颈，再安排一项可负担的短期工程。"],
+  ["核对财政", "展开地图右上的财政状态，比较手头国库、周结余和必要支出。"],
+  ["查看属州", "点选一个本国州并打开州详情，查看人口、就业、产业容量和市场接入。"],
+  ["安排项目", "查看费用、用工、原料和工期，在本国州安排一项可负担的建设。"],
+  ["推进施工", "推进至下一次周结，在经济页复盘施工点、实付支出和进度。"],
+  ["查看人口", "在本国州打开人口群体表，对照生活水平、工资和粮价。"],
+  ["查看瓶颈", "展开最近周结的商品详情，比较供给、需求、州接入和线路限制。"],
+  ["设定目标", "根据瓶颈安排一项短期工程，推进到下一次周结后复盘实际结果。"],
 ] as const;
+
+export function noteTutorialProject(state: GameState, project: NonNullable<Campaign["guideProject"]>) {
+  const campaign = state.campaign;
+  if (!campaign?.tutorialEnabled || campaign.guideSkipped ||
+      (campaign.guideStep !== 3 && (campaign.guideStep !== 7 || campaign.guideProject))) return state;
+  return { ...state, campaign: {
+    ...campaign, guideStep: campaign.guideStep === 3 ? 4 : 7,
+    guideWeek: Math.floor(state.elapsedDays / 7), guideProject: project,
+  } };
+}
+
+export function tutorialReviewReady(state: GameState, countryId = state.playerCountryId) {
+  const campaign = state.campaign;
+  return !!campaign?.tutorialEnabled && !campaign.guideSkipped && countryId !== null &&
+    (campaign.guideStep === 4 || (campaign.guideStep === 7 && campaign.guideProject !== undefined)) &&
+    campaign.guideWeek !== null && Math.floor(state.elapsedDays / 7) > campaign.guideWeek &&
+    !!state.lastEconomy?.countries[countryId].construction;
+}
 
 export function completeGuideStep(state: GameState, step: number): GameState {
   const campaign = state.campaign;
   if (!campaign?.tutorialEnabled || campaign.guideSkipped || campaign.guideStep !== step || step >= guideSteps.length) return state;
+  if ((step === 4 || step === 7) && !tutorialReviewReady(state)) return state;
+  const { guideProject: _project, ...progress } = campaign;
   return { ...state, campaign: {
-    ...campaign, guideStep: step + 1,
-    guideWeek: step === 3 ? Math.floor(state.elapsedDays / 7) : campaign.guideWeek,
+    ...progress, guideStep: step + 1,
+    guideWeek: step === 3 ? Math.floor(state.elapsedDays / 7) : null,
   } };
 }

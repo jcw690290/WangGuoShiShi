@@ -3,7 +3,7 @@ import { test } from "node:test";
 import { projectEconomy } from "../src/game/economy.ts";
 import { createGame, dispatch } from "../src/game/engine.ts";
 import { workingCapitalPerLevel } from "../src/game/industrial.ts";
-import { byGood, goods } from "../src/game/industry.ts";
+import { byProductiveBuilding, goods } from "../src/game/industry.ts";
 import { parseSave, saveVersion } from "../src/game/storage.ts";
 import { borderScenario } from "../src/scenario/scenario.ts";
 
@@ -49,7 +49,7 @@ test("版本 8 的农田、纺织和已付款工程只转换一次并可继续�
   const local = old.stateEconomies[stateId];
   delete local.commercialRecipes;
   delete local.industrial;
-  local.buildings = { ...byGood(() => 0), grain: 2, cloth: 1 };
+  local.buildings = { ...byProductiveBuilding(() => 0), grain: 2, cloth: 1 };
   old.countryEconomies[countryId].queue.push({ stateId, good: "grain", weeksLeft: 0.5 });
   const restored = parseSave(scenario, { version: 8, scenarioId: scenario.id, state: old });
   const funded = restored.stateEconomies[stateId];
@@ -59,6 +59,7 @@ test("版本 8 的农田、纺织和已付款工程只转换一次并可继续�
   assert.deepEqual(restored.countryEconomies[countryId].queue[0], { stateId, good: "grain", weeksLeft: 0.5, levels: 12 });
   assert.equal(restored.countryEconomies[countryId].treasury, old.countryEconomies[countryId].treasury);
   assert.deepEqual(parseSave(scenario, { version: saveVersion, scenarioId: scenario.id, state: restored }), restored);
+  restored.stateEconomies[stateId].constructionStock = { public: { wood: 240, tools: 60, iron: 60 }, private: { wood: 0, tools: 0, iron: 0 } };
   let next = restored;
   for (let week = 0; week < 12 && next.countryEconomies[countryId].queue.length; week++)
     next = dispatch(scenario, next, { type: "advanceWeek" });

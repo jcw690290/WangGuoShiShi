@@ -1,8 +1,8 @@
 import { GameRuleError } from "./rules.ts";
 import { z } from "zod";
 import { diplomaticTie, removeDiplomaticTies } from "./diplomatic-ties.ts";
-import { newFrontier } from "./governance.ts";
-import { connectedRailway, convoyCargoCapacity, portCapacity, raidedConvoyCargoCapacity } from "./transport.ts";
+import { localGovernanceRule, newFrontier } from "./governance.ts";
+import { connectedRailway, convoyCargoCapacity, portCapacity } from "./transport.ts";
 import { effectiveConvoyCapacity } from "./fleet.ts";
 import type { MaritimeTerminal } from "./transport.ts";
 import { unrestEffects } from "./unrest.ts";
@@ -13,11 +13,21 @@ import { projectOpeningCapital } from "./economy.ts";
 import { ruleTuning } from "./settings.ts";
 import { syncOccupation } from "./occupation.ts";
 import { adjustForeignRelation, breakOpposedTreaties, diplomaticTrust, expireTreatyOffers, influenceBudget, reconcileTreaties,
-  relationBetween, signForeignTreaty, treatyBetween, treatyInfluence, treatyPartners } from "./foreign-relations.ts";
-import { governmentLegitimacy, influence, unrestOf } from "./society.ts";
-import { battalionDetails, battalionTrainingDays, battalionsAt } from "./military.ts";
+  fulfillObligation, obligationBetween, relationBetween, signForeignTreaty, treatyBetween,
+  treatyInfluence, treatyPartners } from "./foreign-relations.ts";
+import { governmentLegitimacy, hash, influence, unrestOf } from "./society.ts";
+import { battalionDetails, battalionTrainingDays, battalionsAt, commandCapacity, draftCenterQuota, equipmentDetails, garrisonHeadcount } from "./military.ts";
+import { militaryServicePolicies, militaryServicePolicy } from "./military-service.ts";
+import { applyMilitaryLoss, warLossesSchema } from "./military-health.ts";
+import { fleetPower, navalMissionSchema, navalMissionTargets, planNavalOperations } from "./naval-operations.ts";
+import type { NavalMissionCommand } from "./naval-operations.ts";
+import { recognizeTerritorialClaim, reconcileTerritorialPlans, settlementAt, territorialClaim, territorialClaimError } from "./territory.ts";
+import type { TerritorialClaimCommand } from "./territory.ts";
+import { minOpiumClaim, opiumEffects, recentOpiumLosses } from "./opium.ts";
+import { endCivilWar } from "./civil-war.ts";
+import { elapsedTicks, TICKS_PER_DAY } from "./time.ts";
 
-export const goals = ["cession", "reparations", "puppet", "vassal", "protectorate", "annex"] as const;
+export const goals = ["cession", "reparations", "puppet", "vassal", "protectorate", "annex", "recognition", "haltSettlement", "opiumCompensation", "regime"] as const;
 export type Goal = (typeof goals)[number];
 export const goalNames = {
   cession: "割让争端州",
@@ -26,14 +36,27 @@ export const goalNames = {
   vassal: "成为封臣",
   protectorate: "成为保护国",
   annex: "吞并附属国",
+  recognition: "承认领土宣称",
+  haltSettlement: "终止领土项目",
+  opiumCompensation: "赔偿鸦片贸易损失",
+  regime: "决定国家政体",
 };
 export function subjectGoal(g: Goal): g is "puppet" | "vassal" | "protectorate" {
   return g === "puppet" || g === "vassal" || g === "protectorate";
 }
-export function canDemandGoal(state: GameState, claimantId: string, defenderId: string, goal: Goal) {
+function unrecognizedClaim(state: GameState, claimantId: string, defenderId: string, targetStateId: string) {
+  const claim = territorialClaim(state, claimantId, targetStateId);
+  return claim !== undefined && !claim.recognizedBy.includes(defenderId);
+}
+
+const transfersLand = (goal: Goal) => goal === "cession" || goal === "annex";
+
+export function canDemandGoal(state: GameState, claimantId: string, defenderId: string, goal: Goal, targetStateId: string) {
   return (
+    goal !== "haltSettlement" && goal !== "opiumCompensation" && goal !== "regime" &&
     !treatyBetween(state, claimantId, defenderId, "defensive") &&
     (goal !== "annex" || state.nations[defenderId].overlord === claimantId) &&
+    (goal !== "recognition" || unrecognizedClaim(state, claimantId, defenderId, targetStateId)) &&
     (!subjectGoal(goal) || !state.nations[claimantId].marketLeader)
   );
 }
@@ -42,8 +65,18 @@ export function canAddGoal(state: GameState, dispute: BorderDispute, goal: Goal)
   return (
     !dispute.goals.includes(goal) &&
     (!subjectGoal(goal) || !dispute.goals.some(subjectGoal)) &&
-    canDemandGoal(state, dispute.claimantId, dispute.defenderId, goal)
+    (goal !== "recognition" || !dispute.goals.some(transfersLand)) &&
+    (!transfersLand(goal) || !dispute.goals.includes("recognition")) &&
+    canDemandGoal(state, dispute.claimantId, dispute.defenderId, goal, dispute.targetStateId)
   );
+}
+
+function demandInfamy(state: GameState, claimantId: string, defenderId: string, targetStateId: string, goal: Goal) {
+  if (goal === "annex") return 3;
+  if (goal === "recognition") return 4;
+  if (goal === "haltSettlement" || goal === "opiumCompensation") return 6;
+  if (goal === "cession" && territorialClaim(state, claimantId, targetStateId)?.recognizedBy.includes(defenderId)) return 6;
+  return 12;
 }
 
 export const peaceGoalsSchema = z.array(z.enum(goals)).max(goals.length)
@@ -54,8 +87,29 @@ const peaceOfferSchema = z.object({
 type PeaceOffer = z.infer<typeof peaceOfferSchema>;
 const peaceOfferDuration = 14;
 
+const mobilizationDelayDays = 7;
+const mobilizationPlanSchema = z.object({
+  orderedDay: z.int().nonnegative(),
+  orderedTickInDay: z.int().min(0).max(TICKS_PER_DAY - 1).optional(),
+  readyDay: z.int().nonnegative(),
+  origins: z.array(z.string()).nonempty().refine((sites) => new Set(sites).size === sites.length),
+}).refine(({ orderedDay, readyDay }) =>
+  Object.values(militaryServicePolicies).some(({ mobilizationDays }) =>
+    [0, 1, 2].some((delay) => readyDay - orderedDay === mobilizationDays + delay * mobilizationDelayDays)));
+export const supplyPriorities = ["front", "balanced", "civilian"] as const;
+export const supplyPriorityDetails = {
+  front: { name: "前线优先", share: 1 },
+  balanced: { name: "军民兼顾", share: 0.8 },
+  civilian: { name: "保障民用", share: 0.55 },
+} as const;
+const frontOrderSchema = z.object({ objective: z.string().nullable(), priority: z.enum(supplyPriorities) });
+type FrontOrder = z.infer<typeof frontOrderSchema>;
+
 export const disputeSchema = z.object({
   targetStateId: z.string(),
+  settlementStateId: z.string().optional(),
+  opiumClaim: z.object({ loss: z.int().min(minOpiumClaim), paid: z.int().nonnegative().optional() })
+    .refine((claim) => claim.paid === undefined || claim.paid <= claim.loss).optional(),
   claimantId: z.string(),
   defenderId: z.string(),
   phase: z.enum(["escalation", "bargaining", "countdown", "war", "resolved"]),
@@ -69,9 +123,15 @@ export const disputeSchema = z.object({
   allies: z.array(z.string()),
   promises: z.array(z.string()),
   defenders: z.array(z.string()),
+  containment: z.array(z.string()).optional(),
   mobilized: z.array(z.string()),
+  mobilization: z.record(z.string(), mobilizationPlanSchema).optional(),
+  losses: z.record(z.string(), warLossesSchema).optional(),
   advance: z.array(z.string()),
+  retreating: z.array(z.string()).optional(),
+  frontOrders: z.record(z.string(), frontOrderSchema).optional(),
   raid: z.array(z.string()),
+  navalMissions: z.record(z.string(), navalMissionSchema).optional(),
   progress: z.int().min(0).max(100),
   lastChange: z.int().nullable(),
   outcome: z.enum(["victory", "withdrawal", "statusQuo"]).nullable(),
@@ -86,16 +146,22 @@ export type BorderCommand =
   | { type: "declareInterest"; countryId: string; targetStateId: string }
   | { type: "demandBorder"; countryId: string; targetStateId: string; goal: Goal }
   | { type: "addGoal"; countryId: string; goal: Goal }
-  | { type: "sway"; countryId: string; allyId: string }
+  | { type: "sway"; countryId: string; allyId: string; useObligation?: boolean }
   | { type: "proposePeace"; countryId: string; goals: Goal[]; commercial: boolean }
   | { type: "acceptPeace" | "rejectPeace"; countryId: string }
+  | ({ type: "setFrontOrder"; countryId: string } & FrontOrder)
+  | NavalMissionCommand
   | { type: "endDiplomaticTie"; countryId: string; partnerId: string }
+  | { type: "joinContainment"; countryId: string }
+  | { type: "challengeTerritorialSettlement"; countryId: string; stateId: string }
+  | { type: "demandOpiumCompensation"; countryId: string; stateId: string }
   | {
       type:
         | "backDown"
         | "mobilize"
         | "orderAdvance"
         | "orderDefend"
+        | "orderRetreat"
         | "raid"
         | "signTreaty"
         | "armistice"
@@ -126,6 +192,54 @@ export function canReach(
       (site.coastal && (hasPort ?? holdings(scenario, state, id).some((s) => s.coastal))))
   );
 }
+
+export function settlementChallengeError(scenario: Scenario, state: GameState, countryId: string, stateId: string) {
+  const project = settlementAt(state, stateId);
+  if (!project || project.countryId === countryId) return "只可对他国进行中的领土项目提出异议";
+  if (state.borderDispute && state.borderDispute.phase !== "resolved") return "当前已有地区博弈";
+  if (!territorialClaim(state, countryId, stateId) || state.nations[countryId].overlord)
+    return "本国需独立并持有该地区的宣称";
+  if (state.ownerByStateId[project.anchorId] !== project.countryId || !canReach(scenario, state, countryId, project.anchorId))
+    return "需要能接触主持项目的来源州";
+  if (treatyBetween(state, countryId, project.countryId, "defensive")) return "防御盟国之间不能发起异议";
+}
+
+export function opiumDemandError(scenario: Scenario, state: GameState, countryId: string, stateId: string) {
+  if (state.borderDispute && state.borderDispute.phase !== "resolved") return "当前已有地区博弈";
+  if ((recentOpiumLosses(state, countryId).get(stateId) ?? 0) < minOpiumClaim) return "近期实际贸易损失不足";
+  const partner = state.ownerByStateId[stateId];
+  if (state.nations[countryId].overlord || !canReach(scenario, state, countryId, stateId) ||
+      !interested(scenario, state, countryId, stateId)) return "需要独立且在可达的目标州拥有地区利益";
+  if (treatyBetween(state, countryId, partner, "defensive")) return "防御盟国之间不能提出该赔偿要求";
+}
+
+function openDispute(state: GameState, id: string, target: string, goal: Goal,
+  context: Pick<BorderDispute, "settlementStateId" | "opiumClaim"> = {}): GameState {
+  const defender = state.ownerByStateId[target], nation = state.nations[id];
+  const defenders = new Set(Object.keys(state.nations).filter((countryId) =>
+    countryId !== id && countryId !== defender &&
+    ((state.nations[countryId].overlord === defender && state.nations[countryId].subjectType !== "protectorate") ||
+      countryId === state.nations[defender].overlord)));
+  for (const partner of treatyPartners(state, defender, "defensive"))
+    if (partner !== id) defenders.add(partner);
+  const allies = Object.keys(state.nations).filter((countryId) => countryId !== defender && !defenders.has(countryId) &&
+    state.nations[countryId].overlord === id && state.nations[countryId].subjectType !== "protectorate");
+  const repeated = nation.lastThreatDay !== undefined && state.elapsedDays - nation.lastThreatDay < 180;
+  const pressure = adjustForeignRelation(state, id, defender, repeated ? -17 : -12, repeated ? -10 : -5);
+  return {
+    ...pressure,
+    nations: { ...pressure.nations, [id]: {
+      ...nation, infamy: nation.infamy + demandInfamy(state, id, defender, target, goal),
+      lastThreatDay: state.elapsedDays, prestige: nation.prestige - (repeated ? 8 : 0),
+    } },
+    borderDispute: {
+      phase: "escalation", claimantId: id, defenderId: defender, targetStateId: target,
+      ...context,
+      since: state.elapsedDays, goals: [goal], maneuvers: 2, allies, promises: [], defenders: [...defenders],
+      mobilized: [], advance: [], raid: [], progress: 0, lastChange: null, outcome: null,
+    },
+  };
+}
 export function interested(scenario: Scenario, state: GameState, id: string, target: string) {
   return (
     landBorder(scenario, state, id, target) ||
@@ -135,6 +249,43 @@ export function interested(scenario: Scenario, state: GameState, id: string, tar
 export function participants(d: BorderDispute) {
   return [d.claimantId, ...d.allies, d.defenderId, ...d.defenders];
 }
+
+export function containmentCandidates(scenario: Scenario, state: GameState, dispute: BorderDispute) {
+  const infamy = state.nations[dispute.claimantId].infamy;
+  if (infamy < 50 || (dispute.phase !== "bargaining" && dispute.phase !== "countdown")) return [];
+  const severe = infamy >= 75;
+  if ((dispute.containment?.length ?? 0) >= (severe ? 3 : 2)) return [];
+  const involved = new Set(participants(dispute));
+  const targets = scenario.states[dispute.targetStateId];
+  const strengths: Record<string, number> = {};
+  for (const [siteId, owner] of Object.entries(state.ownerByStateId))
+    strengths[owner] = (strengths[owner] ?? 0) + garrisonHeadcount(state, siteId);
+  if (targets.coastal)
+    for (const id of Object.keys(strengths)) strengths[id] += 80 * fleetPower(state, id);
+  const attackers = [dispute.claimantId, ...dispute.allies].reduce((sum, id) => sum + strengths[id], 0);
+  const defenders = [dispute.defenderId, ...dispute.defenders].reduce((sum, id) => sum + strengths[id], 0);
+  const eligible = Object.keys(strengths).filter((id) =>
+    !involved.has(id) && state.nations[id].overlord === null && strengths[id] > 0 &&
+    !treatyBetween(state, id, dispute.claimantId, "defensive") &&
+    (landBorder(scenario, state, id, targets.id) ||
+      (severe && interested(scenario, state, id, targets.id) && canReach(scenario, state, id, targets.id))) &&
+    defenders + strengths[id] >= attackers * (severe ? 0.45 : 0.6));
+  return eligible.sort((a, b) => strengths[b] - strengths[a] || a.localeCompare(b));
+}
+
+export function swayError(scenario: Scenario, state: GameState, dispute: BorderDispute, cmd: Extract<BorderCommand, { type: "sway" }>) {
+  const { countryId, allyId, useObligation } = cmd;
+  if (countryId !== dispute.claimantId || dispute.phase !== "bargaining") return "没有可用博弈点";
+  if (!state.nations[allyId] || participants(dispute).includes(allyId) || state.nations[allyId].overlord ||
+      !Object.values(state.ownerByStateId).includes(allyId) || !interested(scenario, state, allyId, dispute.targetStateId))
+    return "第三国需保有独立领土和目标地区利益";
+  const obligation = useObligation && obligationBetween(state, countryId, allyId);
+  if (useObligation && !obligation) return "对方没有待履行的义务";
+  const relationship = relationBetween(state, countryId, allyId);
+  if (relationship.standing < (obligation ? -55 : -35) || diplomaticTrust(relationship, allyId) < (obligation ? 10 : 25))
+    return "关系或信任过低，第三国拒绝支持";
+  if (dispute.maneuvers < swayCost(state.nations[countryId].infamy)) return "恶名提高了拉拢成本，博弈点不足";
+}
 export function attacking(d: BorderDispute, id: string) {
   return id === d.claimantId || d.allies.includes(id);
 }
@@ -142,6 +293,7 @@ const withoutPeaceOffer = ({ peaceOffer: _offer, ...dispute }: BorderDispute) =>
 function treaty(state: GameState, d: BorderDispute, victory: boolean, withdrawal = false, terms = d.goals): GameState {
   const { occupation: released, ...world } = state;
   let diplomaticState: GameState = world;
+  let opiumClaim = d.opiumClaim;
   const ownerByStateId = { ...state.ownerByStateId },
     countryEconomies = { ...state.countryEconomies },
     nations = { ...state.nations },
@@ -157,6 +309,10 @@ function treaty(state: GameState, d: BorderDispute, victory: boolean, withdrawal
           societies[id] = {
             ...site, governance: { ...newFrontier }, battalionOrders: [],
             barracksTraining: site.barracks === 0 ? [] : [{ levels: site.barracks, readyDay: state.elapsedDays + battalionTrainingDays }],
+            ...(site.militaryHealth ? { militaryHealth: {
+              injuries: site.militaryHealth.injuries.map((injury) => ({ ...injury, regulars: 0, conscripts: 0 })),
+              replacements: [],
+            } } : {}),
           };
         }
       const subsidies = countryEconomies[b].industrySubsidies;
@@ -168,12 +324,13 @@ function treaty(state: GameState, d: BorderDispute, victory: boolean, withdrawal
         ...(subsidies ? { industrySubsidies: Object.fromEntries(Object.entries(subsidies)
           .filter(([stateId]) => ownerByStateId[stateId] === b)) } : {}),
       };
-      const fleet = nations[b].fleet;
+      const { fleet, navy } = nations[b];
       const motorizationPort = fleet.motorizationPort;
       nations[b] = {
         ...nations[b],
         fleet: { ...fleet, order: fleet.order && ownerByStateId[fleet.order.stateId] === b ? fleet.order : null,
           motorizationPort: motorizationPort !== null && ownerByStateId[motorizationPort] === b ? motorizationPort : null },
+        navy: { ...navy, order: navy.order && ownerByStateId[navy.order.stateId] === b ? navy.order : null },
         investment: nations[b].investment + nations[b].privateQueue.reduce((sum, p) =>
           sum + (ownerByStateId[p.stateId] === b ? 0 : projectOpeningCapital(p)), 0),
         privateQueue: nations[b].privateQueue.filter((p) => ownerByStateId[p.stateId] === b),
@@ -184,6 +341,18 @@ function treaty(state: GameState, d: BorderDispute, victory: boolean, withdrawal
       countryEconomies[b] = { ...countryEconomies[b], treasury: countryEconomies[b].treasury - amount };
       countryEconomies[a] = { ...countryEconomies[a], treasury: countryEconomies[a].treasury + amount };
     }
+    if (terms.includes("opiumCompensation")) {
+      const loss = opiumClaim!.loss;
+      const paid = Math.min(loss, Math.max(0, countryEconomies[b].treasury));
+      countryEconomies[b] = { ...countryEconomies[b], treasury: countryEconomies[b].treasury - paid };
+      countryEconomies[a] = { ...countryEconomies[a], treasury: countryEconomies[a].treasury + paid };
+      opiumClaim = { loss, paid };
+    }
+    if (terms.includes("recognition"))
+      diplomaticState = adjustForeignRelation(recognizeTerritorialClaim(diplomaticState, a, b, d.targetStateId), b, a, 4, 5);
+    if (terms.includes("haltSettlement"))
+      diplomaticState = { ...diplomaticState, territorialSettlements: diplomaticState.territorialSettlements!
+        .filter((project) => project.stateId !== d.settlementStateId) };
     const subjectType = terms.find(subjectGoal);
     if (subjectType && Object.values(ownerByStateId).includes(b)) {
       for (const [id, n] of Object.entries(nations))
@@ -213,7 +382,7 @@ function treaty(state: GameState, d: BorderDispute, victory: boolean, withdrawal
     !live.has(senior) || !live.has(partner) ||
     nations[senior].overlord === partner || nations[partner].overlord === senior,
   );
-  return reconcileTreaties({
+  return reconcileTerritorialPlans(reconcileTreaties({
     ...relations,
     ownerByStateId,
     countryEconomies,
@@ -222,16 +391,23 @@ function treaty(state: GameState, d: BorderDispute, victory: boolean, withdrawal
     lastEconomy: null,
     borderDispute: {
       ...withoutPeaceOffer(d),
+      ...(opiumClaim ? { opiumClaim } : {}),
       phase: "resolved",
       since: state.elapsedDays,
       outcome: victory ? "victory" : withdrawal ? "withdrawal" : "statusQuo",
     },
-  });
+  }));
 }
 
 export function peaceTermsError(state: GameState, dispute: BorderDispute, terms: Goal[], commercial: boolean) {
+  if (state.civilWar) return "内战以阵营统一或一方投降结束";
   if (!peaceGoalsSchema.safeParse(terms).success || terms.some((goal) => !dispute.goals.includes(goal)))
     return "只能选择当前争端中互不重复的条款";
+  if (terms.includes("recognition") && (terms.some(transfersLand) ||
+      !unrecognizedClaim(state, dispute.claimantId, dispute.defenderId, dispute.targetStateId)))
+    return "承认条款需要尚未获对方承认且将保留的宣称";
+  if (terms.includes("haltSettlement") && settlementAt(state, dispute.settlementStateId!)?.countryId !== dispute.defenderId)
+    return "领土项目已经变更";
   if (commercial && (terms.includes("annex") || (terms.includes("cession") &&
       Object.values(state.ownerByStateId).filter((owner) => owner === dispute.defenderId).length === 1)))
     return "双边通商协定需要双方在和约后保有领土";
@@ -250,13 +426,22 @@ export function warWillingness(state: GameState, d: BorderDispute, countryId: st
   const occupied = state.occupation !== undefined && state.ownerByStateId[state.occupation.stateId] === countryId;
   const fatigue = d.phase === "war" ? Math.min(30, (state.elapsedDays - d.since) / 7) : 0;
   const momentum = d.phase === "war" ? (d.progress - 50) * (countryId === d.claimantId ? 0.35 : -0.35) : 0;
+  const losses = d.losses?.[countryId];
+  const army = state.lastEconomy?.countries[countryId].military;
+  const casualtyPressure = losses && army
+    ? Math.min(25, 60 * (losses.dead + 0.4 * losses.injured) / Math.max(1, army.regulars + army.conscripts + losses.dead))
+    : 0;
   return Math.round(Math.max(0, Math.min(100, 55 + momentum + (legitimacy - 50) * 0.3 +
-    (nation.morale - 50) * 0.3 - unrest * 0.25 - budgetPressure - fatigue - (occupied ? 15 : 0))));
+    (nation.morale - 50) * 0.3 - unrest * 0.25 - budgetPressure - fatigue - casualtyPressure - (occupied ? 15 : 0))));
 }
 
 function acceptsPeace(state: GameState, d: BorderDispute, offer: PeaceOffer, countryId: string) {
   if (peaceTermsError(state, d, offer.goals, offer.commercial)) return false;
-  const costs: Record<Goal, number> = { cession: 28, reparations: 12, puppet: 42, vassal: 36, protectorate: 28, annex: 100 };
+  const costs: Record<Goal, number> = {
+    cession: 28, reparations: 12, puppet: 42, vassal: 36, protectorate: 28, annex: 100, recognition: 8, haltSettlement: 14, regime: 100,
+    opiumCompensation: d.opiumClaim
+      ? Math.min(45, 6 + 100 * d.opiumClaim.loss / Math.max(1, state.countryEconomies[d.defenderId].treasury)) : 0,
+  };
   const concessions = offer.goals.reduce((sum, goal) => sum + costs[goal], 0);
   const willingness = warWillingness(state, d, countryId);
   if (countryId === d.defenderId) return concessions <= 95 - willingness;
@@ -304,6 +489,20 @@ export function applyBorderCommand(scenario: Scenario, state: GameState, cmd: Bo
       throw new GameRuleError("无法加入该关税同盟");
     return { ...change({ marketLeader: cmd.leaderId }), lastEconomy: null };
   }
+  if (cmd.type === "challengeTerritorialSettlement") {
+    const error = settlementChallengeError(scenario, state, id, cmd.stateId);
+    if (error) throw new GameRuleError(error);
+    return openDispute(state, id, settlementAt(state, cmd.stateId)!.anchorId, "haltSettlement", { settlementStateId: cmd.stateId });
+  }
+  if (cmd.type === "demandOpiumCompensation") {
+    const error = opiumDemandError(scenario, state, id, cmd.stateId);
+    if (error) throw new GameRuleError(error);
+    const loss = recentOpiumLosses(state, id).get(cmd.stateId)!;
+    const partner = state.ownerByStateId[cmd.stateId];
+    const filing = { ...state, opiumLosses: state.opiumLosses!.filter((entry) =>
+      entry.exporter !== id || entry.importer !== partner || entry.stateId !== cmd.stateId) };
+    return openDispute(filing, id, cmd.stateId, "opiumCompensation", { opiumClaim: { loss } });
+  }
   if (cmd.type === "declareInterest" || cmd.type === "demandBorder") {
     const target = cmd.targetStateId,
       defender = state.ownerByStateId[target];
@@ -316,43 +515,16 @@ export function applyBorderCommand(scenario: Scenario, state: GameState, cmd: Bo
       (d && d.phase !== "resolved") ||
       !interested(scenario, state, id, target) ||
       n.overlord ||
-      !canDemandGoal(state, id, defender, cmd.goal)
+      !canDemandGoal(state, id, defender, cmd.goal, target)
     )
       throw new GameRuleError("无法提出这项外交要求");
-    const defenders = new Set(Object.keys(state.nations).filter(
-      (x) =>
-        x !== id &&
-        x !== defender &&
-        ((state.nations[x].overlord === defender && state.nations[x].subjectType !== "protectorate") ||
-          x === state.nations[defender].overlord),
-    ));
-    for (const partner of treatyPartners(state, defender, "defensive"))
-      if (partner !== id) defenders.add(partner);
-    const allies = Object.keys(state.nations).filter(
-      (x) =>
-        x !== defender && !defenders.has(x) && state.nations[x].overlord === id && state.nations[x].subjectType !== "protectorate",
-    );
-    return {
-      ...adjustForeignRelation(change({ infamy: n.infamy + (cmd.goal === "annex" ? 3 : 12) }), id, defender, -12, -5),
-      borderDispute: {
-        phase: "escalation",
-        claimantId: id,
-        defenderId: defender,
-        targetStateId: target,
-        since: state.elapsedDays,
-        goals: [cmd.goal],
-        maneuvers: 2,
-        allies,
-        promises: [],
-        defenders: [...defenders],
-        mobilized: [],
-        advance: [],
-        raid: [],
-        progress: 0,
-        lastChange: null,
-        outcome: null,
-      },
-    };
+    return openDispute(state, id, target, cmd.goal);
+  }
+  if (cmd.type === "joinContainment") {
+    if (!d || !containmentCandidates(scenario, state, d).includes(id))
+      throw new GameRuleError("当前未满足地区防御联合条件");
+    const joined = adjustForeignRelation(adjustForeignRelation(state, id, d.claimantId, -10, -8), id, d.defenderId, 8, 5);
+    return { ...joined, borderDispute: { ...d, defenders: [...d.defenders, id], containment: [...(d.containment ?? []), id] } };
   }
   if (!d || d.phase === "resolved" || !participants(d).includes(id)) throw new GameRuleError("没有本国参与的争端");
   const patch = (fields: Partial<BorderDispute>) => ({ ...state, borderDispute: { ...d, ...fields } });
@@ -381,27 +553,19 @@ export function applyBorderCommand(scenario: Scenario, state: GameState, cmd: Bo
     if (cmd.type === "addGoal") {
       if (!canAddGoal(state, d, cmd.goal)) throw new GameRuleError("无效目标");
       return {
-        ...change({ infamy: n.infamy + (cmd.goal === "annex" ? 3 : 12) }),
+        ...change({ infamy: n.infamy + demandInfamy(state, id, d.defenderId, d.targetStateId, cmd.goal) }),
         borderDispute: { ...d, maneuvers: d.maneuvers - 1, goals: [...d.goals, cmd.goal] },
       };
     }
-    if (
-      !state.nations[cmd.allyId] ||
-      participants(d).includes(cmd.allyId) ||
-      state.nations[cmd.allyId].overlord ||
-      !interested(scenario, state, cmd.allyId, d.targetStateId)
-    )
-      throw new GameRuleError("第三国需要在目标地区拥有利益");
-    const cost = swayCost(n.infamy);
-    const relationship = relationBetween(state, id, cmd.allyId);
-    if (relationship.standing < -35 || diplomaticTrust(relationship, cmd.allyId) < 25)
-      throw new GameRuleError("关系或信任过低，第三国拒绝支持");
-    if (d.maneuvers < cost) throw new GameRuleError("恶名提高了拉拢成本，博弈点不足");
-    return patch({
-      maneuvers: d.maneuvers - cost,
+    const error = swayError(scenario, state, d, cmd);
+    if (error) throw new GameRuleError(error);
+    const obligation = cmd.useObligation ? obligationBetween(state, id, cmd.allyId) : undefined;
+    const updated = obligation ? fulfillObligation(state, obligation) : state;
+    return { ...updated, borderDispute: { ...d,
+      maneuvers: d.maneuvers - swayCost(n.infamy),
       allies: [...d.allies, cmd.allyId],
-      promises: [...d.promises, cmd.allyId],
-    });
+      promises: obligation ? d.promises : [...d.promises, cmd.allyId],
+    } };
   }
   if (cmd.type === "backDown") {
     if (d.phase === "war" || (id !== d.claimantId && id !== d.defenderId))
@@ -412,7 +576,17 @@ export function applyBorderCommand(scenario: Scenario, state: GameState, cmd: Bo
     return treaty(state, concession, true);
   }
   if (d.phase !== "war") throw new GameRuleError("尚未进入战争");
+  if (cmd.type === "setFrontOrder") {
+    const { objective, priority } = cmd;
+    if (objective !== null && !frontObjectives(scenario, state, d, id).some((site) => site.id === objective))
+      throw new GameRuleError("该战区当前无法到达");
+    return patch({ frontOrders: { ...d.frontOrders, [id]: { objective, priority } } });
+  }
   if (cmd.type === "signTreaty" || cmd.type === "armistice") {
+    if (state.civilWar) {
+      if (cmd.type !== "armistice") throw new GameRuleError("内战战线将自动结算胜负");
+      return endCivilWar(state, id === d.claimantId ? "government" : "opposition");
+    }
     if ((id !== d.claimantId && id !== d.defenderId) || d.lastChange === null)
       throw new GameRuleError("尚无法签署和约");
     if (cmd.type === "signTreaty" && d.progress < scenario.borderDispute.cessionProgress)
@@ -423,15 +597,40 @@ export function applyBorderCommand(scenario: Scenario, state: GameState, cmd: Bo
   }
   if (cmd.type === "mobilize") {
     if (d.mobilized.includes(id)) throw new GameRuleError("已经征兵");
-    return patch({ mobilized: [...d.mobilized, id] });
+    const route = planWar(scenario, state)!.routes[id];
+    const origins = mobilizationOrigins(state, route);
+    if (!origins.length) throw new GameRuleError("没有可征召的战区兵源");
+    const nation = state.nations[id];
+    const transportDelay = nation.knowledge["运输调度"] !== 100 && (route.overseas ||
+      origins.every((siteId) => state.societies[siteId].infrastructure === 1 && state.societies[siteId].railway === 0));
+    const governmentDelay = origins.some((siteId) => localGovernanceRule(state.societies[siteId], nation.laws).militaryShare < 0.8);
+    const readyDay = state.elapsedDays + militaryServicePolicy(nation.laws).mobilizationDays +
+      (Number(transportDelay) + Number(governmentDelay)) * mobilizationDelayDays;
+    return patch({
+      mobilized: [...d.mobilized, id],
+      mobilization: { ...d.mobilization, [id]: { orderedDay: state.elapsedDays, readyDay, origins,
+        ...(state.tickInDay === 0 ? {} : { orderedTickInDay: state.tickInDay }) } },
+    });
   }
   if (cmd.type === "raid") {
-    if (!holdings(scenario, state, id).some((s) => s.coastal) || d.raid.includes(id))
-      throw new GameRuleError("没有可派遣的舰队");
-    return patch({ raid: [...d.raid, id] });
+    const target = navalMissionTargets(scenario, state, d, id, "blockade")[0];
+    if (!target || fleetPower(state, id) === 0) throw new GameRuleError("没有可派遣的舰队或可达港口");
+    return patch({ navalMissions: { ...d.navalMissions, [id]: { task: "blockade", portId: target.id } },
+      raid: d.raid.filter((countryId) => countryId !== id) });
+  }
+  if (cmd.type === "setNavalMission") {
+    const mission = cmd.mission;
+    if (mission && (fleetPower(state, id) === 0 ||
+        !navalMissionTargets(scenario, state, d, id, mission.task).some((site) => site.id === mission.portId)))
+      throw new GameRuleError("没有可派遣的舰队或可达港口");
+    const navalMissions = { ...d.navalMissions };
+    if (mission) navalMissions[id] = mission;
+    else delete navalMissions[id];
+    return patch({ navalMissions, raid: d.raid.filter((countryId) => countryId !== id) });
   }
   return patch({
     advance: [...d.advance.filter((x) => x !== id), ...(cmd.type === "orderAdvance" ? [id] : [])],
+    retreating: [...(d.retreating ?? []).filter((x) => x !== id), ...(cmd.type === "orderRetreat" ? [id] : [])],
   });
 }
 export function tickDiplomacy(scenario: Scenario, state: GameState,
@@ -466,12 +665,17 @@ export function tickDiplomacy(scenario: Scenario, state: GameState,
   );
 }
 interface SupplyRoute {
+  objective: string;
+  priorityShare: number;
   recruitmentStates: Set<string>;
   connectedStates: Set<string>;
+  draftOrigins: Set<string>;
+  draftReady: boolean;
+  deployedDrafts: Set<string>;
   grainTransport: number;
   mobilized: boolean;
+  mobilizedAtTick?: number;
   overseas: boolean;
-  raided: boolean;
   maritimeTerminals?: MaritimeTerminal[][];
 }
 export interface WarPlan {
@@ -479,26 +683,44 @@ export interface WarPlan {
   recruitPercent: number;
   supplyPercent: number;
   grainPerRecruit: number;
+  naval: ReturnType<typeof planNavalOperations>;
+}
+function mobilizationOrigins(state: GameState, route: SupplyRoute) {
+  return [...route.recruitmentStates].filter((id) =>
+    state.occupation?.stateId !== id && draftCenterQuota(state.societies[id], state.nations[state.ownerByStateId[id]].laws) > 0);
 }
 export function frontLine(scenario: Scenario, state: GameState, d: BorderDispute) {
   const site = scenario.states[d.targetStateId];
-  if (d.progress < 50) return [site];
+  if (state.civilWar || d.progress < 50) return [site];
   const next = site.neighbors.filter((id) => state.ownerByStateId[id] === d.defenderId);
   return next.length ? next.map((id) => scenario.states[id]) : [site];
+}
+export function frontObjectives(scenario: Scenario, state: GameState, d: BorderDispute, countryId: string) {
+  const sites = holdings(scenario, state, countryId);
+  const departurePort = sites.some((site) => site.coastal && state.occupation?.stateId !== site.id);
+  const target = scenario.states[d.targetStateId];
+  return [...new Set([target, ...frontLine(scenario, state, d)])].filter((site) =>
+    state.ownerByStateId[site.id] === countryId || sites.some((own) => own.neighbors.includes(site.id)) ||
+    (site.coastal && departurePort));
 }
 export function planWar(scenario: Scenario, state: GameState): WarPlan | undefined {
   const d = state.borderDispute;
   if (d?.phase !== "war") return;
   const routes: Record<string, SupplyRoute> = {};
+  const naval = planNavalOperations(scenario, state, d);
   const line = new Set(frontLine(scenario, state, d).map((site) => site.id));
   for (const id of participants(d)) {
+    const order = d.frontOrders?.[id];
+    const requested = order?.objective;
+    const focus = requested && frontObjectives(scenario, state, d, id).some((site) => site.id === requested) ? requested : null;
+    const objective = focus ?? (id === d.defenderId ? line.values().next().value! : d.targetStateId);
+    const priorityShare = supplyPriorityDetails[order?.priority ?? "front"].share;
     const sites = holdings(scenario, state, id);
     const ports = sites.filter((site) => site.coastal && state.occupation?.stateId !== site.id)
       .map((site) => ({ stateId: site.id, capacity: portCapacity(site.grainTransport, state.societies[site.id]) }))
       .sort((left, right) => right.capacity - left.capacity);
-    const fronts = sites.filter((s) =>
-      id === d.defenderId ? line.has(s.id) : s.neighbors.includes(d.targetStateId),
-    );
+    const defenseLine = focus ? new Set([focus]) : line;
+    const fronts = sites.filter((s) => id === d.defenderId ? defenseLine.has(s.id) : s.neighbors.includes(objective));
     const starts = fronts.length > 0 ? fronts : ports.slice(0, 1).map((port) => scenario.states[port.stateId]);
     const recruitmentStates = new Set(starts.map((site) => site.id));
     function connected(seeds: Iterable<string>) {
@@ -526,8 +748,6 @@ export function planWar(scenario: Scenario, state: GameState): WarPlan | undefin
       },
       0,
     );
-    const raided = overseas && d.raid.some((x) => attacking(d, x) !== attacking(d, id) &&
-      holdings(scenario, state, x).some((site) => site.coastal));
     if (state.nations[id].knowledge["运输调度"] === 100) grainTransport = Math.floor(grainTransport * 1.3);
     let maritimeTerminals: MaritimeTerminal[][] | undefined;
     if (overseas) {
@@ -541,71 +761,147 @@ export function planWar(scenario: Scenario, state: GameState): WarPlan | undefin
           for (const site of home) connectedStates.add(site);
         }
       }
+      const portAccess = (port: MaritimeTerminal) => naval.portAccess.get(port.stateId) ?? 1;
+      const safestAccess = Math.min(...maritimeTerminals.map((group) => Math.max(0, ...group.map(portAccess))));
+      maritimeTerminals = maritimeTerminals.map((group) => group.map((port) => ({
+        ...port, capacity: Math.floor(port.capacity * portAccess(port)),
+      })).sort((a, b) => portAccess(b) - portAccess(a) || b.capacity - a.capacity));
       grainTransport = Math.min(
         grainTransport,
-        effectiveConvoyCapacity(state.nations[id], raided ? raidedConvoyCargoCapacity : convoyCargoCapacity),
+        effectiveConvoyCapacity(state.nations[id], Math.round(convoyCargoCapacity * safestAccess)),
         ...maritimeTerminals.map((group) => group.reduce((sum, port) => sum + port.capacity, 0)),
       );
     }
-    routes[id] = { recruitmentStates, connectedStates, grainTransport, mobilized: d.mobilized.includes(id), overseas, raided,
-      ...(maritimeTerminals ? { maritimeTerminals } : {}) };
+    const callUp = d.mobilization?.[id];
+    const mobilized = d.mobilized.includes(id);
+    const draftOrigins = new Set((callUp?.origins ?? (mobilized ? [...recruitmentStates] : []))
+      .filter((siteId) => state.occupation?.stateId !== siteId));
+    const mobilizedAtTick = callUp && elapsedTicks({ elapsedDays: callUp.orderedDay, tickInDay: callUp.orderedTickInDay ?? 0 });
+    const draftReady = mobilized && (!callUp ||
+      elapsedTicks({ elapsedDays: callUp.readyDay, tickInDay: callUp.orderedTickInDay ?? 0 }) <= elapsedTicks(state));
+    const scheduled = mobilizedAtTick === undefined ? {} : { mobilizedAtTick };
+    if (d.retreating?.includes(id)) {
+      routes[id] = {
+        objective, priorityShare, recruitmentStates: new Set(), connectedStates: new Set(),
+        draftOrigins, draftReady, deployedDrafts: new Set(), grainTransport: 0, mobilized, overseas: false, ...scheduled,
+      };
+    } else {
+      const deployedDrafts = new Set(draftReady ? [...draftOrigins].filter((siteId) => connectedStates.has(siteId)) : []);
+      routes[id] = { objective, priorityShare, recruitmentStates, connectedStates, draftOrigins, draftReady, deployedDrafts,
+        grainTransport, mobilized, overseas, ...scheduled, ...(maritimeTerminals ? { maritimeTerminals } : {}) };
+    }
   }
-  return { ...scenario.borderDispute, routes };
+  return { ...scenario.borderDispute, routes, naval };
 }
 export function advanceFront(scenario: Scenario, state: GameState, report: EconomyReport): GameState {
   const d = state.borderDispute;
   if (d?.phase !== "war") return state;
-  const target = frontLine(scenario, state, d)[0];
-  const width =
-    ({ 山地: 180, 森林: 350, 平原: 650 } as const)[target.terrain ?? "平原"] *
-    state.societies[target.id].infrastructure;
+  const frontWidth = (target: string) =>
+    ({ 山地: 180, 森林: 350, 平原: 650 } as const)[scenario.states[target].terrain ?? "平原"] * state.societies[target].infrastructure;
+  const width = frontWidth(frontLine(scenario, state, d)[0].id);
   const plan = planWar(scenario, state)!;
-  const strength = (ids: string[]) => {
-    let committed = 0, power = 0;
-    for (const id of ids) {
-      const sites = [...plan.routes[id].recruitmentStates];
-      const roster = sites.flatMap((siteId) => battalionsAt(state, siteId, report.states[siteId].regulars));
-      const conscripts = sites.reduce((sum, siteId) => sum + report.states[siteId].conscripts, 0);
-      const soldiers = roster.reduce((sum, unit) => sum + unit.trained, conscripts);
-      if (soldiers === 0) continue;
-      const role = d.advance.includes(id) ? "attack" : "defense";
-      const effective = roster.reduce((sum, unit) => sum + unit.trained * battalionDetails[unit.kind][role] / 10, conscripts);
-      const nation = state.nations[id];
-      const available = Math.min(soldiers, 300 * nation.generalRank);
-      const landing = attacking(d, id) && !landBorder(scenario, state, id, d.targetStateId) ? 0.65 : 1;
-      const logistics = nation.knowledge["野战后勤"] === 100 ? 1.25 : 1;
-      committed += available;
-      power += available * effective / soldiers * report.countries[id].military.readiness * (nation.morale / 100) * landing * logistics;
-    }
-    return committed === 0 ? 0 : power * Math.min(1, width / committed);
+  const randomFraction = (key: string) => ((Math.imul(state.rng ^ hash(key), 1664525) + 1013904223) >>> 0) / 2 ** 32;
+  const deployed = (id: string) => {
+    const route = plan.routes[id];
+    const role = d.advance.includes(id) ? "attack" : "defense";
+    const origins = [...new Set([...route.recruitmentStates, ...route.deployedDrafts])].map((siteId) => {
+      const district = report.states[siteId];
+      const roster = route.recruitmentStates.has(siteId) ? battalionsAt(state, siteId, district.regulars) : [];
+      const conscripts = district.deployedConscripts!;
+      const regulars = roster.reduce((sum, unit) => sum + unit.trained, 0);
+      const effective = roster.reduce((sum, unit) =>
+        sum + unit.trained * battalionDetails[unit.kind][role] * equipmentDetails[unit.equipment][role] / 10, conscripts) *
+        opiumEffects(state.societies[siteId].opiumBurden).military;
+      const mobile = roster.reduce((sum, unit) =>
+        sum + (unit.kind === "cavalry" || unit.equipment === "mechanized" ? unit.trained : 0), 0);
+      return { siteId, regulars, conscripts, effective, mobile };
+    });
+    const soldiers = origins.reduce((sum, x) => sum + x.regulars + x.conscripts, 0);
+    const effective = origins.reduce((sum, x) => sum + x.effective, 0);
+    const nation = state.nations[id], military = report.countries[id].military;
+    const available = Math.min(soldiers, commandCapacity(nation), frontWidth(route.objective));
+    const support = plan.naval.landing.get(id);
+    const navalBonus = support?.portId === route.objective ? 0.35 * support.power / (1 + support.power) : 0;
+    const landing = attacking(d, id) && !landBorder(scenario, state, id, route.objective) ? 0.65 + navalBonus : 1;
+    const logistics = nation.knowledge["野战后勤"] === 100 ? 1.25 : 1;
+    const random = 0.9 + randomFraction(id) * 0.2;
+    const power = soldiers === 0 ? 0 :
+      available * effective / soldiers * military.readiness * (nation.morale / 100) * landing * logistics * random;
+    const mobility = soldiers === 0 ? 0 : origins.reduce((sum, x) => sum + x.mobile, 0) / soldiers;
+    return { id, origins, soldiers, available, power, mobility, supply: military.supplyRatio! };
   };
   const left = [d.claimantId, ...d.allies],
     right = [d.defenderId, ...d.defenders];
+  const side = (ids: string[]) => {
+    const forces = ids.map(deployed);
+    const committed = forces.reduce((sum, force) => sum + force.available, 0);
+    const frontage = committed === 0 ? 0 : Math.min(1, width / committed);
+    const mobility = committed === 0 ? 0 : forces.reduce((sum, force) => sum + force.mobility * force.available, 0) / committed;
+    return { forces, committed, frontage, mobility, power: forces.reduce((sum, force) => sum + force.power, 0) * frontage };
+  };
+  const attackers = side(left), defenders = side(right);
+  const diff = attackers.power - defenders.power;
+  const offensive = d.advance.some((id) => left.includes(id) || right.includes(id));
   let delta = 0;
-  if (d.advance.some((id) => left.includes(id) || right.includes(id))) {
-    const diff = strength(left) - strength(right);
-    if (
-      (diff > 0 && left.some((id) => d.advance.includes(id))) ||
-      (diff < 0 && right.some((id) => d.advance.includes(id)))
-    ) {
-      delta =
-        Math.sign(diff) * Math.max(1, Math.floor(Math.abs(diff) / scenario.borderDispute.strengthPerPoint));
+  if ((diff > 0 && left.some((id) => d.advance.includes(id))) || (diff < 0 && right.some((id) => d.advance.includes(id)))) {
+    const mobility = diff > 0 ? attackers.mobility : defenders.mobility;
+    delta = Math.sign(diff) * Math.max(1, Math.floor(Math.abs(diff) * (1 + 0.25 * mobility) / scenario.borderDispute.strengthPerPoint));
+  }
+
+  const contested = offensive && attackers.committed > 0 && defenders.committed > 0;
+  const result = { ...state, societies: { ...state.societies }, stateEconomies: { ...state.stateEconomies } };
+  const losses = { ...d.losses };
+  for (const coalition of [attackers, defenders]) {
+    const losing = coalition === attackers ? diff < 0 : diff > 0;
+    for (const force of coalition.forces) {
+      if (force.soldiers === 0) continue;
+      const battleLoss = contested ? (losing ? 0.018 : 0.010) * coalition.frontage * force.available / force.soldiers : 0;
+      const attrition = Math.max(0, (0.5 - force.supply) / 0.5) * 0.012;
+      for (const origin of force.origins) {
+        const take = (personnel: number, corps: string) => {
+          const dead = Math.floor(personnel * (battleLoss * 0.30 + attrition * 0.15) + randomFraction(origin.siteId + corps + "dead"));
+          const injured = Math.min(personnel - dead, Math.floor(
+            personnel * (battleLoss * 0.70 + attrition * 0.85) + randomFraction(origin.siteId + corps + "injured")));
+          return { dead, injured };
+        };
+        const regular = take(origin.regulars, "regular"), conscript = take(origin.conscripts, "conscript");
+        const dead = regular.dead + conscript.dead, injured = regular.injured + conscript.injured;
+        if (dead + injured === 0) continue;
+        applyMilitaryLoss(result, origin.siteId, {
+          regularDead: regular.dead, conscriptDead: conscript.dead,
+          regularInjured: regular.injured, conscriptInjured: conscript.injured,
+        });
+        const prior = losses[force.id] ?? { dead: 0, injured: 0 };
+        losses[force.id] = { dead: prior.dead + dead, injured: prior.injured + injured };
+      }
     }
   }
   const progress = Math.max(0, Math.min(100, d.progress + delta));
-  return syncOccupation(scenario, { ...state, borderDispute: { ...d, progress, lastChange: progress - d.progress } });
+  return syncOccupation(scenario, { ...result, borderDispute: { ...d, losses, progress, lastChange: progress - d.progress } });
 }
 export function aiDiplomacy(
   scenario: Scenario,
   state: GameState,
   humanCountries: ReadonlySet<string | null> = new Set([state.playerCountryId]),
-): BorderCommand[] {
+): (BorderCommand | TerritorialClaimCommand)[] {
   const d = state.borderDispute;
   if (!d || d.phase === "resolved") {
+    const exporters = new Set((state.opiumLosses ?? []).map((loss) => loss.exporter));
+    for (const countryId of exporters) {
+      if (humanCountries.has(countryId) || !Object.values(state.ownerByStateId).includes(countryId)) continue;
+      for (const [stateId, loss] of recentOpiumLosses(state, countryId))
+        if (loss >= 2 * minOpiumClaim && !opiumDemandError(scenario, state, countryId, stateId))
+          return [{ type: "demandOpiumCompensation", countryId, stateId }];
+    }
     // Limit AI plays to one at a time, with at least four opening weeks for the player.
     const { aiAggression } = ruleTuning(state.settings);
     const interval = Math.max(4, Math.round(8 / aiAggression)) * 7;
     if (state.elapsedDays < 28 || state.elapsedDays % interval !== 0) return [];
+    for (const claim of state.territorialClaims ?? []) {
+      if (!humanCountries.has(claim.claimantId) &&
+          !settlementChallengeError(scenario, state, claim.claimantId, claim.stateId))
+        return [{ type: "challengeTerritorialSettlement", countryId: claim.claimantId, stateId: claim.stateId }];
+    }
     const sites = Object.values(scenario.states).filter((s) => Object.hasOwn(state.ownerByStateId, s.id));
     for (let offset = 0; offset < sites.length; offset++) {
       const site = sites[(state.rng + offset) % sites.length],
@@ -620,25 +916,62 @@ export function aiDiplomacy(
           state.nations[owner].overlord !== id &&
           !diplomaticTie(state, id, owner) &&
           !treatyBetween(state, id, owner, "defensive")
-        )
-          return [{ type: "demandBorder", countryId: id, targetStateId: site.id, goal: "reparations" }];
+        ) {
+          const claim = { type: "declareTerritorialClaim", countryId: id, stateId: site.id } as const;
+          if ((state.rng + offset) % 8 === 0 && !state.territorialClaims?.some((entry) => entry.claimantId === id) &&
+              !territorialClaimError(scenario, state, claim)) return [claim];
+          const goal = unrecognizedClaim(state, id, owner, site.id) ? "recognition" : "reparations";
+          return [{ type: "demandBorder", countryId: id, targetStateId: site.id, goal }];
+        }
       }
     }
     return [];
   }
+  const volunteer = containmentCandidates(scenario, state, d).find((id) => {
+    if (humanCountries.has(id)) return false;
+    const risk = state.countryEconomies[id].fiscal?.week.risk;
+    if (risk === "restricted" || risk === "defaulted") return false;
+    const standing = relationBetween(state, id, d.defenderId).standing;
+    const tradeWithClaimant = treatyBetween(state, id, d.claimantId, "commercial");
+    return standing >= -25 && (!tradeWithClaimant || state.nations[d.claimantId].infamy >= 75);
+  });
+  if (volunteer) return [{ type: "joinContainment", countryId: volunteer }];
   if (
     d.phase === "countdown" &&
     !d.peaceOffer &&
+    !d.containment?.length &&
     !humanCountries.has(d.defenderId) &&
     holdings(scenario, state, d.claimantId).length > 2 * holdings(scenario, state, d.defenderId).length
   )
     return [{ type: "backDown", countryId: d.defenderId }];
+  if (d.phase === "bargaining" && !humanCountries.has(d.claimantId)) {
+    for (const { creditor, debtor } of state.foreignObligations ?? []) {
+      if (creditor !== d.claimantId) continue;
+      const call = { type: "sway", countryId: creditor, allyId: debtor, useObligation: true } as const;
+      if (!swayError(scenario, state, d, call)) return [call];
+    }
+  }
   if (d.phase !== "war") return [];
+  const plan = planWar(scenario, state)!;
   const orders: BorderCommand[] = [];
   for (const id of participants(d).filter((i) => !humanCountries.has(i))) {
-    if (!d.mobilized.includes(id)) orders.push({ type: "mobilize", countryId: id });
-    if (!d.advance.includes(id)) orders.push({ type: "orderAdvance", countryId: id });
+    if (!d.mobilized.includes(id) && mobilizationOrigins(state, plan.routes[id]).length)
+      orders.push({ type: "mobilize", countryId: id });
+    const cautious = !state.civilWar && state.elapsedDays - d.since >= 28 && warWillingness(state, d, id) <= 25;
+    if (cautious && d.advance.includes(id)) orders.push({ type: "orderDefend", countryId: id });
+    if (!cautious && !d.advance.includes(id)) orders.push({ type: "orderAdvance", countryId: id });
+    if (fleetPower(state, id) > 0 && !d.navalMissions?.[id] && !d.raid.includes(id)) {
+      const escort = navalMissionTargets(scenario, state, d, id, "escort").find((site) => plan.naval.portAccess.has(site.id));
+      const landing = !escort && plan.routes[id].overseas &&
+        navalMissionTargets(scenario, state, d, id, "landing").find((site) => site.id === plan.routes[id].objective);
+      const interdiction = !escort && !landing && navalMissionTargets(scenario, state, d, id, "raid")[0];
+      const mission = escort ? { task: "escort" as const, portId: escort.id } :
+        landing ? { task: "landing" as const, portId: landing.id } :
+        interdiction ? { task: "raid" as const, portId: interdiction.id } : null;
+      if (mission) orders.push({ type: "setNavalMission", countryId: id, mission });
+    }
   }
+  if (state.civilWar) return orders;
   if (!humanCountries.has(d.claimantId) && d.progress >= scenario.borderDispute.cessionProgress)
     orders.push({ type: "signTreaty", countryId: d.claimantId });
   else if (!humanCountries.has(d.claimantId) && state.elapsedDays - d.since >= 84 && d.lastChange !== null &&
