@@ -50,7 +50,7 @@ test("跨期推进照常经过周结算，超期的真实版本 5 存档保留�
   assert.deepEqual(result, daily);
 
   const historical = dispatch(historicalScenario, result, { type: "advanceWeek" });
-  const saved = parseSave(scenario, { version: 5, scenarioId: scenario.id, state: historical });
+  const saved = parseSave(scenario, { version: 5, scenarioId: scenario.id, weeklyConstruction: true, state: historical });
   assert.deepEqual(saved, historical);
   assert.equal(saved.elapsedDays, deadline + 7);
   assert.equal(isScenarioFinished(scenario, saved), true);

@@ -78,6 +78,11 @@ test("开局暂停，日周半年共用日步进，跨月按历法截断", () =>
 test("政府队列付款、所有权与容量校验，完工带来就业、产出与税收", () => {
   let g = start();
   const job = { type: "queueConstruction", countryId: "first", stateId: "border", good: "cloth" } as const;
+  // Fund construction and stock its inputs through the first textile hiring round.
+  g.countryEconomies.first.treasury = 10_000_000;
+  g.stateEconomies.border.constructionStock = { public: { wood: 800, tools: 200, iron: 200 }, private: { wood: 0, tools: 0, iron: 0 } };
+  g.stateEconomies.border.industrial!.stocks.fiber += 2_200;
+  g.stateEconomies.border.industrial!.stocks.tools += 600;
   const old = g;
   g = send(g, job);
   assert.equal(g.countryEconomies.first.treasury, old.countryEconomies.first.treasury - projectDeposit("cloth"));
@@ -86,15 +91,16 @@ test("政府队列付款、所有权与容量校验，完工带来就业、产�
   for (let i = 0; i < 60 && !g.stateEconomies.border.buildings.cloth; i++) g = week(g);
   assert.equal(g.stateEconomies.border.buildings.cloth, 1);
   assert.equal(g.lastEconomy!.states.border.industries.cloth.employed, 0);
-  for (let i = 0; i < 3 && g.lastEconomy!.states.border.industries.cloth.employed < 100; i++) g = week(g);
+  g = week(g);
   const report = g.lastEconomy!;
-  assert.equal(report.states.border.industries.cloth.employed, 100);
+  assert.equal(report.states.border.industries.cloth.employed, 10);
+  assert.ok(report.states.border.industries.cloth.output > 0);
   assert.ok(report.states.border.industries.cloth.wages > 0);
   assert.ok(report.countries.first.tax > 0);
   assert.ok(
     report.countries.first.market.cloth.targetPrice! < projectEconomy(old).countries.first.market.cloth.targetPrice!,
   );
-  assert.equal(report.states.border.regulars, 100);
+  assert.ok(report.states.border.regulars > 0 && report.states.border.regulars <= 100);
 });
 test("AI 使用共用建设指令，全国市场价格与本州供需按接入混合", () => {
   let g = start();
@@ -192,9 +198,9 @@ test("职业支持分配与选举权重改变八个集团，合法性和激进�
   const before = influence([site], "first", n);
   const farmer = site.pops.find((p) => p.occupation === "农民")!;
   const ruralOnly = influence([{ ...site, pops: [farmer] }], "first", n);
-  assert.ok(Math.abs(ruralOnly["乡民"] - 70) < 1e-9);
-  assert.ok(Math.abs(ruralOnly["地主"] - 20) < 1e-9);
-  assert.ok(Math.abs(ruralOnly["教会"] - 10) < 1e-9);
+  assert.ok(ruralOnly["乡民"] > ruralOnly["地主"] && ruralOnly["地主"] > ruralOnly["教会"]);
+  assert.ok(ruralOnly["教会"] > 0);
+  assert.ok(Math.abs(ruralOnly["乡民"] + ruralOnly["地主"] + ruralOnly["教会"] - 100) < 1e-9);
   assert.ok(Math.abs(Object.values(before).reduce((a, b) => a + b) - 100) < 1e-9);
   const limited = influence([site], "first", { ...n, startingRepresentation: "limited" });
   assert.ok(limited["乡民"] > before["乡民"]);

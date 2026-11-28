@@ -1,3 +1,4 @@
+import { culturalAffinityOf } from "./culture.ts";
 import type { GameState } from "./engine.ts";
 import type { Scenario } from "../scenario/scenario.ts";
 import { civicPolicy, civicStanding } from "./civic-policy.ts";
@@ -91,7 +92,8 @@ export function settleMigration(scenario: Scenario, state: GameState, frontline:
       }
       if (!destination) continue;
       const available = pop.occupation === "农民" ? pop.people * (1 - bondedRuralShare(nations[owner].laws)) : pop.people;
-      const rate = destination.country === owner ? 0.003 : 0.01;
+      const rate = destination.country === owner ? 0.003 :
+        0.01 + (culturalAffinityOf(societies[destination.to])[pop.culture] ?? 0) / 10_000;
       const people = Math.floor(available * rate * attraction);
       if (people === 0) continue;
       pending.push({

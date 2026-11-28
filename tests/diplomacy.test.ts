@@ -3,7 +3,7 @@ import { administrationWage, governanceOf, integrationStaffNeeded } from "../src
 import { test } from "node:test";
 import { createGame, dispatch } from "../src/game/engine.ts";
 import type { GameState, GameCommand } from "../src/game/engine.ts";
-import { projectEconomy } from "../src/game/economy.ts";
+import { projectEconomy, projectOpeningCapital } from "../src/game/economy.ts";
 import { infamyLevel, planWar, swayCost } from "../src/game/diplomacy.ts";
 import { applyMilitaryLoss } from "../src/game/military-health.ts";
 import { publicSalary } from "../src/game/public-pay.ts";
@@ -40,11 +40,12 @@ test("接壤利益校验、三阶段时限与和平让步仅执行核心要求",
   g = send(g, { type: "addGoal", countryId: a, goal: "reparations" });
   assert.equal(g.borderDispute!.maneuvers, 1);
   const paid = g.countryEconomies[b].treasury;
+  const returnedDeposit = projectOpeningCapital(g.countryEconomies[b].queue.find((p) => p.stateId === targetStateId)!);
   const signed = send(g, { type: "backDown", countryId: b });
   assert.equal(signed.ownerByStateId.Tonkin, a);
   assert.equal(signed.borderDispute!.outcome, "victory");
   assert.ok(signed.countryEconomies[b].queue.every((p) => p.stateId !== targetStateId));
-  assert.equal(signed.countryEconomies[b].treasury, paid);
+  assert.equal(signed.countryEconomies[b].treasury, paid + returnedDeposit);
   assert.deepEqual(signed.borderDispute!.goals, ["cession"]);
   assert.deepEqual(signed.borderDispute!.unacceptedGoals, ["reparations"]);
   assert.deepEqual(signed.stateEconomies.Tonkin, g.stateEconomies.Tonkin);

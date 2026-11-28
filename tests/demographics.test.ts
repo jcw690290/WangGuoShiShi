@@ -60,7 +60,9 @@ test("周结和月结同一天先结算市场，旧档续算保持月结进度",
   for (const [id, site] of Object.entries(next.lastEconomy.states)) {
     const shortage = Math.max(0, 1 - site.foodFulfillment! / 0.8);
     const expected = Math.round(initial.stateEconomies[id].population * (0.036 - 0.030 - 0.030 * shortage) * 7 / 366);
-    assert.equal(next.lastPopulation!.changes[id], expected === 0 ? 0 : expected);
+    const netMigration = next.lastPopulation!.moves!.reduce((net, move) =>
+      net + (move.to === id ? move.people : 0) - (move.from === id ? move.people : 0), 0);
+    assert.equal(next.lastPopulation!.changes[id], netMigration + expected);
   }
   assert.deepEqual(next, dispatch(scenario, prior, { type: "advanceTick" }));
   assert.deepEqual(parseSave(scenario, { version: saveVersion, scenarioId: scenario.id, state: next }), next);
@@ -84,7 +86,7 @@ test("文化亲近按月从居民、邻州接触和实付教育增加，远方�
   assert.deepEqual(after.societies.Yunnan.pops.map((p) => p.culture), from.pops.map((p) => p.culture));
   assert.deepEqual([0, 25, 50, 75].map(affinityLevel), ["陌生", "接触", "熟悉", "亲近"]);
   const funded = structuredClone(before);
-  funded.lastEconomy.states.Yunnan.universityStaff = 500;
+  funded.societies.Yunnan.populationServices = { school: 0, healthcare: 0, treatment: 0, policing: 0, university: 1 };
   const educated = dispatch(borderScenario, funded, { type: "advanceTick" });
   assert.ok(educated.societies.Yunnan.culturalAffinity![adjacentCulture] > updated[adjacentCulture]);
   assert.deepEqual(await decodeSnapshot(borderScenario, await encodeSnapshot(borderScenario, educated)), educated);

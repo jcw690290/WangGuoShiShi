@@ -59,6 +59,7 @@ test("版本 8 的农田、纺织和已付款工程只转换一次并可继续�
   assert.deepEqual(restored.countryEconomies[countryId].queue[0], { stateId, good: "grain", weeksLeft: 0.5, levels: 12 });
   assert.equal(restored.countryEconomies[countryId].treasury, old.countryEconomies[countryId].treasury);
   assert.deepEqual(parseSave(scenario, { version: saveVersion, scenarioId: scenario.id, state: restored }), restored);
+  restored.stateEconomies[stateId].constructionStock = { public: { wood: 240, tools: 60, iron: 60 }, private: { wood: 0, tools: 0, iron: 0 } };
   let next = restored;
   for (let week = 0; week < 12 && next.countryEconomies[countryId].queue.length; week++)
     next = dispatch(scenario, next, { type: "advanceWeek" });
