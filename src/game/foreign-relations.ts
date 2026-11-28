@@ -1,5 +1,6 @@
 import { z } from "zod";
 import { recordImmediateTransfer, treasuryAccount } from "./finance-journal.ts";
+import { reconcileDiplomaticTies, tieInfluence, tiePartner } from "./diplomatic-ties.ts";
 import type { GameState } from "./engine.ts";
 import { GameRuleError } from "./rules.ts";
 
@@ -98,10 +99,15 @@ export function influenceBudget(state: GameState, countryId: string) {
   const offers = (state.treatyOffers ?? []).reduce((sum, offer) => sum + (offer.from === countryId ? treatyInfluence[offer.kind] : 0), 0) +
     (state.aidOffers ?? []).filter((offer) => offer.from === countryId).length;
   const claims = (state.territorialClaims ?? []).filter((claim) => claim.claimantId === countryId).length;
-  return { capacity, used: treaties + offers + claims, available: Math.max(0, capacity - treaties - offers - claims) };
+  const ties = (state.diplomaticTies ?? []).reduce((sum, tie) =>
+    sum + (tie.signedDay !== undefined && tiePartner(tie, countryId) ? tieInfluence[tie.kind] : 0), 0);
+  const tieOffers = (state.diplomaticTieOffers ?? []).reduce((sum, offer) =>
+    sum + (offer.from === countryId ? tieInfluence[offer.kind] : 0), 0);
+  const used = treaties + offers + claims + ties + tieOffers;
+  return { capacity, used, available: Math.max(0, capacity - used) };
 }
 
-function opposingParties(state: GameState, a: string, b: string) {
+export function opposingParties(state: GameState, a: string, b: string) {
   const dispute = state.borderDispute;
   if (!dispute || dispute.phase === "resolved") return false;
   const attackers = [dispute.claimantId, ...dispute.allies], defenders = [dispute.defenderId, ...dispute.defenders];
@@ -198,6 +204,7 @@ export function applyForeignCommand(state: GameState, cmd: ForeignCommand): Game
 }
 
 export function expireTreatyOffers(state: GameState) {
+  state = reconcileDiplomaticTies(state);
   const treatyOffers = state.treatyOffers?.filter((offer) => state.elapsedDays - offer.offeredDay < offerDuration);
   const aidOffers = state.aidOffers?.filter((offer) => state.elapsedDays - offer.offeredDay < offerDuration);
   return treatyOffers?.length === state.treatyOffers?.length && aidOffers?.length === state.aidOffers?.length ?
@@ -210,8 +217,8 @@ export function reconcileTreaties(state: GameState) {
   const offers = state.treatyOffers?.filter(({ from, to }) => live.has(from) && live.has(to));
   const aidOffers = state.aidOffers?.filter(({ from, to }) => live.has(from) && live.has(to));
   const foreignObligations = state.foreignObligations?.filter(({ creditor, debtor }) => live.has(creditor) && live.has(debtor));
-  return { ...state, ...(active ? { foreignTreaties: active } : {}), ...(offers ? { treatyOffers: offers } : {}),
-    ...(aidOffers ? { aidOffers } : {}), ...(foreignObligations ? { foreignObligations } : {}) };
+  return reconcileDiplomaticTies({ ...state, ...(active ? { foreignTreaties: active } : {}), ...(offers ? { treatyOffers: offers } : {}),
+    ...(aidOffers ? { aidOffers } : {}), ...(foreignObligations ? { foreignObligations } : {}) });
 }
 
 export function breakOpposedTreaties(state: GameState, attacker: string) {

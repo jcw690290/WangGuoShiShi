@@ -46,6 +46,8 @@ import { powerDistribution } from "./constitution.ts";
 import { projectOwnership } from "./ownership.ts";
 import { industrySubsidyLimit } from "./industrial.ts";
 import { applyForeignCommand, settleAiForeignOffers } from "./foreign-relations.ts";
+import { applyDiplomaticTieCommand, settleAiDiplomaticTieOffers } from "./diplomatic-ties.ts";
+import type { DiplomaticTieCommand, DiplomaticTieOffer } from "./diplomatic-ties.ts";
 import type { AidOffer, ForeignCommand, ForeignObligation, ForeignRelation, ForeignTreaty, TreatyOffer } from "./foreign-relations.ts";
 import { applyBattalionOrder, applyEquipmentOrder, chooseBattalionOrder, chooseEquipmentOrder, garrisonHeadcount } from "./military.ts";
 import type { BattalionCommand, BattalionEquipmentCommand } from "./military.ts";
@@ -84,6 +86,7 @@ export interface GameState {
   campaign?: Campaign;
   borderDispute: BorderDispute | null;
   diplomaticTies?: DiplomaticTie[];
+  diplomaticTieOffers?: DiplomaticTieOffer[];
   foreignRelations?: ForeignRelation[];
   foreignTreaties?: ForeignTreaty[];
   treatyOffers?: TreatyOffer[];
@@ -124,6 +127,7 @@ export type GameCommand =
   | TradeCommand
   | TradePolicyCommand
   | ForeignCommand
+  | DiplomaticTieCommand
   | BattalionCommand
   | BattalionEquipmentCommand
   | NavalConstructionCommand
@@ -461,6 +465,7 @@ export function advanceTick(
   }
   for (const cmd of aiDiplomacy(scenario, result, humanCountries)) result = applyCommand(scenario, result, cmd);
   result = settleAiForeignOffers(result, humanCountries);
+  result = settleAiDiplomaticTieOffers(result, humanCountries);
   result = advanceTerritorialSettlements(scenario, result, settled.lastEconomy);
   result = advanceCivilWar(baseScenario, result);
   return finalizeCampaign(scenario, advanceAchievements(state, result, date, settled.lastEconomy), date, true);
@@ -578,6 +583,11 @@ function applyCommand(
     case "acceptDiplomaticAid":
     case "declineDiplomaticAid":
       return applyForeignCommand(state, cmd);
+    case "offerDiplomaticTie":
+    case "acceptDiplomaticTie":
+    case "declineDiplomaticTie":
+    case "withdrawDiplomaticTie":
+      return applyDiplomaticTieCommand(state, cmd);
     case "reorganizeBattalion":
       return applyBattalionOrder(state, cmd);
     case "setBattalionEquipment":
