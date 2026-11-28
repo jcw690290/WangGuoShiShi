@@ -345,6 +345,7 @@ export function DiplomacyPanel({ scenario, game, playerId: id, report, busy, sen
               <p role="status">
                 {countries[d.claimantId].name} → {countries[d.defenderId].name} ·{" "}
                 {scenario.states[d.targetStateId].name} · 核心要求 {goalNames[d.goals[0]]}
+                {d.settlementStateId && ` · 涉案项目 ${scenario.states[d.settlementStateId].name}`}
                 {d.goals.length > 1 && ` · 追加 ${d.goals.slice(1).map((g) => goalNames[g]).join("、")}`}
                 {d.phase === "resolved" &&
                   " · " +
@@ -379,7 +380,7 @@ export function DiplomacyPanel({ scenario, game, playerId: id, report, busy, sen
                   <label>
                     外交要求
                     <select value={goal} onChange={(e) => setGoal(e.target.value as Goal)}>
-                      {goals.map((g) => (
+                      {goals.filter((g) => g !== "haltSettlement").map((g) => (
                         <option key={g} value={g} disabled={!canDemandGoal(game, id, game.ownerByStateId[target.id], g, target.id)}>
                           {goalNames[g]}
                         </option>

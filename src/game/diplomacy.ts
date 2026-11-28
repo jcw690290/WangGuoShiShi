@@ -20,10 +20,10 @@ import { battalionDetails, battalionTrainingDays, battalionsAt, commandCapacity,
 import { applyMilitaryLoss, warLossesSchema } from "./military-health.ts";
 import { fleetPower, navalMissionSchema, navalMissionTargets, planNavalOperations } from "./naval-operations.ts";
 import type { NavalMissionCommand } from "./naval-operations.ts";
-import { recognizeTerritorialClaim, reconcileTerritorialPlans, territorialClaim, territorialClaimError } from "./territory.ts";
+import { recognizeTerritorialClaim, reconcileTerritorialPlans, settlementAt, territorialClaim, territorialClaimError } from "./territory.ts";
 import type { TerritorialClaimCommand } from "./territory.ts";
 
-export const goals = ["cession", "reparations", "puppet", "vassal", "protectorate", "annex", "recognition"] as const;
+export const goals = ["cession", "reparations", "puppet", "vassal", "protectorate", "annex", "recognition", "haltSettlement"] as const;
 export type Goal = (typeof goals)[number];
 export const goalNames = {
   cession: "割让争端州",
@@ -33,6 +33,7 @@ export const goalNames = {
   protectorate: "成为保护国",
   annex: "吞并附属国",
   recognition: "承认领土宣称",
+  haltSettlement: "终止领土项目",
 };
 export function subjectGoal(g: Goal): g is "puppet" | "vassal" | "protectorate" {
   return g === "puppet" || g === "vassal" || g === "protectorate";
@@ -46,6 +47,7 @@ const transfersLand = (goal: Goal) => goal === "cession" || goal === "annex";
 
 export function canDemandGoal(state: GameState, claimantId: string, defenderId: string, goal: Goal, targetStateId: string) {
   return (
+    goal !== "haltSettlement" &&
     !treatyBetween(state, claimantId, defenderId, "defensive") &&
     (goal !== "annex" || state.nations[defenderId].overlord === claimantId) &&
     (goal !== "recognition" || unrecognizedClaim(state, claimantId, defenderId, targetStateId)) &&
@@ -66,6 +68,7 @@ export function canAddGoal(state: GameState, dispute: BorderDispute, goal: Goal)
 function demandInfamy(state: GameState, claimantId: string, defenderId: string, targetStateId: string, goal: Goal) {
   if (goal === "annex") return 3;
   if (goal === "recognition") return 4;
+  if (goal === "haltSettlement") return 6;
   if (goal === "cession" && territorialClaim(state, claimantId, targetStateId)?.recognizedBy.includes(defenderId)) return 6;
   return 12;
 }
@@ -97,6 +100,7 @@ type FrontOrder = z.infer<typeof frontOrderSchema>;
 
 export const disputeSchema = z.object({
   targetStateId: z.string(),
+  settlementStateId: z.string().optional(),
   claimantId: z.string(),
   defenderId: z.string(),
   phase: z.enum(["escalation", "bargaining", "countdown", "war", "resolved"]),
@@ -140,6 +144,7 @@ export type BorderCommand =
   | NavalMissionCommand
   | { type: "endDiplomaticTie"; countryId: string; partnerId: string }
   | { type: "joinContainment"; countryId: string }
+  | { type: "challengeTerritorialSettlement"; countryId: string; stateId: string }
   | {
       type:
         | "backDown"
@@ -176,6 +181,44 @@ export function canReach(
     (landBorder(scenario, state, id, target) ||
       (site.coastal && (hasPort ?? holdings(scenario, state, id).some((s) => s.coastal))))
   );
+}
+
+export function settlementChallengeError(scenario: Scenario, state: GameState, countryId: string, stateId: string) {
+  const project = settlementAt(state, stateId);
+  if (!project || project.countryId === countryId) return "只可对他国进行中的领土项目提出异议";
+  if (state.borderDispute && state.borderDispute.phase !== "resolved") return "当前已有地区博弈";
+  if (!territorialClaim(state, countryId, stateId) || state.nations[countryId].overlord)
+    return "本国需独立并持有该地区的宣称";
+  if (state.ownerByStateId[project.anchorId] !== project.countryId || !canReach(scenario, state, countryId, project.anchorId))
+    return "需要能接触主持项目的来源州";
+  if (treatyBetween(state, countryId, project.countryId, "defensive")) return "防御盟国之间不能发起异议";
+}
+
+function openDispute(state: GameState, id: string, target: string, goal: Goal, settlementStateId?: string): GameState {
+  const defender = state.ownerByStateId[target], nation = state.nations[id];
+  const defenders = new Set(Object.keys(state.nations).filter((countryId) =>
+    countryId !== id && countryId !== defender &&
+    ((state.nations[countryId].overlord === defender && state.nations[countryId].subjectType !== "protectorate") ||
+      countryId === state.nations[defender].overlord)));
+  for (const partner of treatyPartners(state, defender, "defensive"))
+    if (partner !== id) defenders.add(partner);
+  const allies = Object.keys(state.nations).filter((countryId) => countryId !== defender && !defenders.has(countryId) &&
+    state.nations[countryId].overlord === id && state.nations[countryId].subjectType !== "protectorate");
+  const repeated = nation.lastThreatDay !== undefined && state.elapsedDays - nation.lastThreatDay < 180;
+  const pressure = adjustForeignRelation(state, id, defender, repeated ? -17 : -12, repeated ? -10 : -5);
+  return {
+    ...pressure,
+    nations: { ...pressure.nations, [id]: {
+      ...nation, infamy: nation.infamy + demandInfamy(state, id, defender, target, goal),
+      lastThreatDay: state.elapsedDays, prestige: nation.prestige - (repeated ? 8 : 0),
+    } },
+    borderDispute: {
+      phase: "escalation", claimantId: id, defenderId: defender, targetStateId: target,
+      ...(settlementStateId !== undefined ? { settlementStateId } : {}),
+      since: state.elapsedDays, goals: [goal], maneuvers: 2, allies, promises: [], defenders: [...defenders],
+      mobilized: [], advance: [], raid: [], progress: 0, lastChange: null, outcome: null,
+    },
+  };
 }
 export function interested(scenario: Scenario, state: GameState, id: string, target: string) {
   return (
@@ -279,6 +322,9 @@ function treaty(state: GameState, d: BorderDispute, victory: boolean, withdrawal
     }
     if (terms.includes("recognition"))
       diplomaticState = adjustForeignRelation(recognizeTerritorialClaim(diplomaticState, a, b, d.targetStateId), b, a, 4, 5);
+    if (terms.includes("haltSettlement"))
+      diplomaticState = { ...diplomaticState, territorialSettlements: diplomaticState.territorialSettlements!
+        .filter((project) => project.stateId !== d.settlementStateId) };
     const subjectType = terms.find(subjectGoal);
     if (subjectType && Object.values(ownerByStateId).includes(b)) {
       for (const [id, n] of Object.entries(nations))
@@ -330,6 +376,8 @@ export function peaceTermsError(state: GameState, dispute: BorderDispute, terms:
   if (terms.includes("recognition") && (terms.some(transfersLand) ||
       !unrecognizedClaim(state, dispute.claimantId, dispute.defenderId, dispute.targetStateId)))
     return "承认条款需要尚未获对方承认且将保留的宣称";
+  if (terms.includes("haltSettlement") && settlementAt(state, dispute.settlementStateId!)?.countryId !== dispute.defenderId)
+    return "领土项目已经变更";
   if (commercial && (terms.includes("annex") || (terms.includes("cession") &&
       Object.values(state.ownerByStateId).filter((owner) => owner === dispute.defenderId).length === 1)))
     return "双边通商协定需要双方在和约后保有领土";
@@ -359,7 +407,9 @@ export function warWillingness(state: GameState, d: BorderDispute, countryId: st
 
 function acceptsPeace(state: GameState, d: BorderDispute, offer: PeaceOffer, countryId: string) {
   if (peaceTermsError(state, d, offer.goals, offer.commercial)) return false;
-  const costs: Record<Goal, number> = { cession: 28, reparations: 12, puppet: 42, vassal: 36, protectorate: 28, annex: 100, recognition: 8 };
+  const costs: Record<Goal, number> = {
+    cession: 28, reparations: 12, puppet: 42, vassal: 36, protectorate: 28, annex: 100, recognition: 8, haltSettlement: 14,
+  };
   const concessions = offer.goals.reduce((sum, goal) => sum + costs[goal], 0);
   const willingness = warWillingness(state, d, countryId);
   if (countryId === d.defenderId) return concessions <= 95 - willingness;
@@ -407,6 +457,11 @@ export function applyBorderCommand(scenario: Scenario, state: GameState, cmd: Bo
       throw new GameRuleError("无法加入该关税同盟");
     return { ...change({ marketLeader: cmd.leaderId }), lastEconomy: null };
   }
+  if (cmd.type === "challengeTerritorialSettlement") {
+    const error = settlementChallengeError(scenario, state, id, cmd.stateId);
+    if (error) throw new GameRuleError(error);
+    return openDispute(state, id, settlementAt(state, cmd.stateId)!.anchorId, "haltSettlement", cmd.stateId);
+  }
   if (cmd.type === "declareInterest" || cmd.type === "demandBorder") {
     const target = cmd.targetStateId,
       defender = state.ownerByStateId[target];
@@ -422,45 +477,7 @@ export function applyBorderCommand(scenario: Scenario, state: GameState, cmd: Bo
       !canDemandGoal(state, id, defender, cmd.goal, target)
     )
       throw new GameRuleError("无法提出这项外交要求");
-    const defenders = new Set(Object.keys(state.nations).filter(
-      (x) =>
-        x !== id &&
-        x !== defender &&
-        ((state.nations[x].overlord === defender && state.nations[x].subjectType !== "protectorate") ||
-          x === state.nations[defender].overlord),
-    ));
-    for (const partner of treatyPartners(state, defender, "defensive"))
-      if (partner !== id) defenders.add(partner);
-    const allies = Object.keys(state.nations).filter(
-      (x) =>
-        x !== defender && !defenders.has(x) && state.nations[x].overlord === id && state.nations[x].subjectType !== "protectorate",
-    );
-    const repeated = n.lastThreatDay !== undefined && state.elapsedDays - n.lastThreatDay < 180;
-    return {
-      ...adjustForeignRelation(change({
-        infamy: n.infamy + demandInfamy(state, id, defender, target, cmd.goal),
-        lastThreatDay: state.elapsedDays,
-        prestige: n.prestige - (repeated ? 8 : 0),
-      }), id, defender, repeated ? -17 : -12, repeated ? -10 : -5),
-      borderDispute: {
-        phase: "escalation",
-        claimantId: id,
-        defenderId: defender,
-        targetStateId: target,
-        since: state.elapsedDays,
-        goals: [cmd.goal],
-        maneuvers: 2,
-        allies,
-        promises: [],
-        defenders: [...defenders],
-        mobilized: [],
-        advance: [],
-        raid: [],
-        progress: 0,
-        lastChange: null,
-        outcome: null,
-      },
-    };
+    return openDispute(state, id, target, cmd.goal);
   }
   if (cmd.type === "joinContainment") {
     if (!d || !containmentCandidates(scenario, state, d).includes(id))
@@ -820,6 +837,11 @@ export function aiDiplomacy(
     const { aiAggression } = ruleTuning(state.settings);
     const interval = Math.max(4, Math.round(8 / aiAggression)) * 7;
     if (state.elapsedDays < 28 || state.elapsedDays % interval !== 0) return [];
+    for (const claim of state.territorialClaims ?? []) {
+      if (!humanCountries.has(claim.claimantId) &&
+          !settlementChallengeError(scenario, state, claim.claimantId, claim.stateId))
+        return [{ type: "challengeTerritorialSettlement", countryId: claim.claimantId, stateId: claim.stateId }];
+    }
     const sites = Object.values(scenario.states).filter((s) => Object.hasOwn(state.ownerByStateId, s.id));
     for (let offset = 0; offset < sites.length; offset++) {
       const site = sites[(state.rng + offset) % sites.length],
