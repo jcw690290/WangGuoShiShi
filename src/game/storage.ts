@@ -553,6 +553,7 @@ export function parseSave(scenario: Scenario, save: unknown): GameState {
     if (subsidies && Object.keys(subsidies).some((stateId) => state.ownerByStateId[stateId] !== id ||
       state.stateEconomies[stateId].industrial === undefined)) invalid();
     n.startingStateForm ??= startingStateForm(id);
+    if (n.lastThreatDay !== undefined && n.lastThreatDay > state.elapsedDays) invalid();
     if (!n.laws.some(isTaxLaw)) n.laws.push(taxLaws[0]);
     if (!n.laws.some(isTradeLaw)) n.laws.push(tradeLaws[0]);
     if (n.tradePartners.some((partner) => partner === id || !Object.hasOwn(state.nations, partner))) invalid();
@@ -675,6 +676,9 @@ export function parseSave(scenario: Scenario, save: unknown): GameState {
         new Set([...d.goals, ...d.unacceptedGoals]).size !== d.goals.length + d.unacceptedGoals.length
       )) ||
       [...d.advance, ...d.mobilized, ...d.raid].some((id) => !parties.includes(id)) ||
+      (d.containment !== undefined && (d.containment.length > 3 ||
+        new Set(d.containment).size !== d.containment.length ||
+        d.containment.some((id) => !d.defenders.includes(id)))) ||
       (d.retreating !== undefined && ((d.phase !== "war" && d.phase !== "resolved") ||
         new Set(d.retreating).size !== d.retreating.length ||
         d.retreating.some((id) => !parties.includes(id) || d.advance.includes(id)))) ||

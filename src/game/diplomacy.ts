@@ -16,7 +16,7 @@ import { adjustForeignRelation, breakOpposedTreaties, diplomaticTrust, expireTre
   fulfillObligation, obligationBetween, relationBetween, signForeignTreaty, treatyBetween,
   treatyInfluence, treatyPartners } from "./foreign-relations.ts";
 import { governmentLegitimacy, hash, influence, unrestOf } from "./society.ts";
-import { battalionDetails, battalionTrainingDays, battalionsAt, commandCapacity, equipmentDetails } from "./military.ts";
+import { battalionDetails, battalionTrainingDays, battalionsAt, commandCapacity, equipmentDetails, garrisonHeadcount } from "./military.ts";
 import { applyMilitaryLoss, warLossesSchema } from "./military-health.ts";
 import { fleetPower, navalMissionSchema, navalMissionTargets, planNavalOperations } from "./naval-operations.ts";
 import type { NavalMissionCommand } from "./naval-operations.ts";
@@ -90,6 +90,7 @@ export const disputeSchema = z.object({
   allies: z.array(z.string()),
   promises: z.array(z.string()),
   defenders: z.array(z.string()),
+  containment: z.array(z.string()).optional(),
   mobilized: z.array(z.string()),
   mobilization: z.record(z.string(), mobilizationPlanSchema).optional(),
   losses: z.record(z.string(), warLossesSchema).optional(),
@@ -118,6 +119,7 @@ export type BorderCommand =
   | ({ type: "setFrontOrder"; countryId: string } & FrontOrder)
   | NavalMissionCommand
   | { type: "endDiplomaticTie"; countryId: string; partnerId: string }
+  | { type: "joinContainment"; countryId: string }
   | {
       type:
         | "backDown"
@@ -163,6 +165,29 @@ export function interested(scenario: Scenario, state: GameState, id: string, tar
 }
 export function participants(d: BorderDispute) {
   return [d.claimantId, ...d.allies, d.defenderId, ...d.defenders];
+}
+
+export function containmentCandidates(scenario: Scenario, state: GameState, dispute: BorderDispute) {
+  const infamy = state.nations[dispute.claimantId].infamy;
+  if (infamy < 50 || (dispute.phase !== "bargaining" && dispute.phase !== "countdown")) return [];
+  const severe = infamy >= 75;
+  if ((dispute.containment?.length ?? 0) >= (severe ? 3 : 2)) return [];
+  const involved = new Set(participants(dispute));
+  const targets = scenario.states[dispute.targetStateId];
+  const strengths: Record<string, number> = {};
+  for (const [siteId, owner] of Object.entries(state.ownerByStateId))
+    strengths[owner] = (strengths[owner] ?? 0) + garrisonHeadcount(state, siteId);
+  if (targets.coastal)
+    for (const id of Object.keys(strengths)) strengths[id] += 80 * fleetPower(state, id);
+  const attackers = [dispute.claimantId, ...dispute.allies].reduce((sum, id) => sum + strengths[id], 0);
+  const defenders = [dispute.defenderId, ...dispute.defenders].reduce((sum, id) => sum + strengths[id], 0);
+  const eligible = Object.keys(strengths).filter((id) =>
+    !involved.has(id) && state.nations[id].overlord === null && strengths[id] > 0 &&
+    !treatyBetween(state, id, dispute.claimantId, "defensive") &&
+    (landBorder(scenario, state, id, targets.id) ||
+      (severe && interested(scenario, state, id, targets.id) && canReach(scenario, state, id, targets.id))) &&
+    defenders + strengths[id] >= attackers * (severe ? 0.45 : 0.6));
+  return eligible.sort((a, b) => strengths[b] - strengths[a] || a.localeCompare(b));
 }
 
 export function swayError(scenario: Scenario, state: GameState, dispute: BorderDispute, cmd: Extract<BorderCommand, { type: "sway" }>) {
@@ -385,8 +410,13 @@ export function applyBorderCommand(scenario: Scenario, state: GameState, cmd: Bo
       (x) =>
         x !== defender && !defenders.has(x) && state.nations[x].overlord === id && state.nations[x].subjectType !== "protectorate",
     );
+    const repeated = n.lastThreatDay !== undefined && state.elapsedDays - n.lastThreatDay < 180;
     return {
-      ...adjustForeignRelation(change({ infamy: n.infamy + (cmd.goal === "annex" ? 3 : 12) }), id, defender, -12, -5),
+      ...adjustForeignRelation(change({
+        infamy: n.infamy + (cmd.goal === "annex" ? 3 : 12),
+        lastThreatDay: state.elapsedDays,
+        prestige: n.prestige - (repeated ? 8 : 0),
+      }), id, defender, repeated ? -17 : -12, repeated ? -10 : -5),
       borderDispute: {
         phase: "escalation",
         claimantId: id,
@@ -406,6 +436,12 @@ export function applyBorderCommand(scenario: Scenario, state: GameState, cmd: Bo
         outcome: null,
       },
     };
+  }
+  if (cmd.type === "joinContainment") {
+    if (!d || !containmentCandidates(scenario, state, d).includes(id))
+      throw new GameRuleError("当前未满足地区防御联合条件");
+    const joined = adjustForeignRelation(adjustForeignRelation(state, id, d.claimantId, -10, -8), id, d.defenderId, 8, 5);
+    return { ...joined, borderDispute: { ...d, defenders: [...d.defenders, id], containment: [...(d.containment ?? []), id] } };
   }
   if (!d || d.phase === "resolved" || !participants(d).includes(id)) throw new GameRuleError("没有本国参与的争端");
   const patch = (fields: Partial<BorderDispute>) => ({ ...state, borderDispute: { ...d, ...fields } });
@@ -779,9 +815,19 @@ export function aiDiplomacy(
     }
     return [];
   }
+  const volunteer = containmentCandidates(scenario, state, d).find((id) => {
+    if (humanCountries.has(id)) return false;
+    const risk = state.countryEconomies[id].fiscal?.week.risk;
+    if (risk === "restricted" || risk === "defaulted") return false;
+    const standing = relationBetween(state, id, d.defenderId).standing;
+    const tradeWithClaimant = treatyBetween(state, id, d.claimantId, "commercial");
+    return standing >= -25 && (!tradeWithClaimant || state.nations[d.claimantId].infamy >= 75);
+  });
+  if (volunteer) return [{ type: "joinContainment", countryId: volunteer }];
   if (
     d.phase === "countdown" &&
     !d.peaceOffer &&
+    !d.containment?.length &&
     !humanCountries.has(d.defenderId) &&
     holdings(scenario, state, d.claimantId).length > 2 * holdings(scenario, state, d.defenderId).length
   )
