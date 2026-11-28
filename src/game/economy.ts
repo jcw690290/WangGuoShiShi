@@ -21,7 +21,7 @@ import { expectedTrade, illicitOpiumEligible, settleTrade, tradeRouteBlock } fro
 import type { TradeDelivery } from "./trade.ts";
 import { unrestEffects } from "./unrest.ts";
 import { affordableIndustryWorkers, electricityUse, electricIndustries, electricRetrofits, emptyIndustrialAccount,
-  fundedRestock, initialIndustrialAccount, industrialPayroll, industryMethod, materialWorkers, operateIndustry,
+  fundedRestock, initialIndustrialAccount, industrialPayroll, industrialRetrofits, industryMethodAt, isIndustrialRetrofit, materialWorkers, operateIndustry,
   trainedLabourCapacity, workingCapitalPerLevel, workingCapitalTarget } from "./industrial.ts";
 import type { IndustrialAccount, IndustrialReport, IndustrySubsidyReport } from "./industrial.ts";
 import { deliverOffice, officeNeed, planOffice } from "./administration.ts";
@@ -67,6 +67,9 @@ export const projects = {
   port: { cost: 330000, weeks: 6 },
   electrifyTools: { cost: 190000, weeks: 4 },
   electrifySteel: { cost: 190000, weeks: 4 },
+  improveGrain: { cost: 130000, weeks: 3 },
+  mechanizeTools: { cost: 210000, weeks: 4 },
+  alloySteel: { cost: 300000, weeks: 5 },
   university: { cost: 360000, weeks: 3 },
   bureaucracy: { cost: 180000, weeks: 4 },
   construction: { cost: 300000, weeks: 3 },
@@ -748,12 +751,14 @@ function projectSettlement(state: GameState, war?: WarPlan, closingTick?: number
     const plannedWorkers = byGood(() => 0);
     let technicians = specialists - universityStaff - administrators - office.staff - institutionStaff;
     let skilledWages = 0;
-    const retrofitting = new Set(state.countryEconomies[owner].queue
-      .filter((job) => job.stateId === id && job.weeksLeft < projects[job.good].weeks)
-      .map((job) => job.good));
-    const activeElectric = (good: Good) => (good === "tools" || good === "steel") && site[electricRetrofits[good]] === 1;
+    const retrofitting = new Set<Good>();
+    for (const job of state.countryEconomies[owner].queue) {
+      if (job.stateId === id && isIndustrialRetrofit(job.good) && job.weeksLeft < projects[job.good].weeks)
+        retrofitting.add(industrialRetrofits[job.good].good);
+    }
+    const methods = byGood((good) => industryMethodAt(good, site));
     const powerDemand = electricIndustries.reduce((sum, good) => sum +
-      (activeElectric(good) ? local.buildings[good] * industryMethod(good, true).power : 0), 0);
+      (retrofitting.has(good) ? 0 : local.buildings[good] * methods[good].power), 0);
     let powerLeft = 0, powerRequested = 0, powerUsed = 0;
     const access = Math.min(
       1,
@@ -763,9 +768,9 @@ function projectSettlement(state: GameState, war?: WarPlan, closingTick?: number
     ) * effects.transport;
     function produce(g: Good): IndustryReport {
       if (g === "opium" && lawfulOpium === "鸦片禁令") return { employed: 0, output: 0, wages: 0 };
-      if ((g === "tools" || g === "steel") && retrofitting.has(electricRetrofits[g])) return { employed: 0, output: 0, wages: 0 };
-      const electric = activeElectric(g);
-      const spec = industryMethod(g, electric);
+      if (retrofitting.has(g)) return { employed: 0, output: 0, wages: 0 };
+      const spec = methods[g];
+      const electric = spec.power > 0;
       const ordered = g === "arms" || g === "ammo" ? armamentOrders[id][g] :
         isFleetGood(g) ? fleetProduction[g].get(id) ?? 0 : g === "electricity" ? powerDemand : Infinity;
       const civilianTarget = Math.ceil(ordered * spec.jobs / (spec.output * effects.output));
@@ -1159,7 +1164,7 @@ function projectSettlement(state: GameState, war?: WarPlan, closingTick?: number
         const inputCost = goods.reduce((sum, g) => sum + fillsByUse[g].materialCost, 0);
         const available = account.capital + industrialIncome - inputCost;
         if (available < 0) throw new Error("工商业采购超过已落实的周转资金");
-        const methods = byGood((g) => industryMethod(g, s.industries[g].electric === true));
+        const methods = byGood((good) => industryMethodAt(good, site));
         const targetCapital = workingCapitalTarget(local.buildings, methods, ordinaryWage);
         const capital = Math.min(available, targetCapital);
         const surplus = available - capital;
@@ -1334,11 +1339,11 @@ export function constructionError(
   const country = state.countryEconomies[countryId],
     nation = state.nations[countryId];
   if (good === "railway" && nation.knowledge["铁路"] !== 100) return "需要掌握铁路技术";
-  if ((good === "electricity" || good === "electrifyTools" || good === "electrifySteel") &&
-      nation.knowledge["电气化"] !== 100) return "需要掌握电气化技术";
-  if (good === "electrifyTools" || good === "electrifySteel") {
-    const industry = good === "electrifyTools" ? "tools" : "steel";
-    if (state.stateEconomies[stateId].buildings[industry] === 0) return "需要已经投产的工厂";
+  if (good === "electricity" && nation.knowledge["电气化"] !== 100) return "需要掌握电气化技术";
+  if (isIndustrialRetrofit(good)) {
+    const { good: industry, technology } = industrialRetrofits[good];
+    if (nation.knowledge[technology] !== 100) return `需要掌握${technology}技术`;
+    if (state.stateEconomies[stateId].buildings[industry] === 0) return "需要已经投产的产业设施";
     if (state.societies[stateId][good] === 1 || country.queue.some((p) => p.stateId === stateId && p.good === good))
       return "该州已经安排相同改造";
   }
@@ -1444,6 +1449,22 @@ export function chooseElectrification(scenario: Scenario, state: GameState, coun
     if (retrofit === undefined) continue;
     const good = local.buildings.electricity > 0 ? retrofit : "electricity";
     if (!constructionError(scenario, state, countryId, stateId, good)) return { stateId, good };
+  }
+}
+
+export function chooseIndustrialRetrofit(scenario: Scenario, state: GameState, countryId: string, report: EconomyReport): Pick<Project, "stateId" | "good"> | undefined {
+  const country = state.countryEconomies[countryId];
+  if (country.queue.length || state.elapsedDays % 28 !== 0) return;
+  const { market } = report.countries[countryId];
+  for (const project of ["improveGrain", "mechanizeTools", "alloySteel"] as const) {
+    const { good, technology } = industrialRetrofits[project];
+    if (country.treasury < projects[project].cost * 2 || state.nations[countryId].knowledge[technology] !== 100 ||
+        market[good].supply > market[good].demand) continue;
+    const candidates = Object.entries(report.states)
+      .filter(([id, site]) => state.ownerByStateId[id] === countryId && site.industries[good].output > 0)
+      .sort(([, a], [, b]) => b.industries[good].output - a.industries[good].output);
+    const target = candidates.find(([id]) => !constructionError(scenario, state, countryId, id, project));
+    if (target) return { stateId: target[0], good: project };
   }
 }
 

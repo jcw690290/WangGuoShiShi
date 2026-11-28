@@ -1,6 +1,6 @@
 import { z } from "zod";
 import { byGood, byIndustrialGood, goods, industrialGoods, industries } from "./industry.ts";
-import type { ByIndustrialGood, Good, ScenarioLevels } from "./industry.ts";
+import type { ByIndustrialGood, Good, IndustrialGood, ScenarioLevels } from "./industry.ts";
 import { baseOrdinaryWage } from "./labor.ts";
 
 export const industrySubsidyLimit = z.int().nonnegative();
@@ -68,6 +68,24 @@ const normalMethods = byGood((good): Method => ({
 }));
 export const electricRetrofits = { tools: "electrifyTools", steel: "electrifySteel" } as const;
 export const electricIndustries = ["tools", "steel"] as const;
+export const industrialRetrofits = {
+  electrifyTools: { good: "tools", technology: "电气化" },
+  electrifySteel: { good: "steel", technology: "电气化" },
+  improveGrain: { good: "grain", technology: "农业改良" },
+  mechanizeTools: { good: "tools", technology: "机械工具" },
+  alloySteel: { good: "steel", technology: "先进材料" },
+} as const;
+type IndustrialRetrofit = keyof typeof industrialRetrofits;
+export const isIndustrialRetrofit = (project: string): project is IndustrialRetrofit =>
+  Object.hasOwn(industrialRetrofits, project);
+
+const improvedMethods = {
+  grain: { retrofit: "improveGrain", outputFactor: 1.25, materials: { tools: 1 }, skilled: 0 },
+  tools: { retrofit: "mechanizeTools", outputFactor: 1.35, materials: { coal: 3, steel: 2 }, skilled: 10 },
+  steel: { retrofit: "alloySteel", outputFactor: 1.30, materials: { iron: 8, coal: 8, tools: 1 }, skilled: 10 },
+} satisfies Partial<Record<Good, {
+  retrofit: IndustrialRetrofit; outputFactor: number; materials: Partial<ByIndustrialGood<number>>; skilled: number;
+}>>;
 const electricMethods = {
   tools: { jobs: 55, output: 184, recipe: { iron: 54, wood: 36, coal: 9 }, skill: [40, 180], power: 35 },
   steel: { jobs: 55, output: 138, recipe: { iron: 72, coal: 54, tools: 1.8 }, skill: [40, 180], power: 50 },
@@ -75,6 +93,23 @@ const electricMethods = {
 
 export function industryMethod(good: Good, electric = false): Method {
   return electric && (good === "tools" || good === "steel") ? electricMethods[good] : normalMethods[good];
+}
+
+export function industryMethodAt(good: Good, site: Record<IndustrialRetrofit, number>): Method {
+  const electric = (good === "tools" || good === "steel") && site[electricRetrofits[good]] === 1;
+  const base = industryMethod(good, electric);
+  if (good !== "grain" && good !== "tools" && good !== "steel") return base;
+  const upgrade = improvedMethods[good];
+  if (site[upgrade.retrofit] !== 1) return base;
+  const recipe = { ...base.recipe };
+  for (const [key, value] of Object.entries(upgrade.materials)) {
+    const material = key as IndustrialGood;
+    recipe[material] = (recipe[material] ?? 0) + value;
+  }
+  return {
+    ...base, output: Math.round(base.output * upgrade.outputFactor),
+    recipe, skill: [base.skill[0] + upgrade.skilled, base.skill[1]],
+  };
 }
 
 export const electricityUse = (method: Method, workers: number) => Math.ceil(workers * method.power / method.jobs);

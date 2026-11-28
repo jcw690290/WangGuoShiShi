@@ -7,6 +7,7 @@ import { buildingCapacity, constructionError, workForce } from "./game/economy.t
 import type { EconomyReport } from "./game/economy.ts";
 import type { GameCommand, GameState } from "./game/engine.ts";
 import { goods, industrialGoods, industries, isGood } from "./game/industry.ts";
+import { industrialRetrofits, isIndustrialRetrofit } from "./game/industrial.ts";
 import type { Scenario } from "./scenario/scenario.ts";
 import { affinityLevel, culturalAffinityOf } from "./game/culture.ts";
 import { governanceLaw, governanceModeAllowed, governanceModes, governanceOf, governanceRules,
@@ -298,8 +299,7 @@ function StateIndustry({
         <div className="diplomacy-actions">
           {facilityTypes.filter((g) => {
             if (g === "port") return site.coastal;
-            if (g === "electrifyTools") return local.buildings.tools > 0;
-            if (g === "electrifySteel") return local.buildings.steel > 0;
+            if (isIndustrialRetrofit(g)) return local.buildings[industrialRetrofits[g].good] > 0;
             return true;
           }).map((g) => {
             const problem = isOwnState ? constructionError(scenario, game, playerId, stateId, g) : undefined;
@@ -310,7 +310,7 @@ function StateIndustry({
               disabled={!isOwnState || busy || problem !== undefined}
               onClick={() => send({ type: "queueConstruction", countryId: playerId, stateId, good: g })}
             >
-              {g === "electrifyTools" || g === "electrifySteel"
+              {isIndustrialRetrofit(g)
                 ? `${facilityNames[g]}${society[g] ? " · 已投产" : ""}`
                 : `${facilityNames[g]} ${society[g]} 级 · 扩建`}
               <small>
