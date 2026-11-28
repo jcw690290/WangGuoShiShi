@@ -1,15 +1,16 @@
 import { useMemo } from "react";
 import { facilityNames, facilityTypes, livingStandardOf, socialTags } from "./game/society.ts";
 import { civicPolicy, civicStanding, nationalIdentity } from "./game/civic-policy.ts";
-import { privateShareOf, projectDeposit, projectPoints, remainingProjectPoints, weeklyBudgets } from "./game/economy.ts";
+import { privateShareOf, projectDeposit, projectName, projectPoints, remainingProjectPoints, weeklyBudgets } from "./game/economy.ts";
 import { count, silver } from "./format.ts";
 import { fiscalRiskNames } from "./game/fiscal.ts";
 import { CommodityDetails } from "./CommodityDetails.tsx";
 import { buildingCapacity, constructionError, workForce } from "./game/economy.ts";
 import type { EconomyReport } from "./game/economy.ts";
 import type { GameCommand, GameState } from "./game/engine.ts";
-import { goods, industrialGoods, industries, isGood } from "./game/industry.ts";
-import { industrialRetrofits, isIndustrialRetrofit } from "./game/industrial.ts";
+import { goods, industrialGoods, industries } from "./game/industry.ts";
+import { industryMethodAt, isIndustrialRetrofit, productionTierAt } from "./game/industrial.ts";
+import { productionProject, productionTierNames, productionTiers } from "./game/production-methods.ts";
 import type { Scenario } from "./scenario/scenario.ts";
 import { affinityLevel, culturalAffinityOf, cultureName } from "./game/culture.ts";
 import { governanceLaw, governanceModeAllowed, governanceModes, governanceOf, governanceRules,
@@ -170,6 +171,7 @@ function StateIndustry({
         {goods.map((good) => {
           const industry = industries[good];
           const jobs = activity[good];
+          const tier = productionTierAt(good, society), method = industryMethodAt(good, society);
           const owned = ownedLevels(good, local.buildings[good], local.ownership);
           const problem = isOwnState ? constructionError(scenario, game, playerId, stateId, good) : undefined;
           return (
@@ -181,10 +183,28 @@ function StateIndustry({
                   {ownershipKinds.filter((kind) => owned[kind] > 0).map((kind) => ` · ${ownershipNames[kind]} ${owned[kind]}`).join("")}
                 </span>
                 <p>
-                  {jobs.electric && "电动生产 · "}就业 {count(jobs.employed)} 人 · 周产出 {count(jobs.output)} · 本地价{" "}
+                  {productionTierNames[tier]}工序 · 就业 {count(jobs.employed)} 人 · 周产出 {count(jobs.output)} · 本地价{" "}
                   {silver(snapshot.localPrices[good])} · 人均周工资{" "}
                   {jobs.employed === 0 ? "—" : silver(jobs.wages / jobs.employed)}
                 </p>
+                {local.buildings[good] > 0 && <details>
+                  <summary>生产方式</summary>
+                  <p>每级满员 {count(method.jobs)} 人 · 基础周产 {count(method.output)}
+                    {method.power > 0 && ` · 每级需电力 ${count(method.power)}`}</p>
+                  <p>每级周投入 {industrialGoods.filter((material) => method.recipe[material]).map((material) =>
+                    `${industries[material].goodName} ${count(method.recipe[material]!)}`).join(" · ")}</p>
+                  {isOwnState && <div className="diplomacy-actions">
+                    {productionTiers.filter((target) => target !== tier).map((target) => {
+                      const project = productionProject(good, target);
+                      const reason = constructionError(scenario, game, playerId, stateId, project);
+                      return <button type="button" key={target} className="build" disabled={busy || reason !== undefined}
+                        onClick={() => send({ type: "queueConstruction", countryId: playerId, stateId, good: project })}>
+                        改造为{productionTierNames[target]}工序
+                        <small>{reason ?? `按周实付 · ${projectPoints(project)} 施工点`}</small>
+                      </button>;
+                    })}
+                  </div>}
+                </details>}
               </div>
               {isOwnState && (
                 <button
@@ -301,7 +321,7 @@ function StateIndustry({
           {facilityTypes.filter((g) => {
             if (g === "port") return site.coastal;
             if (g === "administrativeArchive") return society.bureaucracy > 0;
-            if (isIndustrialRetrofit(g)) return local.buildings[industrialRetrofits[g].good] > 0;
+            if (isIndustrialRetrofit(g)) return false;
             return true;
           }).map((g) => {
             const problem = isOwnState ? constructionError(scenario, game, playerId, stateId, g) : undefined;
@@ -312,7 +332,7 @@ function StateIndustry({
               disabled={!isOwnState || busy || problem !== undefined}
               onClick={() => send({ type: "queueConstruction", countryId: playerId, stateId, good: g })}
             >
-              {isIndustrialRetrofit(g) || g === "administrativeArchive"
+              {g === "administrativeArchive"
                 ? `${facilityNames[g]}${society[g] ? " · 已启用" : ""}`
                 : `${facilityNames[g]} ${society[g]} 级 · 扩建`}
               <small>
@@ -670,7 +690,7 @@ export function EconomyPanel(
                     {queue.map((job, i) => (
                       <li key={i}>
                         {scenario.states[job.stateId].name} ·{" "}
-                        {isGood(job.good) ? industries[job.good].name : facilityNames[job.good]}{job.levels && ` × ${job.levels}`} ·
+                        {projectName(job.good)}{job.levels && ` × ${job.levels}`} ·
                         余 {remainingProjectPoints(job).toFixed(2)} 点
                         {marketId === playerId && <button disabled={busy} onClick={() => send({
                           type: "cancelConstruction", countryId: playerId, index: i, stateId: job.stateId, good: job.good,

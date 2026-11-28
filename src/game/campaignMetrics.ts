@@ -7,7 +7,7 @@ import { projectEconomy, weeklyBudgets, workForce } from "./economy.ts";
 import type { EconomyReport } from "./economy.ts";
 import type { GameState } from "./engine.ts";
 import { goods, industrialGoods, industries } from "./industry.ts";
-import { industryMethod } from "./industrial.ts";
+import { electricityUse, industryMethod, productionMethod } from "./industrial.ts";
 import { institutions } from "./institutions.ts";
 import { bondedRuralWorkers, laborStatus, ruralPopulation } from "./labor.ts";
 import { governmentLegitimacy, influence } from "./society.ts";
@@ -28,14 +28,15 @@ function civilianOutput(report: EconomyReport, holdings: readonly string[]) {
     for (const good of goods) total += activity[good].output * industries[good].basePrice;
     if (industrial) for (const good of industrialGoods) total -= industrial.used[good] * industries[good].basePrice;
     for (const line of ["cloth", "tools", "paper", "dailyGoods", "luxury", "steel", "arms", "ammo", "shipGoods"] as const) {
-      const { recipe, jobs } = industryMethod(line, activity[line].electric);
+      const { method, electric, employed, output } = activity[line];
+      const spec = method ? productionMethod(line, method) : industryMethod(line, electric);
       const inputsCost = industrialGoods.reduce((sum, good) =>
-        sum + Math.ceil(activity[line].employed * (recipe[good] ?? 0) / jobs) * industries[good].basePrice, 0);
-      manufacturing += activity[line].output * industries[line].basePrice - inputsCost;
+        sum + Math.ceil(employed * (spec.recipe[good] ?? 0) / spec.jobs) * industries[good].basePrice, 0);
+      manufacturing += output * industries[line].basePrice - inputsCost -
+        electricityUse(spec, employed) * industries.electricity.basePrice;
     }
     const powerCost = (power?.delivered ?? 0) * industries.electricity.basePrice;
     total -= powerCost;
-    manufacturing -= powerCost;
   }
   return { total: total + subsistenceOutput, manufacturing, subsistenceOutput };
 }
