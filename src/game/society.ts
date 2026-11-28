@@ -63,8 +63,19 @@ export const popSchema = z.object({
   livingStandard: z.number().min(1).max(30).default(startingLivingStandard),
   literacy: percent,
   radicals: percent,
-});
+  loyalists: percent.default(0),
+}).refine((pop) => pop.radicals + pop.loyalists <= 100 + 1e-8);
 export type Pop = z.infer<typeof popSchema>;
+
+export function mergePopCohorts(target: Pop, arriving: Pop, arrivals: number): Pop {
+  const people = target.people + arrivals;
+  const average = (key: "wealth" | "livingStandard" | "literacy" | "radicals" | "loyalists") =>
+    (target[key] * target.people + arriving[key] * arrivals) / people;
+  return {
+    ...target, people, wealth: average("wealth"), livingStandard: average("livingStandard"),
+    literacy: average("literacy"), radicals: average("radicals"), loyalists: average("loyalists"),
+  };
+}
 export const siteSocialSchema = z.object({
   pops: z.array(popSchema).min(1),
   culturalAffinity: z.record(z.string(), percent).optional(),
@@ -249,6 +260,7 @@ export function initSiteSociety(site: Scenario["states"][string]): SiteSocial {
         livingStandard: startingLivingStandard,
         literacy: 12 * rank + (hash(site.id) % 10),
         radicals: 0,
+        loyalists: foreign ? 0 : 15,
       });
     }
   }
@@ -316,13 +328,17 @@ export function initSociety(scenario: Scenario) {
   return { societies, nations };
 }
 
-function populationAverage(pops: Pop[], metric: "literacy" | "livingStandard" | "radicals") {
+function populationAverage(pops: Pop[], metric: "literacy" | "livingStandard" | "radicals" | "loyalists") {
   const people = pops.reduce((n, p) => n + p.people, 0);
   return people ? pops.reduce((n, p) => n + p.people * p[metric], 0) / people : 0;
 }
 export const literacyOf = (pops: Pop[]) => populationAverage(pops, "literacy");
 export const livingStandardOf = (pops: Pop[]) => populationAverage(pops, "livingStandard");
 export const unrestOf = (pops: Pop[]) => populationAverage(pops, "radicals");
+export function politicalAttitudes(pops: Pop[]) {
+  const radicals = unrestOf(pops), loyalists = populationAverage(pops, "loyalists");
+  return { radicals, loyalists, neutral: Math.max(0, 100 - radicals - loyalists) };
+}
 export { powerDistribution } from "./constitution.ts";
 
 export function influence(locals: SiteSocial[], id: string, nation: Nation) {
@@ -450,6 +466,7 @@ export function evolvePops(
   week: {
     grainPrice: number; laborWages: number; specialistWages: number;
     capitalistIncome: number; landownerIncome: number; ruralResources: number; businessJobs: number; standardTarget: number;
+    taxBurden: number; warPressure: number;
     relief?: { 农民: number; 劳工: number };
   },
   tuning: RuleTuning,
@@ -459,9 +476,10 @@ export function evolvePops(
     occupations.map((o) => [o, site.pops.reduce((s, p) => s + (p.occupation === o ? p.people : 0), 0)]),
   ) as Record<Occupation, number>;
   const boundShare = bondedRuralShare(nation.laws);
-  const protection = laborProtection(nation.laws).relief *
-    Math.min(1, businessJobs / Math.max(1, workForce(totals.劳工, site.laborParticipation)));
+  const employed = Math.min(1, businessJobs / Math.max(1, workForce(totals.劳工, site.laborParticipation)));
+  const protection = laborProtection(nation.laws).relief * employed;
   const policy = civicPolicy(nation.laws);
+  const restrictedVoice = powerDistribution(nation) === "autocracy";
   const pops = site.pops.map((p) => {
     const standing = civicStanding(p, id, site, policy);
     const income =
@@ -478,35 +496,40 @@ export function evolvePops(
     );
     const wealth = Math.max(0.5, p.wealth * 0.96 + Math.min(150, living) * 0.04);
     const suffering = wealth < 4 + p.literacy / 12 + (nation.knowledge["公共教育"] === 100 ? 1 : 0);
-    const radicals = Math.max(
-      0,
-      Math.min(
-        100,
-        p.radicals +
-          (suffering ? 0.25 * tuning.radicalGrowth : -0.18 * tuning.radicalRelief) +
-          (p.occupation === "农民" ? 0.08 * boundShare : p.occupation === "劳工" ? -protection : 0) +
-          0.12 * (1 - standing) * tuning.radicalGrowth,
-      ),
-    );
+    const group = socialTags[p.occupation][1];
+    const threatenedByReform = nation.reform !== null && !supporters[nation.reform].includes(group) &&
+      !nation.government.includes(group);
+    const pressure = (suffering ? 0.25 : -0.18) +
+      (p.occupation === "农民" ? 0.08 * boundShare : p.occupation === "劳工" ? 0.14 * (1 - employed) - protection : 0) +
+      0.12 * (1 - standing) + 0.024 * Math.max(0, p.livingStandard - standardTarget) +
+      0.24 * Math.max(0, week.taxBurden - 0.12) + week.warPressure +
+      (restrictedVoice && socialTags[p.occupation][0] === "下层" ? 0.035 : 0) +
+      (threatenedByReform ? 0.08 : 0);
+    const change = pressure * (pressure > 0 ? tuning.radicalGrowth : tuning.radicalRelief);
+    const radicals = Math.max(0, Math.min(100, p.radicals + change));
+    const loyalists = Math.max(0, Math.min(100 - radicals, p.loyalists - 0.65 * change));
     const livingStandard = updateLivingStandard(p.livingStandard, standardTarget);
-    return { ...p, wealth, radicals, livingStandard };
+    return { ...p, wealth, radicals, loyalists, livingStandard };
   });
   // Fill commercial vacancies from rural households of the same identity.
   const targetLabourers = Math.ceil(businessJobs / site.laborParticipation);
   let vacancies = Math.max(0, targetLabourers - totals["劳工"]);
   for (const rural of pops.filter((p) => p.occupation === "农民")) {
-    const labour = pops.find((p) => p.occupation === "劳工" && p.culture === rural.culture)!;
     const hired = Math.min(rural.people, vacancies, Math.ceil(rural.people * 0.02 * (1 - boundShare)));
+    if (!hired) continue;
+    const index = pops.findIndex((p) => p.occupation === "劳工" && p.culture === rural.culture && p.religion === rural.religion);
+    if (index === -1) pops.push({ ...rural, occupation: "劳工", people: hired });
+    else pops[index] = mergePopCohorts(pops[index], rural, hired);
     rural.people -= hired;
-    labour.people += hired;
     vacancies -= hired;
   }
   // Workers qualify for new technical posts in their own culture/religion cohort.
   for (const p of pops.filter((p) => p.occupation === "劳工")) {
-    const engineers = pops.find((e) => e.occupation === "工程师" && e.culture === p.culture)!;
+    const index = pops.findIndex((e) => e.occupation === "工程师" && e.culture === p.culture && e.religion === p.religion);
+    const engineers = index === -1 ? 0 : pops[index].people;
     const vacancies = Math.max(
       0,
-      Math.ceil((businessJobs * 0.12 * p.people) / Math.max(1, totals["劳工"])) - engineers.people,
+      Math.ceil((businessJobs * 0.12 * p.people) / Math.max(1, totals["劳工"])) - engineers,
     );
     const qualified = Math.floor(
       ((p.people * (p.literacy + p.wealth)) / 1000) *
@@ -514,8 +537,10 @@ export function evolvePops(
         (0.35 + 0.65 * civicStanding(p, id, site, policy)),
     );
     const promoted = Math.min(p.people, vacancies, qualified);
+    if (!promoted) continue;
+    if (index === -1) pops.push({ ...p, occupation: "工程师", people: promoted });
+    else pops[index] = mergePopCohorts(pops[index], p, promoted);
     p.people -= promoted;
-    engineers.people += promoted;
   }
   const laborParticipation = site.laborParticipation + 0.1 * (participationTarget(nation.laws) - site.laborParticipation);
   return { ...site, pops, laborParticipation };

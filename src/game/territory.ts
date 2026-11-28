@@ -3,7 +3,7 @@ import { GameRuleError } from "./rules.ts";
 import type { Scenario } from "../scenario/scenario.ts";
 import { isScenarioFinished } from "./engine.ts";
 import type { GameState } from "./engine.ts";
-import { initSiteSociety } from "./society.ts";
+import { initSiteSociety, mergePopCohorts } from "./society.ts";
 import type { Pop } from "./society.ts";
 import { governanceModeAllowed, newFrontier } from "./governance.ts";
 import { initialStateEconomy } from "./economy.ts";
@@ -163,16 +163,7 @@ function completeSettlement(scenario: Scenario, state: GameState, project: Terri
     moved = cumulative;
     const match = receiving.findIndex((row) => row.occupation === pop.occupation && row.culture === pop.culture && row.religion === pop.religion);
     if (match === -1) receiving.push({ ...pop, people: arrivals });
-    else if (arrivals > 0) {
-      const prior = receiving[match], total = prior.people + arrivals;
-      receiving[match] = {
-        ...prior, people: total,
-        wealth: (prior.wealth * prior.people + pop.wealth * arrivals) / total,
-        literacy: (prior.literacy * prior.people + pop.literacy * arrivals) / total,
-        radicals: (prior.radicals * prior.people + pop.radicals * arrivals) / total,
-        livingStandard: (prior.livingStandard * prior.people + pop.livingStandard * arrivals) / total,
-      };
-    }
+    else if (arrivals > 0) receiving[match] = mergePopCohorts(receiving[match], pop, arrivals);
     return { ...pop, people: pop.people - arrivals };
   });
   const budget = Math.floor(origin.basicBudget * movers / origin.population);

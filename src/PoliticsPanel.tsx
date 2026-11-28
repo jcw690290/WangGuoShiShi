@@ -10,7 +10,7 @@ import {
   techEffect,
   lawEffect,
 } from "./game/politics.ts";
-import { distributionName, groups, influence, laws, literacyOf, powerDistribution, reformConditions, reformWork, techs, unrestOf } from "./game/society.ts";
+import { distributionName, groups, influence, laws, literacyOf, politicalAttitudes, powerDistribution, reformConditions, reformWork, techs } from "./game/society.ts";
 import type { Law } from "./game/society.ts";
 import { count } from "./format.ts";
 import { institutionLawDetails, institutionLawFamilies, institutionLawKinds, institutionLawOptions } from "./game/institutions.ts";
@@ -44,9 +44,10 @@ export function PoliticsPanel({ scenario, game, playerId: id, year, busy, send }
     sites = ownedSocieties(game, id),
     people = sites.flatMap((site) => site.pops),
     power = influence(sites, id, n);
+  const attitudes = politicalAttitudes(people);
   const [selected, setLaw] = useState<Law>("工资税改革");
   const law = n.reform ?? selected,
-    conditions = reformConditions(n, power, law, unrestOf(people));
+    conditions = reformConditions(n, power, law, attitudes.radicals);
   const progress = n.reformProgress / reformWork;
   const stage = progress < 1 / 3 ? "组织支持" : progress < 2 / 3 ? "争论修正" : "实施";
   const literacy = literacyOf(people);
@@ -98,6 +99,7 @@ export function PoliticsPanel({ scenario, game, playerId: id, year, busy, send }
             <p>政体协商期还剩 {crisisState.compromiseUntil - game.elapsedDays} 天。</p>
           )}
           <div className="control-block">
+            <p>全国人口 · 忠诚 {attitudes.loyalists.toFixed(1)}% · 中立 {attitudes.neutral.toFixed(1)}% · 激进 {attitudes.radicals.toFixed(1)}%</p>
             <p>权威力可用 {authority.available} · 已占用 {authority.used} / {authority.capacity}</p>
             <p>勾选执政集团。议案需要政府支持，或至少 25% 的运动支持。</p>
             <div className="group-grid">
