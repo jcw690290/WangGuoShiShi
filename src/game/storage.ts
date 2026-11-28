@@ -32,6 +32,7 @@ import { industryLaborSchema } from "./private-labor.ts";
 import { activeConstruction, constructionMaintenanceSchema, constructionReportSchema, constructionStockSchema,
   constructionSpending, constructionTiming, constructionWage, validConstructionTiming } from "./construction.ts";
 import { financeJournalSchema } from "./finance-journal.ts";
+import { reserveDischargeSchema } from "./reserve-discharge.ts";
 import { initialGroupLeadership, nationSchema, siteSocialSchema, projectTypes, reformConsultationDays, reformStage } from "./society.ts";
 import { importRegionalSave } from "./legacySave.ts";
 import { borderScenario } from "../scenario/scenario.ts";
@@ -302,6 +303,7 @@ const siteReport = z.object({
   industrialWage: uint.positive().optional(),
   militaryWages: z.object({ enlisted: uint, officers: uint }).optional(),
   draftWorkforce: uint.optional(),
+  releasedDraftWorkforce: uint.optional(),
   industries: z.object({ grain: industry, cloth: industry, ...byIndustrialGood(() =>
     industry.default({ employed: 0, output: 0, wages: 0 })) }),
   cashCrops: industry.optional(),
@@ -399,6 +401,7 @@ export function parseSave(baseScenario: Scenario, save: unknown): GameState {
     .transform((local) => ({ ...local, basicBudget: local.basicBudget ?? openingBasicBudget(local.population) })));
   const stateSchema = z.object({
     financeJournal: financeJournalSchema.optional(),
+    reserveDischarges: z.array(reserveDischargeSchema.extend({ payer: activeCountry, site: activeSite })).optional(),
     elapsedDays: uint.max(Math.floor((8.64e15 - Date.parse(scenario.startDate)) / DAY_MS)),
     playerCountryId: registeredCountries,
     rng: uint.max(0xffffffff),
@@ -476,6 +479,16 @@ export function parseSave(baseScenario: Scenario, save: unknown): GameState {
   }
   if (state.financeJournal && [...state.financeJournal.settled, ...state.financeJournal.pending]
     .some((transaction) => transaction.tick > elapsedTicks(state))) invalid();
+  if (state.reserveDischarges) {
+    const tick = elapsedTicks(state);
+    const weekStart = tick - tick % (7 * TICKS_PER_DAY);
+    const seen = new Set<string>();
+    for (const { payer, site, through, ticks } of state.reserveDischarges) {
+      const key = JSON.stringify([payer, site, through]);
+      if (seen.has(key) || through > tick || through - ticks < weekStart || !state.stateEconomies[site]) invalid();
+      seen.add(key);
+    }
+  }
   const owned = Object.keys(state.ownerByStateId);
   const campaign = state.campaign;
   if (campaign) {

@@ -130,7 +130,7 @@ export function measureCampaign(
     const population = state.stateEconomies[id].population;
     workforce += site.workforce ?? workForce(population, state.societies[id].laborParticipation);
     employed += goods.reduce((sum, good) => sum + site.industries[good].employed, 0) +
-      site.builders + site.regulars + (site.draftWorkforce ?? site.conscripts) +
+      site.builders + site.regulars + (site.draftWorkforce ?? site.conscripts) + (site.releasedDraftWorkforce ?? 0) +
       (site.constructionMaintenance?.workers ?? 0) +
       (site.universityStaff ?? 0) + (site.administrationStaff ?? 0) + (site.office?.staff ?? 0) +
       institutions.reduce((sum, kind) => sum + (site[kind]?.staff ?? 0), 0) + (site.subsistence?.employed ?? 0);

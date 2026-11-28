@@ -10,6 +10,7 @@ import type { Building, CountryEconomy, EconomyReport, Project, StateEconomy } f
 import { activeConstruction } from "./construction.ts";
 import { investmentAccount, recordImmediateTransfer, treasuryAccount } from "./finance-journal.ts";
 import type { FinanceJournal } from "./finance-journal.ts";
+import type { ReserveDischarge } from "./reserve-discharge.ts";
 import { advancePolitics, applyPolitics, availableTech, ownedSocieties, politicsError } from "./politics.ts";
 import type { PoliticsCommand } from "./politics.ts";
 import { assignMilitaryHouseholds, initSociety, techs, hash, literacyOf } from "./society.ts";
@@ -66,6 +67,7 @@ export { DAY_MS, elapsedTicks, TICKS_PER_DAY } from "./time.ts";
 
 export interface GameState {
   financeJournal?: FinanceJournal;
+  reserveDischarges?: ReserveDischarge[];
   elapsedDays: number;
   tickInDay: number;
   settings: GameSettings;

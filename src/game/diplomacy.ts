@@ -9,7 +9,7 @@ import { unrestEffects } from "./unrest.ts";
 import type { Scenario } from "../scenario/scenario.ts";
 import type { GameState } from "./engine.ts";
 import type { EconomyReport } from "./economy.ts";
-import { projectOpeningCapital } from "./economy.ts";
+import { projectEconomy, projectOpeningCapital } from "./economy.ts";
 import { ruleTuning } from "./settings.ts";
 import { syncOccupation } from "./occupation.ts";
 import { adjustForeignRelation, breakOpposedTreaties, diplomaticTrust, expireTreatyOffers, influenceBudget, reconcileTreaties,
@@ -25,7 +25,10 @@ import { recognizeTerritorialClaim, reconcileTerritorialPlans, settlementAt, ter
 import type { TerritorialClaimCommand } from "./territory.ts";
 import { minOpiumClaim, opiumEffects, recentOpiumLosses } from "./opium.ts";
 import { endCivilWar } from "./civil-war.ts";
-import { elapsedTicks, TICKS_PER_DAY } from "./time.ts";
+import { elapsedTicks, TICKS_PER_DAY, TICKS_PER_WEEK } from "./time.ts";
+import { recordReserveDischarge } from "./reserve-discharge.ts";
+import { civicPolicy, civicStanding, nationalIdentity } from "./civic-policy.ts";
+import { culturalAffinityOf } from "./culture.ts";
 import { investmentAccount, recordImmediateTransfer, treasuryAccount } from "./finance-journal.ts";
 
 export const goals = ["cession", "reparations", "puppet", "vassal", "protectorate", "annex", "recognition", "haltSettlement", "opiumCompensation", "regime"] as const;
@@ -291,6 +294,12 @@ export function attacking(d: BorderDispute, id: string) {
   return id === d.claimantId || d.allies.includes(id);
 }
 const withoutPeaceOffer = ({ peaceOffer: _offer, ...dispute }: BorderDispute) => dispute;
+function dischargeReserves(scenario: Scenario, state: GameState) {
+  if (state.borderDispute?.phase !== "war" || !state.borderDispute.mobilized.length ||
+      elapsedTicks(state) % TICKS_PER_WEEK === 0) return state;
+  return recordReserveDischarge(state, projectEconomy(state, planWar(scenario, state), scenario));
+}
+
 function treaty(state: GameState, d: BorderDispute, victory: boolean, withdrawal = false, terms = d.goals): GameState {
   const { occupation: released, ...world } = state;
   let diplomaticState: GameState = world;
@@ -561,7 +570,7 @@ export function applyBorderCommand(scenario: Scenario, state: GameState, cmd: Bo
     if (cmd.type === "rejectPeace") return { ...state, borderDispute: withoutPeaceOffer(d) };
     const problem = peaceTermsError(state, d, offer.goals, offer.commercial);
     if (problem) throw new GameRuleError(problem);
-    const settled = treaty(state, { ...d, agreedPeace: { goals: offer.goals, commercial: offer.commercial } },
+    const settled = treaty(dischargeReserves(scenario, state), { ...d, agreedPeace: { goals: offer.goals, commercial: offer.commercial } },
       offer.goals.length > 0, false, offer.goals);
     return offer.commercial ? signForeignTreaty(settled, d.claimantId, d.defenderId, "commercial") : settled;
   }
@@ -602,7 +611,7 @@ export function applyBorderCommand(scenario: Scenario, state: GameState, cmd: Bo
   if (cmd.type === "signTreaty" || cmd.type === "armistice") {
     if (state.civilWar) {
       if (cmd.type !== "armistice") throw new GameRuleError("内战战线将自动结算胜负");
-      return endCivilWar(state, id === d.claimantId ? "government" : "opposition");
+      return endCivilWar(dischargeReserves(scenario, state), id === d.claimantId ? "government" : "opposition");
     }
     if ((id !== d.claimantId && id !== d.defenderId) || d.lastChange === null)
       throw new GameRuleError("尚无法签署和约");
@@ -610,7 +619,7 @@ export function applyBorderCommand(scenario: Scenario, state: GameState, cmd: Bo
       throw new GameRuleError("战线进度尚未达到割让条件");
     if (cmd.type === "armistice" && id !== d.claimantId)
       throw new GameRuleError("防守方可提出维持现状的和约，等待对方答复");
-    return treaty(state, d, cmd.type === "signTreaty");
+    return treaty(dischargeReserves(scenario, state), d, cmd.type === "signTreaty");
   }
   if (cmd.type === "mobilize") {
     if (d.mobilized.includes(id)) throw new GameRuleError("已经征兵");
@@ -727,6 +736,8 @@ export function planWar(scenario: Scenario, state: GameState): WarPlan | undefin
   const naval = planNavalOperations(scenario, state, d);
   const line = new Set(frontLine(scenario, state, d).map((site) => site.id));
   for (const id of participants(d)) {
+    const policy = civicPolicy(state.nations[id].laws);
+    const identity = nationalIdentity(id);
     const order = d.frontOrders?.[id];
     const requested = order?.objective;
     const focus = requested && frontObjectives(scenario, state, d, id).some((site) => site.id === requested) ? requested : null;
@@ -761,7 +772,14 @@ export function planWar(scenario: Scenario, state: GameState): WarPlan | undefin
           return Math.max(bonus, connectedRailway(site.railway, state.societies[neighbor].railway));
         }, 0);
         const terminal = overseas && s.coastal && state.occupation?.stateId !== s.id ? site.port : 0;
-        return n + Math.floor(s.grainTransport * (site.infrastructure + rail + terminal) * unrestEffects(site.stability).transport);
+        const familiarity = culturalAffinityOf(site)[identity] ?? 0;
+        const people = state.stateEconomies[s.id].population;
+        const volunteers = familiarity < 50 || state.occupation?.stateId === s.id ? 0 :
+          site.pops.reduce((sum, pop) => sum + (pop.culture !== identity && civicStanding(pop, id, site, policy) === 1
+            ? pop.people * Math.max(0, pop.loyalists - pop.radicals) / 100 : 0), 0);
+        const cooperation = 1 + 0.1 * (familiarity / 100) * (volunteers / people);
+        return n + Math.floor(s.grainTransport * (site.infrastructure + rail + terminal) *
+          unrestEffects(site.stability).transport * cooperation);
       },
       0,
     );

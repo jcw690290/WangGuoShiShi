@@ -211,6 +211,7 @@ export interface SiteReport {
   industrialWage?: number;
   militaryWages?: { enlisted: number; officers: number };
   draftWorkforce?: number;
+  releasedDraftWorkforce?: number;
   workforce?: number;
   universityStaff?: number;
   administrationStaff?: number;
@@ -390,7 +391,7 @@ function draftDutyTicks(route: WarPlan["routes"][string] | undefined, closingTic
 }
 
 function planArmamentOrders(state: GameState, holdings: Record<string, string[]>, rosters: Record<string, Battalion[]>,
-  wages: Record<string, number>, war?: WarPlan, closingTick?: number) {
+  wages: Record<string, number>, released: Record<string, number>, war?: WarPlan, closingTick?: number) {
   const orders: Record<string, ArmamentOrders> = Object.fromEntries(
     Object.keys(state.stateEconomies).map((id) => [id, { arms: 0, ammo: 0 }]),
   );
@@ -458,6 +459,7 @@ function planArmamentOrders(state: GameState, holdings: Record<string, string[]>
       for (const unit of rosters[id]) {
         if (unit.pendingEquipment) assign(owner, suppliers, refitOrder(unit));
       }
+    if (released[owner] > 0) assign(owner, suppliers, equipmentNeeds([], released[owner], false));
   }
   return orders;
 }
@@ -596,6 +598,16 @@ export function projectEconomy(state: GameState, war?: WarPlan, scenario?: Scena
 }
 
 function projectSettlement(state: GameState, war?: WarPlan, closingTick?: number, scenario?: Scenario) {
+  const released = Object.fromEntries(Object.keys(state.nations).map((id) => [id, { wages: 0, personTicks: 0 }]));
+  const releasedWorkers: Record<string, number> = {};
+  for (const { payer, site, people, ticks } of state.reserveDischarges ?? []) {
+    if (closingTick === undefined) break;
+    released[payer].wages += militarySalary(0, people, 0, state.nations[payer].publicPay, ticks);
+    released[payer].personTicks += people * ticks;
+    releasedWorkers[site] = (releasedWorkers[site] ?? 0) + people * ticks;
+  }
+  const releasedSupply = Object.fromEntries(Object.entries(released).map(([id, row]) =>
+    [id, Math.round(row.personTicks / TICKS_PER_WEEK)]));
   const report: EconomyReport = { states: {}, countries: {} };
   const taxPolicies = Object.fromEntries(Object.entries(state.nations).map(([id, nation]) => [id, taxPolicy(nation)]));
   const netHouseholdIncome: Record<string, HouseholdIncome> = {};
@@ -711,7 +723,7 @@ function projectSettlement(state: GameState, war?: WarPlan, closingTick?: number
     return [id, industrialWage(laborProtection(laws).ordinaryWage, available, local.industrial?.capital ?? 0, local.industryLabor)];
   }));
   const rosters = Object.fromEntries(Object.keys(garrisons).map((id) => [id, battalionsAt(state, id, garrisons[id])]));
-  const armamentOrders = planArmamentOrders(state, holdings, rosters, wages, war, closingTick);
+  const armamentOrders = planArmamentOrders(state, holdings, rosters, wages, releasedSupply, war, closingTick);
   const fleets = fleetPlans(state, holdings, scenario);
   const armyFuelDemand = Object.fromEntries(Object.entries(holdings).map(([owner, ids]) => {
     const route = war?.routes[owner];
@@ -753,7 +765,8 @@ function projectSettlement(state: GameState, war?: WarPlan, closingTick?: number
     const ruralPeople = ruralPopulation(site.pops);
     const workforce = fitWorkforce(site, local.population, state.elapsedDays);
     const boundToLand = Math.min(workforce, bondedRuralWorkers(ruralPeople, participation, nation.laws));
-    const labour = workforce - regulars - boundToLand;
+    const discharged = Math.min(workforce - regulars - boundToLand, Math.floor((releasedWorkers[id] ?? 0) / TICKS_PER_WEEK));
+    const labour = workforce - regulars - boundToLand - discharged;
     const specialists = workForce(engineers, participation);
     const universityStaff = Math.min(labour, specialists, site.university * universityJobs);
     const unassignedAfterUniversity = Math.min(labour - universityStaff, specialists - universityStaff);
@@ -958,6 +971,7 @@ function projectSettlement(state: GameState, war?: WarPlan, closingTick?: number
       industries: activity,
       ...(cashCrops ? { cashCrops } : {}),
       industrialWage: ordinaryWage,
+      ...(discharged > 0 ? { releasedDraftWorkforce: discharged } : {}),
       ...(conscripts > 0 && draftTicks < TICKS_PER_WEEK ?
         { draftWorkforce: Math.floor(conscripts * draftTicks / TICKS_PER_WEEK) } : {}),
       workforce,
@@ -1056,7 +1070,11 @@ function projectSettlement(state: GameState, war?: WarPlan, closingTick?: number
       }
       if (shipped.size > 0) completedRefits[id] = state.societies[id].battalionOrders!.map((order) => shipped.get(order.slot) ?? order);
     }
+    if (releasedSupply[owner] > 0)
+      issueSupplies(m, contract, supplies, suppliers, releasedSupply[owner], equipmentNeeds([], releasedSupply[owner], false), Infinity, 1);
     m.procurement = contract.spending;
+    m.payroll!.due += released[owner].wages;
+    c.upkeep += released[owner].wages;
     m.supplyRatio = m.readiness;
     c.upkeep += militaryProcurementCost(contract.spending);
     for (const id of ids) {
@@ -1764,6 +1782,19 @@ export function settleEconomy(state: GameState, war?: WarPlan, fractionOfYear = 
     journal.transfer(trade, treasuryAccount(importer), shipment.tariff, "实收进口关税", reference);
     journal.transfer(trade, `ownership:${importer}`, shipment.profit, "贸易经营结余", reference);
   }
+  function paidMilitaryWages(payer: string, due: number) {
+    const payroll = militaryPayroll[payer];
+    payroll.accrued += due;
+    const assigned = payroll.due > 0 ? Math.floor(payroll.paid * payroll.accrued / payroll.due) : 0;
+    const paid = assigned - payroll.allocated;
+    payroll.allocated = assigned;
+    return paid;
+  }
+  const releaseIncome: Record<string, number> = {};
+  for (const { payer, site, people, ticks } of state.reserveDischarges ?? []) {
+    const due = militarySalary(0, people, 0, nations[payer].publicPay, ticks);
+    releaseIncome[site] = (releaseIncome[site] ?? 0) + paidMilitaryWages(payer, due);
+  }
   const integrationEfficiency = new Map<string, number>();
   for (const [id, s] of Object.entries(production.states)) {
     const owner = state.ownerByStateId[id];
@@ -1785,16 +1816,14 @@ export function settleEconomy(state: GameState, war?: WarPlan, fractionOfYear = 
     const construction = s.construction!;
     const standby = s.constructionMaintenance!;
     const publicConstructionWages = construction.public.wages + standby.wages;
-    const payroll = militaryPayroll[owner];
     const grossArmyWages = militarySalary(s.regulars, s.conscripts, injuredTroops, band,
       draftDutyTicks(war?.routes[owner], closingTick));
-    payroll.accrued += grossArmyWages;
-    const assigned = payroll.due > 0 ? Math.floor(payroll.paid * payroll.accrued / payroll.due) : 0;
-    const armyWages = assigned - payroll.allocated;
-    payroll.allocated = assigned;
+    const armyWages = paidMilitaryWages(owner, grossArmyWages);
     const officerWages = grossArmyWages > 0 ? Math.floor(armyWages * officerSalary(s.regulars, band) / grossArmyWages) : 0;
     const enlistedWages = armyWages - officerWages;
-    if (grossArmyWages > 0) s.militaryWages = { enlisted: enlistedWages, officers: officerWages };
+    const dischargePay = releaseIncome[id] ?? 0;
+    if (grossArmyWages > 0 || dischargePay > 0)
+      s.militaryWages = { enlisted: enlistedWages + dischargePay, officers: officerWages };
     const jobs = goods.reduce((sum, good) => sum + s.industries[good].employed, s.builders + standby.workers);
     const subsistence = s.subsistence;
     const retainedValue = subsistence ? subsistence.retained.grain * s.localPrices.grain + subsistence.retained.wood * s.localPrices.wood : 0;
@@ -1804,7 +1833,7 @@ export function settleEconomy(state: GameState, war?: WarPlan, fractionOfYear = 
     const income = allocateHouseholdIncome(site.pops, basicCost, {
       ...earned,
       农民: earned.农民 + (relief?.农民 ?? 0),
-      劳工: earned.劳工 + publicConstructionWages + (relief?.劳工 ?? 0),
+      劳工: earned.劳工 + publicConstructionWages + dischargePay + (relief?.劳工 ?? 0),
       工程师: earned.工程师 + publicSpecialistWages,
       文职: clericalWages,
       军人: enlistedWages, 军官: officerWages,
@@ -1861,7 +1890,7 @@ export function settleEconomy(state: GameState, war?: WarPlan, fractionOfYear = 
     }
     societies[id] = evolvePops(societies[id], owner, nations[owner], {
       grainPrice: s.localPrices.grain,
-      laborWages: earned.劳工 + publicConstructionWages,
+      laborWages: earned.劳工 + publicConstructionWages + dischargePay,
       specialistWages: earned.工程师 + publicSpecialistWages,
       clerkWages: clericalWages,
       enlistedWages, officerWages,
@@ -1943,7 +1972,7 @@ export function settleEconomy(state: GameState, war?: WarPlan, fractionOfYear = 
     nation.privateQueue = complete(nation.privateQueue, duty.private, construction.private.points, true, nation);
   }
   const opiumLosses = recordOpiumLosses(state, production.opiumSmuggling ?? []);
-  const { opiumLosses: _previousLosses, ...world } = state;
+  const { opiumLosses: _previousLosses, reserveDischarges: _settledDischarges, ...world } = state;
   return { ...world, stateEconomies, countryEconomies, societies, nations,
     ...(opiumLosses ? { opiumLosses } : {}), lastEconomy: production,
     financeJournal: { settled: [...(state.financeJournal?.pending ?? []), ...journal.entries], pending: [] } };
