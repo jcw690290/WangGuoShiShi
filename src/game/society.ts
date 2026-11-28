@@ -23,10 +23,10 @@ import { initialNavy, navySchema } from "./navy.ts";
 import { isOpiumLaw, opiumBurdenSchema, opiumLaws } from "./opium.ts";
 import { isMilitaryServiceLaw, militaryServiceLaws } from "./military-service.ts";
 import { productionProjects, productionTiers } from "./production-methods.ts";
-import { publicPayBandSchema } from "./public-pay.ts";
+import { officersInService, publicPayBandSchema } from "./public-pay.ts";
 
 const startingOccupations = ["农民", "劳工", "工程师", "军官", "教士", "店主", "资本家", "贵族"] as const;
-export const occupations = [...startingOccupations, "文职"] as const;
+export const occupations = [...startingOccupations, "文职", "军人"] as const;
 export type Occupation = (typeof occupations)[number];
 export const groups = ["乡民", "工会", "知识分子", "武装部队", "教会", "小市民", "实业家", "地主"] as const;
 export type Group = (typeof groups)[number];
@@ -40,6 +40,7 @@ const occupationSupport: Record<Occupation, readonly (readonly [Group, number])[
   工程师: [["知识分子", 0.40], ["工会", 0.30], ["实业家", 0.20], ["小市民", 0.10]],
   文职: [["小市民", 0.50], ["知识分子", 0.35], ["教会", 0.15]],
   军官: [["武装部队", 0.80], ["小市民", 0.10], ["地主", 0.10]],
+  军人: [["武装部队", 0.80], ["小市民", 0.10], ["地主", 0.10]],
   教士: [["教会", 0.80], ["地主", 0.10], ["知识分子", 0.10]],
   店主: [["小市民", 0.65], ["实业家", 0.20], ["教会", 0.15]],
   资本家: [["实业家", 0.85], ["知识分子", 0.10], ["地主", 0.05]],
@@ -58,6 +59,7 @@ export const socialTags = {
   工程师: ["中层", "知识分子"],
   文职: ["中层", "小市民"],
   军官: ["中层", "武装部队"],
+  军人: ["下层", "武装部队"],
   教士: ["中层", "教会"],
   店主: ["中层", "小市民"],
   资本家: ["上层", "实业家"],
@@ -87,18 +89,19 @@ export function mergePopCohorts(target: Pop, arriving: Pop, arrivals: number): P
   };
 }
 
-export function assignClerkHouseholds(site: SiteSocial, staff: number) {
-  const clerks = site.pops.reduce((sum, pop) => sum + (pop.occupation === "文职" ? pop.people : 0), 0);
-  const change = Math.ceil(staff / site.laborParticipation) - clerks;
-  if (change === 0) return site;
-  const [from, to] = change > 0 ? ["工程师", "文职"] as const : ["文职", "工程师"] as const;
-  const pops = site.pops.map((pop) => ({ ...pop }));
-  const sources = pops.filter((pop) => pop.occupation === from && pop.people > 0);
-  const available = sources.reduce((sum, pop) => sum + pop.people, 0);
-  const total = Math.min(available, Math.abs(change));
+const occupationPeople = (pops: readonly Pop[], occupation: Occupation) =>
+  pops.reduce((sum, pop) => sum + (pop.occupation === occupation ? pop.people : 0), 0);
+
+function moveOccupationPeople(pops: Pop[], from: Occupation, to: Occupation, peopleNeeded: number, fraction = 1) {
+  const sources = pops.filter((pop) => pop.occupation === from && pop.people > 0)
+    .map((pop) => ({ pop, available: Math.floor(pop.people * fraction) }));
+  const available = sources.reduce((sum, source) => sum + source.available, 0);
+  const total = Math.min(available, peopleNeeded);
+  if (total === 0) return 0;
   let people = 0, moved = 0;
-  for (const pop of sources) {
-    people += pop.people;
+  for (const source of sources) {
+    const { pop } = source;
+    people += source.available;
     const cumulative = Math.floor(total * (people / available));
     const leaving = cumulative - moved;
     if (leaving === 0) continue;
@@ -108,6 +111,40 @@ export function assignClerkHouseholds(site: SiteSocial, staff: number) {
     else pops[index] = mergePopCohorts(pops[index], pop, leaving);
     pop.people -= leaving;
     moved = cumulative;
+  }
+  return moved;
+}
+
+export function assignClerkHouseholds(site: SiteSocial, staff: number) {
+  const change = Math.ceil(staff / site.laborParticipation) - occupationPeople(site.pops, "文职");
+  if (change === 0) return site;
+  const pops = site.pops.map((pop) => ({ ...pop }));
+  if (change > 0) moveOccupationPeople(pops, "工程师", "文职", change);
+  else moveOccupationPeople(pops, "文职", "工程师", -change);
+  return { ...site, pops };
+}
+
+const recruitableOccupations = ["劳工", "农民"] as const;
+export function assignMilitaryHouseholds(site: SiteSocial, regulars: number, conscripts: number, injured: number, laws: readonly Law[]) {
+  const participation = site.laborParticipation;
+  const total = Math.ceil((regulars + conscripts + injured) / participation);
+  const officers = Math.ceil(officersInService(regulars) / participation);
+  const needed = { 军官: officers, 军人: total - officers };
+  const ranks = ["军官", "军人"] as const;
+  const change = ranks.map((rank) => ({ rank, people: needed[rank] - occupationPeople(site.pops, rank) }));
+  if (change.every(({ people }) => people === 0)) return site;
+  const pops = site.pops.map((pop) => ({ ...pop }));
+  for (const { rank, people } of change) {
+    if (people < 0) moveOccupationPeople(pops, rank, "劳工", -people);
+  }
+  for (const { rank, people } of change) {
+    let remaining = people;
+    for (const civilian of recruitableOccupations) {
+      if (remaining <= 0) break;
+      const fraction = civilian === "农民" ? 1 - bondedRuralShare(laws) : 1;
+      remaining -= moveOccupationPeople(pops, civilian, rank, remaining, fraction);
+    }
+    if (remaining > 0) throw new Error("军人岗位超过可招募人口");
   }
   return { ...site, pops };
 }
@@ -600,6 +637,7 @@ export function evolvePops(
   nation: Nation,
   week: {
     grainPrice: number; laborWages: number; specialistWages: number; clerkWages: number;
+    enlistedWages: number; officerWages: number;
     capitalistIncome: number; landownerIncome: number; ruralResources: number; businessJobs: number; standardTarget: number;
     taxBurden: number; warPressure: number;
     relief?: { 农民: number; 劳工: number };
@@ -619,7 +657,7 @@ export function evolvePops(
   const occupationIncome: Record<Occupation, number> = {
     农民: ruralResources + (week.relief?.农民 ?? 0), 劳工: laborWages + (week.relief?.劳工 ?? 0),
     工程师: specialistWages, 文职: clerkWages,
-    军官: totals.军官 * 4, 教士: totals.教士 * 4, 店主: totals.店主 * 4,
+    军官: week.officerWages, 军人: week.enlistedWages, 教士: totals.教士 * 4, 店主: totals.店主 * 4,
     资本家: capitalistIncome, 贵族: landownerIncome,
   };
   const pops = site.pops.map((p) => {

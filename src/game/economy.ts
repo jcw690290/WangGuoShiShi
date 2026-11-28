@@ -5,7 +5,8 @@ import type { WarPlan } from "./diplomacy.ts";
 import { byGood, byIndustrialGood, byProductiveBuilding, commercialLevels, goods, industries, isGood, isIndustrialGood,
   isLocalGood, isProductiveBuilding, legacyCommercialCost, outputGood, productiveBuildings, productiveDefinitions } from "./industry.ts";
 import type { ByGood, ByProductiveBuilding, Good, IndustrialGood, ProductiveBuilding } from "./industry.ts";
-import { assignClerkHouseholds, evolvePops, facilityNames, projectTypes, approval, governmentLegitimacy, influence, tributeRate } from "./society.ts";
+import { assignClerkHouseholds, assignMilitaryHouseholds, evolvePops, facilityNames, projectTypes, approval,
+  governmentLegitimacy, influence, tributeRate } from "./society.ts";
 import type { Nation, SiteSocial } from "./society.ts";
 import { getEconomicRules } from "./politics.ts";
 import { ruleTuning } from "./settings.ts";
@@ -42,7 +43,7 @@ import { portCapacity, railCapacityPerLevel } from "./transport.ts";
 import { byFleetGood, closeFleet, fleetGoods, fleetMaintenance, fleetSpending, isFleetGood,
   rubberPerMotor, shipGoodsPerConvoy, shipGoodsPerMotor } from "./fleet.ts";
 import type { FleetGood, FleetReport } from "./fleet.ts";
-import { bondedRuralWorkers, laborProtection, ruralPopulation, workForce } from "./labor.ts";
+import { bondedRuralWorkers, laborProtection, recruitableMilitaryWorkers, ruralPopulation, workForce } from "./labor.ts";
 import { exciseOn, settleIncomeTax, taxPolicy } from "./taxation.ts";
 import type { HouseholdIncome, TaxSystem } from "./taxation.ts";
 import { civicPolicy, civicStanding } from "./civic-policy.ts";
@@ -60,7 +61,7 @@ import { isProductionProject, productionProject, productionProjectDefinitions, p
 import type { ProductionTier } from "./production-methods.ts";
 import { industrialWage, productionHiringLimit } from "./private-labor.ts";
 import type { IndustryLabor } from "./private-labor.ts";
-import { militarySalary, publicSalary } from "./public-pay.ts";
+import { militarySalary, officerSalary, publicSalary } from "./public-pay.ts";
 
 export { marketOf } from "./market.ts";
 
@@ -197,6 +198,7 @@ export interface MilitarySupply {
 type EquipmentIssue = { demand: number; delivered: number };
 export interface SiteReport {
   industrialWage?: number;
+  militaryWages?: { enlisted: number; officers: number };
   workforce?: number;
   universityStaff?: number;
   administrationStaff?: number;
@@ -713,7 +715,8 @@ function projectSettlement(state: GameState, war?: WarPlan, closingTick?: number
     const draftRate = route?.mobilized && route.draftOrigins.has(id) ? war!.recruitPercent : 0;
     const injured = injuredPersonnel(site);
     const injuredTroops = injured.regulars + injured.conscripts;
-    const draftQuota = draftCenterQuota(site, nation.laws);
+    const draftQuota = Math.min(draftCenterQuota(site, nation.laws),
+      Math.max(0, recruitableMilitaryWorkers(site, nation.laws) - regulars - injuredTroops));
     const engineers = availableEngineers(site, owner, nation);
     const participation = site.laborParticipation;
     const ruralPeople = ruralPopulation(site.pops);
@@ -1682,8 +1685,12 @@ export function settleEconomy(state: GameState, war?: WarPlan, fractionOfYear = 
     const owner = state.ownerByStateId[id];
     s.universityStaff! *= campusFunding[owner];
     s.administrationStaff! *= administrationFunding[owner];
+    const current = societies[id];
+    const injured = injuredPersonnel(current);
+    const injuredTroops = injured.regulars + injured.conscripts;
     const privateClerks = serviceClerks(s.industries.services.employed);
-    const site = assignClerkHouseholds(societies[id], s.office!.staff + privateClerks);
+    const drafted = assignMilitaryHouseholds(current, s.regulars, s.conscripts, injuredTroops, nations[owner].laws);
+    const site = assignClerkHouseholds(drafted, s.office!.staff + privateClerks);
     societies[id] = site;
     const earned = netHouseholdIncome[id];
     const band = nations[owner].publicPay;
@@ -1695,11 +1702,14 @@ export function settleEconomy(state: GameState, war?: WarPlan, fractionOfYear = 
     const standby = s.constructionMaintenance!;
     const publicConstructionWages = construction.public.wages + standby.wages;
     const payroll = militaryPayroll[owner];
-    const injured = injuredPersonnel(site);
-    payroll.accrued += militarySalary(s.regulars, s.conscripts, injured.regulars + injured.conscripts, band);
+    const grossArmyWages = militarySalary(s.regulars, s.conscripts, injuredTroops, band);
+    payroll.accrued += grossArmyWages;
     const assigned = payroll.due > 0 ? Math.floor(payroll.paid * payroll.accrued / payroll.due) : 0;
     const armyWages = assigned - payroll.allocated;
     payroll.allocated = assigned;
+    const officerWages = grossArmyWages > 0 ? Math.floor(armyWages * officerSalary(s.regulars, band) / grossArmyWages) : 0;
+    const enlistedWages = armyWages - officerWages;
+    if (grossArmyWages > 0) s.militaryWages = { enlisted: enlistedWages, officers: officerWages };
     const jobs = goods.reduce((sum, good) => sum + s.industries[good].employed, s.builders + standby.workers);
     const subsistence = s.subsistence;
     const retainedValue = subsistence ? subsistence.retained.grain * s.localPrices.grain + subsistence.retained.wood * s.localPrices.wood : 0;
@@ -1709,9 +1719,10 @@ export function settleEconomy(state: GameState, war?: WarPlan, fractionOfYear = 
     const income = allocateHouseholdIncome(site.pops, basicCost, {
       ...earned,
       农民: earned.农民 + (relief?.农民 ?? 0),
-      劳工: earned.劳工 + armyWages + publicConstructionWages + (relief?.劳工 ?? 0),
+      劳工: earned.劳工 + publicConstructionWages + (relief?.劳工 ?? 0),
       工程师: earned.工程师 + publicSpecialistWages,
       文职: clericalWages,
+      军人: enlistedWages, 军官: officerWages,
     }, retainedValue);
     const basic = s.householdBasicPurchases!;
     const habit = s.opium?.nonMedical;
@@ -1748,9 +1759,10 @@ export function settleEconomy(state: GameState, war?: WarPlan, fractionOfYear = 
     }
     societies[id] = evolvePops(societies[id], owner, nations[owner], {
       grainPrice: s.localPrices.grain,
-      laborWages: earned.劳工 + armyWages + publicConstructionWages,
+      laborWages: earned.劳工 + publicConstructionWages,
       specialistWages: earned.工程师 + publicSpecialistWages,
       clerkWages: clericalWages,
+      enlistedWages, officerWages,
       ruralResources: retainedValue + earned.农民,
       capitalistIncome: earned.资本家, landownerIncome: earned.贵族,
       businessJobs: jobs - privateClerks,

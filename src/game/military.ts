@@ -2,7 +2,7 @@ import { z } from "zod";
 import type { GameState } from "./engine.ts";
 import type { EconomyReport } from "./economy.ts";
 import { localGovernanceRule } from "./governance.ts";
-import { bondedRuralWorkers, ruralPopulation } from "./labor.ts";
+import { bondedRuralWorkers, recruitableMilitaryWorkers, ruralPopulation } from "./labor.ts";
 import { activeReplacements, fitWorkforce, injuredPersonnel } from "./military-health.ts";
 import { GameRuleError } from "./rules.ts";
 import { militaryServicePolicy } from "./military-service.ts";
@@ -89,7 +89,9 @@ export function garrisonHeadcount(state: GameState, stateId: string) {
   const workforce = fitWorkforce(site, population, state.elapsedDays);
   const bonded = bondedRuralWorkers(ruralPopulation(site.pops), site.laborParticipation, laws);
   const quota = Math.floor(Math.min(site.barracks * militaryServicePolicy(laws).regularsPerBarracks, population * 0.03) * militaryShare);
-  return Math.max(0, Math.min(workforce - bonded, quota - injuredPersonnel(site).regulars));
+  const injured = injuredPersonnel(site);
+  const available = recruitableMilitaryWorkers(site, laws) - injured.regulars - injured.conscripts;
+  return Math.max(0, Math.min(workforce - bonded, quota - injured.regulars, available));
 }
 
 export function draftCenterQuota(site: SiteSocial, laws: Nation["laws"]) {

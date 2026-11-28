@@ -291,6 +291,7 @@ const countryReport = z.object({
   (country.fleet === undefined ? 0 : fleetSpending(country.fleet)) + (country.navy?.spending ?? 0) <= country.upkeep);
 const siteReport = z.object({
   industrialWage: uint.positive().optional(),
+  militaryWages: z.object({ enlisted: uint, officers: uint }).optional(),
   industries: z.object({ grain: industry, cloth: industry, ...byIndustrialGood(() =>
     industry.default({ employed: 0, output: 0, wages: 0 })) }),
   cashCrops: industry.optional(),

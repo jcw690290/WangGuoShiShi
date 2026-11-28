@@ -98,11 +98,11 @@ export function extrasOrders(people: number, budget: number, surcharge: (good: E
   });
 }
 
-type IncomeOccupation = keyof HouseholdIncome;
+type IncomeOccupation = keyof HouseholdIncome | "军人" | "军官";
 export function allocateHouseholdIncome(
-  pops: readonly Pop[], basicCost: number, income: HouseholdIncome, ruralEssentials: number,
+  pops: readonly Pop[], basicCost: number, income: Record<IncomeOccupation, number>, ruralEssentials: number,
 ) {
-  const people = emptyHouseholdIncome();
+  const people = { ...emptyHouseholdIncome(), 军人: 0, 军官: 0 };
   for (const { occupation, people: size } of pops) if (Object.hasOwn(people, occupation))
     people[occupation as IncomeOccupation] += size;
   let basic = 0, discretionary = 0;

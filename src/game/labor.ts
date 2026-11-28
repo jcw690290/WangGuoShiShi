@@ -1,4 +1,4 @@
-import type { Pop, Tech } from "./society.ts";
+import type { Pop, SiteSocial, Tech } from "./society.ts";
 
 export const laborLawFamilies = {
   status: { name: "劳动身份", options: ["自由劳动", "奴隶制", "农奴制", "身份劳役"] },
@@ -35,6 +35,15 @@ export const ruralPopulation = (pops: readonly Pop[]) =>
 export const workForce = (population: number, participation = 0.4) => Math.floor(population * participation);
 export const bondedRuralWorkers = (ruralPeople: number, participation: number, laws: readonly string[]) =>
   Math.floor(workForce(ruralPeople, participation) * bondedRuralShare(laws));
+
+export function recruitableMilitaryWorkers(site: SiteSocial, laws: readonly string[]) {
+  const ruralFree = 1 - bondedRuralShare(laws);
+  const people = site.pops.reduce((sum, pop) => {
+    if (pop.occupation === "农民") return sum + Math.floor(pop.people * ruralFree);
+    return pop.occupation === "劳工" || pop.occupation === "军人" || pop.occupation === "军官" ? sum + pop.people : sum;
+  }, 0);
+  return workForce(people, site.laborParticipation);
+}
 
 export const baseOrdinaryWage = 100;
 export function laborProtection(laws: readonly string[]) {
