@@ -46,7 +46,7 @@ import { civicPolicy, civicStanding } from "./civic-policy.ts";
 import { allocateIndustrialSurplus, economicLaw, economicOwnershipRules, emptyOwnershipAmounts, openingOwnership,
   ownedLevels, ownershipKinds, projectOwnership } from "./ownership.ts";
 import type { IndustryOwnership, Ownership, OwnershipAmounts } from "./ownership.ts";
-import { battalionsAt, equipmentNeeds, garrisonHeadcount, inTraining, refitOrder, trainingDays, trainNewBarracks } from "./military.ts";
+import { battalionsAt, draftCenterQuota, equipmentNeeds, garrisonHeadcount, inTraining, refitOrder, trainingDays, trainNewBarracks } from "./military.ts";
 import type { Battalion, BattalionOrder } from "./military.ts";
 import { activeReplacements, fitWorkforce, injuredPersonnel } from "./military-health.ts";
 import { closeNavy, navyMaintenance, warshipMaterials } from "./navy.ts";
@@ -385,8 +385,7 @@ function planArmamentOrders(state: GameState, holdings: Record<string, string[]>
         const site = state.societies[id];
         const eligible = Math.max(0, fitWorkforce(site, state.stateEconomies[id].population, state.elapsedDays) -
           bondedRuralWorkers(ruralPopulation(site.pops), site.laborParticipation, laws));
-        const quota = Math.max(0, Math.min(Math.floor(eligible * war!.recruitPercent / 100),
-          Math.floor(site.conscription * 500 * localGovernanceRule(site, laws).militaryShare) - injuredPersonnel(site).conscripts));
+        const quota = Math.min(Math.floor(eligible * war!.recruitPercent / 100), draftCenterQuota(site, laws));
         const training = activeReplacements(site, state.elapsedDays).reduce((sum, group) => sum + group.conscripts, 0);
         const front = route.deployedDrafts.has(id) ? Math.max(0, quota - training) : 0;
         fieldReserves += front;
@@ -663,12 +662,12 @@ function projectSettlement(state: GameState, war?: WarPlan, closingTick?: number
     const route = war?.routes[owner],
       front = route?.recruitmentStates.has(id);
     const effects = unrestEffects(site.stability);
-    const { militaryShare, integrationCost } = localGovernanceRule(site, nation.laws);
+    const { integrationCost } = localGovernanceRule(site, nation.laws);
     const regulars = garrisons[id];
     const draftRate = route?.mobilized && route.draftOrigins.has(id) ? war!.recruitPercent : 0;
     const injured = injuredPersonnel(site);
     const injuredTroops = injured.regulars + injured.conscripts;
-    const draftQuota = Math.max(0, Math.floor(site.conscription * 500 * militaryShare) - injured.conscripts);
+    const draftQuota = draftCenterQuota(site, nation.laws);
     const engineers = availableEngineers(site, owner, nation);
     const participation = site.laborParticipation;
     const ruralPeople = ruralPopulation(site.pops);
