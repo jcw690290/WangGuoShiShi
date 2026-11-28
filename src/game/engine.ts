@@ -6,7 +6,10 @@ import { advanceFront, aiDiplomacy, applyBorderCommand, attacking, participants,
 import type { BorderCommand, BorderDispute } from "./diplomacy.ts";
 import { chooseAdministrativeArchive, chooseConstruction, chooseElectrification, chooseIndustrialRetrofit, choosePort, chooseRailway, chooseUniversity, constructionError,
   initialStateEconomy, projectDeposit, projectOpeningCapital, projects, settleEconomy } from "./economy.ts";
-import type { Building, CountryEconomy, EconomyReport, StateEconomy } from "./economy.ts";
+import type { Building, CountryEconomy, EconomyReport, Project, StateEconomy } from "./economy.ts";
+import { activeConstruction } from "./construction.ts";
+import { investmentAccount, recordImmediateTransfer, treasuryAccount } from "./finance-journal.ts";
+import type { FinanceJournal } from "./finance-journal.ts";
 import { advancePolitics, applyPolitics, availableTech, ownedSocieties, politicsError } from "./politics.ts";
 import type { PoliticsCommand } from "./politics.ts";
 import { assignMilitaryHouseholds, initSociety, techs, hash, literacyOf } from "./society.ts";
@@ -62,6 +65,7 @@ import type { PublicPayBand } from "./public-pay.ts";
 export { DAY_MS, elapsedTicks, TICKS_PER_DAY } from "./time.ts";
 
 export interface GameState {
+  financeJournal?: FinanceJournal;
   elapsedDays: number;
   tickInDay: number;
   settings: GameSettings;
@@ -584,12 +588,14 @@ function applyCommand(
       const { countryId: id, stateId, good, privateBuild } = cmd;
       const error = constructionError(scenario, state, id, stateId, good, privateBuild);
       if (error) throw new GameRuleError(error);
+      const tick = elapsedTicks(state);
       const cost = projectDeposit(good), { weeks } = projects[good],
         job = { stateId, good, weeksLeft: weeks,
+          ...(tick % TICKS_PER_WEEK === 0 ? {} : { startedAtTick: tick }),
           ...(isProductiveBuilding(good) ? { ownership: projectOwnership(good, state.nations[id].laws, privateBuild === true) } : {}) };
       if (privateBuild && isProductiveBuilding(good)) {
         const n = state.nations[id];
-        return {
+        return recordImmediateTransfer({
           ...state,
           nations: {
             ...state.nations,
@@ -599,36 +605,42 @@ function applyCommand(
               privateQueue: [...n.privateQueue, { ...job, good }],
             },
           },
-        };
+        }, { from: investmentAccount(id), to: `construction-deposit:${id}`, amount: cost, reason: "预存工程周转金", reference: stateId });
       }
       const c = state.countryEconomies[id];
-      return {
+      return recordImmediateTransfer({
         ...state,
         countryEconomies: {
           ...state.countryEconomies,
           [id]: { ...c, treasury: c.treasury - cost, queue: [...c.queue, job] },
         },
-      };
+      }, { from: treasuryAccount(id), to: `construction-deposit:${id}`, amount: cost, reason: "预存工程周转金", reference: stateId });
     }
     case "cancelConstruction": {
       const { countryId: id, index, stateId, good, privateBuild } = cmd;
       const c = state.countryEconomies[id], n = state.nations[id];
       const queue = privateBuild ? n.privateQueue : c.queue;
       const job = queue[index];
-      if (!job || job.stateId !== stateId || job.good !== good) throw new GameRuleError("该工程已不在队列中");
+      if (!job || !activeConstruction(job) || job.stateId !== stateId || job.good !== good)
+        throw new GameRuleError("该工程已不在队列中");
       const returned = projectOpeningCapital(job);
-      if (privateBuild) return {
+      const tick = elapsedTicks(state);
+      const weekStart = tick - tick % TICKS_PER_WEEK;
+      const keepForSettlement = tick > (job.startedAtTick ?? weekStart);
+      const cancel = <T extends Project>(projects: T[]) => projects.flatMap((project, position) => position !== index ?
+        [project] : keepForSettlement ? [{ ...project, cancelledAtTick: tick }] : []);
+      if (privateBuild) return recordImmediateTransfer({
         ...state,
         nations: { ...state.nations, [id]: {
-          ...n, investment: n.investment + returned, privateQueue: n.privateQueue.filter((_, i) => i !== index),
+          ...n, investment: n.investment + returned, privateQueue: cancel(n.privateQueue),
         } },
-      };
-      return {
+      }, { from: `construction-deposit:${id}`, to: investmentAccount(id), amount: returned, reason: "取消工程退回周转金", reference: stateId });
+      return recordImmediateTransfer({
         ...state,
         countryEconomies: { ...state.countryEconomies, [id]: {
-          ...c, treasury: c.treasury + returned, queue: c.queue.filter((_, i) => i !== index),
+          ...c, treasury: c.treasury + returned, queue: cancel(c.queue),
         } },
-      };
+      }, { from: `construction-deposit:${id}`, to: treasuryAccount(id), amount: returned, reason: "取消工程退回周转金", reference: stateId });
     }
     case "setConvoyOrder": {
       const { countryId: id, stateId, operation } = cmd;

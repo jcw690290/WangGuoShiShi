@@ -1,4 +1,5 @@
 import { z } from "zod";
+import { recordImmediateTransfer, treasuryAccount } from "./finance-journal.ts";
 import { constitutionalLaws, representationLaw, stateForm } from "./constitution.ts";
 import type { GameState } from "./engine.ts";
 import { GameRuleError } from "./rules.ts";
@@ -84,7 +85,7 @@ export function applyConstitutionalCompromise(state: GameState, countryId: strin
   if (error) throw new GameRuleError(error);
   const { demand } = constitutionalCrisisWarning(state, countryId)!;
   const economy = state.countryEconomies[countryId], nation = state.nations[countryId];
-  return {
+  return recordImmediateTransfer({
     ...state,
     constitutionalCrises: { ...state.constitutionalCrises, [countryId]: { compromiseUntil: state.elapsedDays + compromiseDays } },
     countryEconomies: { ...state.countryEconomies, [countryId]: { ...economy, treasury: economy.treasury - compromiseCost } },
@@ -92,5 +93,6 @@ export function applyConstitutionalCompromise(state: GameState, countryId: strin
       ...nation, reform: demand, reformProgress: nation.reform === demand ? nation.reformProgress : 0,
       reformConsultation: nation.reform === demand ? nation.reformConsultation : undefined,
     } },
-  };
+  }, { from: treasuryAccount(countryId), to: `constitutional-compromise:${countryId}`,
+    amount: compromiseCost, reason: "政体冲突协商", reference: demand });
 }

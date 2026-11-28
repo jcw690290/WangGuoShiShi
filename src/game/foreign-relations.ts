@@ -1,4 +1,5 @@
 import { z } from "zod";
+import { recordImmediateTransfer, treasuryAccount } from "./finance-journal.ts";
 import type { GameState } from "./engine.ts";
 import { GameRuleError } from "./rules.ts";
 
@@ -163,7 +164,9 @@ export function applyForeignCommand(state: GameState, cmd: ForeignCommand): Game
     const countries = { ...state.countryEconomies };
     countries[countryId] = { ...countries[countryId], treasury: countries[countryId].treasury - diplomaticGiftCost };
     countries[partnerId] = { ...countries[partnerId], treasury: countries[partnerId].treasury + diplomaticGiftCost };
-    return { ...adjustForeignRelation(state, countryId, partnerId, 10, 5, true), countryEconomies: countries };
+    return recordImmediateTransfer({ ...adjustForeignRelation(state, countryId, partnerId, 10, 5, true), countryEconomies: countries },
+      { from: treasuryAccount(countryId), to: treasuryAccount(partnerId), amount: diplomaticGiftCost,
+        reason: "外交赠礼", reference: partnerId });
   }
   if (!("kind" in cmd)) {
     const offers = state.aidOffers ?? [];
@@ -174,10 +177,11 @@ export function applyForeignCommand(state: GameState, cmd: ForeignCommand): Game
     const countries = { ...state.countryEconomies };
     countries[partnerId] = { ...countries[partnerId], treasury: countries[partnerId].treasury - diplomaticAidCost };
     countries[countryId] = { ...countries[countryId], treasury: countries[countryId].treasury + diplomaticAidCost };
-    return { ...adjustForeignRelation(state, partnerId, countryId, 8, 8), aidOffers, countryEconomies: countries,
+    return recordImmediateTransfer({ ...adjustForeignRelation(state, partnerId, countryId, 8, 8), aidOffers, countryEconomies: countries,
       foreignObligations: [...(state.foreignObligations ?? []), {
         creditor: partnerId, debtor: countryId, incurredDay: state.elapsedDays,
-      }] };
+      }] }, { from: treasuryAccount(partnerId), to: treasuryAccount(countryId), amount: diplomaticAidCost,
+      reason: "外交援助", reference: countryId });
   }
   const offers = state.treatyOffers ?? [], treaties = state.foreignTreaties ?? [];
   if (cmd.type === "offerTreaty")

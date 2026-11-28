@@ -130,7 +130,7 @@ export function measureCampaign(
     const population = state.stateEconomies[id].population;
     workforce += site.workforce ?? workForce(population, state.societies[id].laborParticipation);
     employed += goods.reduce((sum, good) => sum + site.industries[good].employed, 0) +
-      site.builders + site.regulars + site.conscripts +
+      site.builders + site.regulars + (site.draftWorkforce ?? site.conscripts) +
       (site.constructionMaintenance?.workers ?? 0) +
       (site.universityStaff ?? 0) + (site.administrationStaff ?? 0) + (site.office?.staff ?? 0) +
       institutions.reduce((sum, kind) => sum + (site[kind]?.staff ?? 0), 0) + (site.subsistence?.employed ?? 0);
@@ -152,9 +152,19 @@ export function measureCampaign(
       return required > 0 ? Math.min(1, total / required) : 1;
     }));
   }
+  const military = report.countries[countryId].military;
+  const sea = (report.trade ?? []).reduce((total, shipment) => {
+    if (shipment.seaCargo &&
+        (state.ownerByStateId[shipment.from] === countryId || state.ownerByStateId[shipment.to] === countryId)) {
+      total.required += shipment.seaCargo.required;
+      total.delivered += shipment.seaCargo.delivered;
+    }
+    return total;
+  }, { required: military.seaCargoRequired ?? 0, delivered: military.seaCargoRequired === undefined ? 0 : military.seaCargoUsed! });
+  if (sea.required > 0) metrics.SEA = sea.delivered / sea.required;
   const dispute = state.borderDispute;
-  if (dispute?.phase === "war" && participants(dispute).includes(countryId))
-    metrics.SUP = report.countries[countryId].military.readiness;
+  if (dispute?.phase === "war" && participants(dispute).includes(countryId) && (military.fieldPersonnel ?? 1) > 0)
+    metrics.SUP = military.supplyRatio ?? military.readiness;
   if (fiscal && metrics.FISCAL_RATIO !== undefined)
     metrics.SUSTAINABLE_FISCAL = fiscal.week.risk === "stable" && metrics.FISCAL_RATIO < 0.6 &&
       weeklyBudgets(state.nations, report)[countryId].balance >= 0 ? 1 : 0;

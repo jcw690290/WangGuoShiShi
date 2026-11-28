@@ -29,7 +29,9 @@ import { seaVoyageCargoCost } from "./transport.ts";
 import { buildingCapacity, militaryProcurementCost, productionUpgradeFor, projects, unusedPrepaidConstruction } from "./economy.ts";
 import { isProductionProject, productionProjectDefinitions, productionTiers } from "./production-methods.ts";
 import { industryLaborSchema } from "./private-labor.ts";
-import { constructionMaintenanceSchema, constructionReportSchema, constructionStockSchema, constructionSpending, constructionWage } from "./construction.ts";
+import { activeConstruction, constructionMaintenanceSchema, constructionReportSchema, constructionStockSchema,
+  constructionSpending, constructionTiming, constructionWage, validConstructionTiming } from "./construction.ts";
+import { financeJournalSchema } from "./finance-journal.ts";
 import { initialGroupLeadership, nationSchema, siteSocialSchema, projectTypes, reformConsultationDays, reformStage } from "./society.ts";
 import { importRegionalSave } from "./legacySave.ts";
 import { borderScenario } from "../scenario/scenario.ts";
@@ -245,6 +247,8 @@ const military = z.object({
   grainDrawn: uint,
   grainTransport: uint,
   seaCargoUsed: uint.optional(),
+  seaCargoRequired: uint.optional(),
+  fieldPersonnel: uint.optional(),
   procurement: z.object({ grain: uint, cloth: uint, arms: uint.optional(), ammo: uint.optional(),
     oil: uint.optional(), rubber: uint.optional() }).optional(),
   equipment: z.object({ weapons: issue, ammunition: issue, uniforms: issue, fuel: issue.optional(), spares: issue.optional() }),
@@ -253,7 +257,10 @@ const military = z.object({
 }).refine((force) =>
   (force.trainedRegulars ?? 0) <= force.regulars &&
   (force.trainedConscripts ?? 0) <= force.conscripts &&
-  (force.deployedConscripts ?? 0) <= (force.trainedConscripts ?? 0));
+  (force.deployedConscripts ?? 0) <= (force.trainedConscripts ?? 0) &&
+  (force.fieldPersonnel ?? 0) <= force.regulars + (force.deployedConscripts ?? 0) &&
+  (force.seaCargoRequired === undefined ||
+    (force.seaCargoUsed !== undefined && force.seaCargoUsed <= force.seaCargoRequired)));
 const countryReport = z.object({
   market: z.object({ grain: market, cloth: market, ...byIndustrialGood((good) =>
     market.default({ supply: 0, demand: 0, price: industries[good].basePrice })) }),
@@ -374,7 +381,7 @@ export function parseSave(baseScenario: Scenario, save: unknown): GameState {
   const activeSite = z.string().refine((id) => Object.hasOwn(scenario.states, id));
   const activeCountry = z.string().refine((id) => Object.hasOwn(scenario.countries, id));
   const project = z.object({ stateId: sites, good: z.enum(projectTypes), weeksLeft: z.number().positive(),
-    levels: uint.positive().optional(), ownership: ownershipSchema.optional() });
+    levels: uint.positive().optional(), ownership: ownershipSchema.optional(), ...constructionTiming });
   const lastPopulation = z.object({
     day: uint.positive(), changes: z.record(activeSite, cash),
     moves: z.array(z.object({ from: activeSite, to: activeSite, people: uint.positive() })
@@ -391,6 +398,7 @@ export function parseSave(baseScenario: Scenario, save: unknown): GameState {
   const legacyBudgets = z.record(activeSite, stateEconomy.extend({ basicBudget: uint.optional() })
     .transform((local) => ({ ...local, basicBudget: local.basicBudget ?? openingBasicBudget(local.population) })));
   const stateSchema = z.object({
+    financeJournal: financeJournalSchema.optional(),
     elapsedDays: uint.max(Math.floor((8.64e15 - Date.parse(scenario.startDate)) / DAY_MS)),
     playerCountryId: registeredCountries,
     rng: uint.max(0xffffffff),
@@ -466,6 +474,8 @@ export function parseSave(baseScenario: Scenario, save: unknown): GameState {
   function invalid(): never {
     throw new Error("存档中的人口、工程、外交或归属数据无效");
   }
+  if (state.financeJournal && [...state.financeJournal.settled, ...state.financeJournal.pending]
+    .some((transaction) => transaction.tick > elapsedTicks(state))) invalid();
   const owned = Object.keys(state.ownerByStateId);
   const campaign = state.campaign;
   if (campaign) {
@@ -673,9 +683,11 @@ export function parseSave(baseScenario: Scenario, save: unknown): GameState {
     const retrofits = new Set<string>();
     for (const p of queued) {
       if (state.ownerByStateId[p.stateId] !== id || p.weeksLeft > projects[p.good].weeks ||
+        !validConstructionTiming(p, elapsedTicks(state)) ||
         (p.ownership !== undefined && !isProductiveBuilding(p.good)) ||
         ((p.good === "port" || p.good === "shipGoods") && !scenario.states[p.stateId].coastal) ||
         (p.levels !== undefined && (!isGood(p.good) || isIndustrialGood(p.good) || p.levels !== commercialLevels[p.good]))) invalid();
+      if (!activeConstruction(p)) continue;
       if (isIndustrialRetrofit(p.good)) {
         const key = JSON.stringify([p.stateId, p.good]);
         const { good, technology } = industrialRetrofits[p.good];
@@ -688,11 +700,12 @@ export function parseSave(baseScenario: Scenario, save: unknown): GameState {
         if (local.buildings[good] === 0 || (technology && n.knowledge[technology] !== 100) ||
             productionTierAt(good, state.societies[p.stateId]) === tier ||
             (tier === "advanced" && good !== "electricity" && local.buildings.electricity === 0) ||
-            queued.some((other) => other !== p && other.stateId === p.stateId && productionUpgradeFor(other.good)?.good === good))
+            queued.some((other) => other !== p && activeConstruction(other) &&
+              other.stateId === p.stateId && productionUpgradeFor(other.good)?.good === good))
           invalid();
       }
     }
-    const archives = state.countryEconomies[id].queue.filter((p) => p.good === "administrativeArchive");
+    const archives = state.countryEconomies[id].queue.filter((p) => activeConstruction(p) && p.good === "administrativeArchive");
     const archiveSites = new Set<string>();
     for (const p of archives) {
       const site = state.societies[p.stateId];
@@ -761,7 +774,7 @@ export function parseSave(baseScenario: Scenario, save: unknown): GameState {
       )
         invalid();
     }
-    const queue = [...state.countryEconomies[owner].queue, ...state.nations[owner].privateQueue];
+    const queue = [...state.countryEconomies[owner].queue, ...state.nations[owner].privateQueue].filter(activeConstruction);
     if (state.societies[id].port > 0 && !scenario.states[id].coastal) invalid();
     const openingCropland = scenario.states[id].cropland;
     if (openingCropland !== undefined || local.cropland !== undefined) {

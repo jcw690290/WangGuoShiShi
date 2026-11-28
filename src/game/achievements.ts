@@ -13,8 +13,8 @@ const ids = ["construction", "materials", "education", "trade", "culture", "inte
 type AchievementId = (typeof ids)[number];
 export const achievementCatalog = {
   construction: { title: "初建完成", condition: "一次周结中完成本国州的建设。" },
-  materials: { title: "施工配套", condition: "推进施工时，建造部门同时取得粮食和布匹。" },
-  education: { title: "教育开办", condition: "大学教学岗位收到实际工资。" },
+  materials: { title: "施工配套", condition: "推进施工时，建造部门实际使用木材、工具和铁。" },
+  education: { title: "教育开办", condition: "学校实际授课，或大学教学岗位收到实际工资。" },
   trade: { title: "贸易成交", condition: "本国参与一笔实际跨市场交付。" },
   culture: { title: "文化交流", condition: "一个外部州对本国文化的亲近度首次升至 60。" },
   integration: { title: "领土整合", condition: "完成一州的行政整合。" },
@@ -71,7 +71,8 @@ export function advanceAchievements(before: GameState, game: GameState, date: Da
       const materials = weekly.states[site].constructionGoods;
       return !!materials && materials.wood > 0 && materials.tools > 0 && materials.iron > 0;
     }));
-    award("education", (country.universityWages ?? 0) > 0);
+    award("education", (country.universityWages ?? 0) > 0 ||
+      holdings.some((site) => (weekly.states[site].education?.coverage ?? 0) > 0));
     award("trade", !!weekly.trade?.some(({ from, to, quantity }) =>
       quantity > 0 && (before.ownerByStateId[from] === countryId || before.ownerByStateId[to] === countryId),
     ));
