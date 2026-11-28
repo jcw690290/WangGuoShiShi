@@ -13,9 +13,10 @@ import { projectOpeningCapital } from "./economy.ts";
 import { ruleTuning } from "./settings.ts";
 import { syncOccupation } from "./occupation.ts";
 import { adjustForeignRelation, breakOpposedTreaties, diplomaticTrust, expireTreatyOffers, influenceBudget, reconcileTreaties,
-  relationBetween, signForeignTreaty, treatyBetween, treatyInfluence, treatyPartners } from "./foreign-relations.ts";
+  fulfillObligation, obligationBetween, relationBetween, signForeignTreaty, treatyBetween,
+  treatyInfluence, treatyPartners } from "./foreign-relations.ts";
 import { governmentLegitimacy, hash, influence, unrestOf } from "./society.ts";
-import { battalionDetails, battalionTrainingDays, battalionsAt, equipmentDetails } from "./military.ts";
+import { battalionDetails, battalionTrainingDays, battalionsAt, commandCapacity, equipmentDetails } from "./military.ts";
 import { applyMilitaryLoss, warLossesSchema } from "./military-health.ts";
 import { fleetPower, navalMissionSchema, navalMissionTargets, planNavalOperations } from "./naval-operations.ts";
 import type { NavalMissionCommand } from "./naval-operations.ts";
@@ -111,7 +112,7 @@ export type BorderCommand =
   | { type: "declareInterest"; countryId: string; targetStateId: string }
   | { type: "demandBorder"; countryId: string; targetStateId: string; goal: Goal }
   | { type: "addGoal"; countryId: string; goal: Goal }
-  | { type: "sway"; countryId: string; allyId: string }
+  | { type: "sway"; countryId: string; allyId: string; useObligation?: boolean }
   | { type: "proposePeace"; countryId: string; goals: Goal[]; commercial: boolean }
   | { type: "acceptPeace" | "rejectPeace"; countryId: string }
   | ({ type: "setFrontOrder"; countryId: string } & FrontOrder)
@@ -162,6 +163,20 @@ export function interested(scenario: Scenario, state: GameState, id: string, tar
 }
 export function participants(d: BorderDispute) {
   return [d.claimantId, ...d.allies, d.defenderId, ...d.defenders];
+}
+
+export function swayError(scenario: Scenario, state: GameState, dispute: BorderDispute, cmd: Extract<BorderCommand, { type: "sway" }>) {
+  const { countryId, allyId, useObligation } = cmd;
+  if (countryId !== dispute.claimantId || dispute.phase !== "bargaining") return "没有可用博弈点";
+  if (!state.nations[allyId] || participants(dispute).includes(allyId) || state.nations[allyId].overlord ||
+      !Object.values(state.ownerByStateId).includes(allyId) || !interested(scenario, state, allyId, dispute.targetStateId))
+    return "第三国需保有独立领土和目标地区利益";
+  const obligation = useObligation && obligationBetween(state, countryId, allyId);
+  if (useObligation && !obligation) return "对方没有待履行的义务";
+  const relationship = relationBetween(state, countryId, allyId);
+  if (relationship.standing < (obligation ? -55 : -35) || diplomaticTrust(relationship, allyId) < (obligation ? 10 : 25))
+    return "关系或信任过低，第三国拒绝支持";
+  if (dispute.maneuvers < swayCost(state.nations[countryId].infamy)) return "恶名提高了拉拢成本，博弈点不足";
 }
 export function attacking(d: BorderDispute, id: string) {
   return id === d.claimantId || d.allies.includes(id);
@@ -423,23 +438,15 @@ export function applyBorderCommand(scenario: Scenario, state: GameState, cmd: Bo
         borderDispute: { ...d, maneuvers: d.maneuvers - 1, goals: [...d.goals, cmd.goal] },
       };
     }
-    if (
-      !state.nations[cmd.allyId] ||
-      participants(d).includes(cmd.allyId) ||
-      state.nations[cmd.allyId].overlord ||
-      !interested(scenario, state, cmd.allyId, d.targetStateId)
-    )
-      throw new GameRuleError("第三国需要在目标地区拥有利益");
-    const cost = swayCost(n.infamy);
-    const relationship = relationBetween(state, id, cmd.allyId);
-    if (relationship.standing < -35 || diplomaticTrust(relationship, cmd.allyId) < 25)
-      throw new GameRuleError("关系或信任过低，第三国拒绝支持");
-    if (d.maneuvers < cost) throw new GameRuleError("恶名提高了拉拢成本，博弈点不足");
-    return patch({
-      maneuvers: d.maneuvers - cost,
+    const error = swayError(scenario, state, d, cmd);
+    if (error) throw new GameRuleError(error);
+    const obligation = cmd.useObligation ? obligationBetween(state, id, cmd.allyId) : undefined;
+    const updated = obligation ? fulfillObligation(state, obligation) : state;
+    return { ...updated, borderDispute: { ...d,
+      maneuvers: d.maneuvers - swayCost(n.infamy),
       allies: [...d.allies, cmd.allyId],
-      promises: [...d.promises, cmd.allyId],
-    });
+      promises: obligation ? d.promises : [...d.promises, cmd.allyId],
+    } };
   }
   if (cmd.type === "backDown") {
     if (d.phase === "war" || (id !== d.claimantId && id !== d.defenderId))
@@ -681,8 +688,7 @@ export function advanceFront(scenario: Scenario, state: GameState, report: Econo
     const soldiers = origins.reduce((sum, x) => sum + x.regulars + x.conscripts, 0);
     const effective = origins.reduce((sum, x) => sum + x.effective, 0);
     const nation = state.nations[id], military = report.countries[id].military;
-    const leadership = nation.knowledge["参谋组织"] === 100 ? 400 : 300;
-    const available = Math.min(soldiers, leadership * nation.generalRank, frontWidth(route.objective));
+    const available = Math.min(soldiers, commandCapacity(nation), frontWidth(route.objective));
     const support = plan.naval.landing.get(id);
     const navalBonus = support?.portId === route.objective ? 0.35 * support.power / (1 + support.power) : 0;
     const landing = attacking(d, id) && !landBorder(scenario, state, id, route.objective) ? 0.65 + navalBonus : 1;
@@ -780,6 +786,13 @@ export function aiDiplomacy(
     holdings(scenario, state, d.claimantId).length > 2 * holdings(scenario, state, d.defenderId).length
   )
     return [{ type: "backDown", countryId: d.defenderId }];
+  if (d.phase === "bargaining" && !humanCountries.has(d.claimantId)) {
+    for (const { creditor, debtor } of state.foreignObligations ?? []) {
+      if (creditor !== d.claimantId) continue;
+      const call = { type: "sway", countryId: creditor, allyId: debtor, useObligation: true } as const;
+      if (!swayError(scenario, state, d, call)) return [call];
+    }
+  }
   if (d.phase !== "war") return [];
   const plan = planWar(scenario, state)!;
   const orders: BorderCommand[] = [];

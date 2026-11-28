@@ -14,6 +14,7 @@ import {
   participants,
   peaceTermsError,
   swayCost,
+  swayError,
   supplyPriorities,
   supplyPriorityDetails,
   warWillingness,
@@ -23,12 +24,12 @@ import type { EconomyReport } from "./game/economy.ts";
 import type { GameCommand, GameState } from "./game/engine.ts";
 import type { Scenario } from "./scenario/scenario.ts";
 import { tieNames, tiePartner } from "./game/diplomatic-ties.ts";
-import { diplomaticGiftCost, diplomaticTrust, foreignCommandError, influenceBudget, relationBetween,
+import { diplomaticAidCost, diplomaticGiftCost, diplomaticTrust, foreignCommandError, influenceBudget, obligationBetween, relationBetween,
   treatyBetween, treatyKinds, treatyNames } from "./game/foreign-relations.ts";
 import { countryDisplayName } from "./game/constitution.ts";
 import { silver } from "./format.ts";
 import { battalionDetails, battalionEquipment, battalionKinds, battalionOrderError, battalionSize, battalionsAt,
-  equipmentDetails, equipmentFits, equipmentOrderError, refitOrder } from "./game/military.ts";
+  commandCapacity, equipmentDetails, equipmentFits, equipmentOrderError, refitOrder } from "./game/military.ts";
 import { injuredPersonnel } from "./game/military-health.ts";
 import { maxWarshipOrder, warshipMaterials, warshipModels } from "./game/navy.ts";
 import { fleetPower, navalMissionTargets, navalTaskNames, navalTasks } from "./game/naval-operations.ts";
@@ -281,6 +282,8 @@ export function DiplomacyPanel({ scenario, game, playerId: id, report, busy, sen
   const influence = influenceBudget(game, id);
   const incoming = game.treatyOffers?.filter((offer) => offer.to === id) ?? [];
   const outgoing = game.treatyOffers?.filter((offer) => offer.from === id) ?? [];
+  const incomingAid = game.aidOffers?.filter((offer) => offer.to === id) ?? [];
+  const outgoingAid = game.aidOffers?.filter((offer) => offer.from === id) ?? [];
   const leaders = live.filter((x) => x !== id && !game.nations[x].marketLeader);
   const leader = leaders.includes(union) ? union : leaders[0];
   const ties = game.diplomaticTies?.flatMap((tie) => {
@@ -408,9 +411,10 @@ export function DiplomacyPanel({ scenario, game, playerId: id, report, busy, sen
                       .map((g) =>
                         btn("追加" + goalNames[g], { type: "addGoal", countryId: id, goal: g }, !d.maneuvers),
                       )}
-                    {partner && (
-                      <>
-                        <p>胜利条款生效时向该国支付 500 两，余额不足会降低信誉。</p>
+                    {partner && (() => {
+                      const cash = { type: "sway", countryId: id, allyId: partner } as const;
+                      const obligation = { ...cash, useObligation: true };
+                      return <>
                         <select
                           aria-label="拉拢国家"
                           value={partner}
@@ -423,12 +427,14 @@ export function DiplomacyPanel({ scenario, game, playerId: id, report, busy, sen
                           ))}
                         </select>
                         {btn(
-                          `拉拢支持 · ${swayCost(n.infamy)} 博弈点`,
-                          { type: "sway", countryId: id, allyId: partner },
-                          d.maneuvers < swayCost(n.infamy),
+                          `承诺胜后支付 500 两 · ${swayCost(n.infamy)} 博弈点`,
+                          cash,
+                          swayError(scenario, game, d, cash) !== undefined,
                         )}
-                      </>
-                    )}
+                        {obligationBetween(game, id, partner) && btn(`兑现外交义务 · ${swayCost(n.infamy)} 博弈点`,
+                          obligation, swayError(scenario, game, d, obligation) !== undefined)}
+                      </>;
+                    })()}
                   </>
                 )}
                 {primary && btn(claimant ? "撤回要求" : "让步并接受核心要求", simple("backDown"))}
@@ -507,12 +513,27 @@ export function DiplomacyPanel({ scenario, game, playerId: id, report, busy, sen
                 </select>
               </label>
               <p>关系 {relation.standing} · 对方对本国信任 {diplomaticTrust(relation, foreignPartner)} / 100</p>
+              {obligationBetween(game, id, foreignPartner) && <p>对方欠本国一项外交义务。</p>}
+              {obligationBetween(game, foreignPartner, id) && <p>本国欠对方一项外交义务。</p>}
               {(() => {
                 const command = { type: "improveRelations", countryId: id, partnerId: foreignPartner } as const;
                 const problem = foreignCommandError(game, command);
                 return <>{btn(`赠送外交礼金 · ${silver(diplomaticGiftCost)}`, command, problem !== undefined)}
                   {problem && <small>{problem}</small>}</>;
               })()}
+              {(() => {
+                const offer = { type: "offerDiplomaticAid", countryId: id, partnerId: foreignPartner } as const;
+                return btn(`提议援助并约定义务 · ${silver(diplomaticAidCost)}`, offer, foreignCommandError(game, offer) !== undefined);
+              })()}
+              {outgoingAid.length > 0 && <p>等待回复的援助 · {outgoingAid.map((offer) => countries[offer.to].name).join("、")}</p>}
+              {incomingAid.map((offer) => {
+                const accept = { type: "acceptDiplomaticAid", countryId: id, partnerId: offer.from } as const;
+                return <div key={offer.from} className="diplomacy-actions">
+                  <p>{countries[offer.from].name}提议援助 {silver(diplomaticAidCost)}。接受后，对方可要求本国支持一次地区博弈。</p>
+                  {btn("接受援助", accept, foreignCommandError(game, accept) !== undefined)}
+                  {btn("拒绝援助", { ...accept, type: "declineDiplomaticAid" })}
+                </div>;
+              })}
               <p>防御同盟在盟国遭到外交进攻时履行防御承诺。签约未满 180 天解约会降低信任。</p>
               <div className="diplomacy-actions">
                 {treatyKinds.map((kind) => {
@@ -538,7 +559,7 @@ export function DiplomacyPanel({ scenario, game, playerId: id, report, busy, sen
               宗主国 · {n.overlord ? countries[n.overlord].name : "独立"} · 运输船队 {n.convoys}
             </p>
             <p>
-              将领 {n.generalRank} 级 · 指挥上限 {n.generalRank * 300} 人
+              将领 {n.generalRank} 级 · 指挥上限 {commandCapacity(n)} 人
             </p>
             {btn(
               "晋升将领 · 800 两",
