@@ -30,7 +30,7 @@ import { silver } from "./format.ts";
 import { battalionDetails, battalionEquipment, battalionKinds, battalionOrderError, battalionSize, battalionsAt,
   equipmentDetails, equipmentFits, equipmentOrderError, refitOrder } from "./game/military.ts";
 import { injuredPersonnel } from "./game/military-health.ts";
-import { maxWarshipOrder, shipGoodsPerWarship } from "./game/navy.ts";
+import { maxWarshipOrder, warshipMaterials, warshipModels } from "./game/navy.ts";
 import { fleetPower, navalMissionTargets, navalTaskNames, navalTasks } from "./game/naval-operations.ts";
 import type { NavalMission } from "./game/naval-operations.ts";
 interface Props {
@@ -99,9 +99,10 @@ function ArmyRoster({ scenario, game, playerId, busy, send, selectedId }: Omit<P
               const cmd = { type: "setBattalionEquipment", countryId: playerId, stateId: active.id, slot: unit.slot, equipment } as const;
               const error = equipmentOrderError(game, cmd);
               const needs = refitOrder({ ...unit, pendingEquipment: equipment });
+              const fuel = needs.fuel > 0 ? `、石油 ${needs.fuel}、橡胶 ${needs.spares}` : "";
               return (
                 <button key={equipment} className="build" disabled={busy || !!error}
-                  title={error ?? `换装需要武器 ${needs.weapons}、弹药 ${needs.ammunition}`} onClick={() => send(cmd)}>
+                  title={error ?? `换装需要武器 ${needs.weapons}、弹药 ${needs.ammunition}${fuel}`} onClick={() => send(cmd)}>
                   换装{equipmentDetails[equipment].name}
                 </button>
               );
@@ -153,10 +154,11 @@ function NavalYard({ scenario, game, report, playerId, busy, send }: Omit<Props,
   const port = ports.find((site) => site.id === selectedPort) ?? ports.find((site) => site.id === order?.stateId) ?? ports[0];
   const week = report.countries[playerId].navy;
   const canBuild = port && game.occupation?.stateId !== port.id;
+  const unlocked = game.nations[playerId].knowledge["装甲舰艇"] === 100;
   return (
     <details>
       <summary>海军与造舰</summary>
-      <p>军舰 {navy.warships} 艘 · 舰况 {navy.condition}% · 库存船材 {navy.stores}</p>
+      <p>军舰 {navy.warships} 艘{navy.armored > 0 && `（装甲舰 ${navy.armored} 艘）`} · 舰况 {navy.condition}% · 库存船材 {navy.stores}</p>
       {week && <p>周维护船材 {week.maintained} / {week.maintenanceDue} · 周采购 {week.delivered} / {week.ordered} · 已付 {silver(week.spending)}</p>}
       {port && <div className="control-block">
         <label>造舰港口{" "}
@@ -164,12 +166,15 @@ function NavalYard({ scenario, game, report, playerId, busy, send }: Omit<Props,
             {ports.map((site) => <option key={site.id} value={site.id}>{site.name}</option>)}
           </select>
         </label>
-        {order && <p>{scenario.states[order.stateId].name}待交付 {order.remaining} 艘</p>}
+        {order && <p>{scenario.states[order.stateId].name}待交付 {order.remaining} 艘{order.model === "armored" ? "装甲舰" : "普通军舰"}</p>}
         <div className="diplomacy-actions">
-          <button className="build" disabled={busy || !canBuild || !!(order && (order.stateId !== port.id || order.remaining >= maxWarshipOrder))}
-            onClick={() => send({ type: "setWarshipOrder", countryId: playerId, stateId: port.id, operation: "add" })}>
-            增订一艘（{shipGoodsPerWarship} 船材）
-          </button>
+          {warshipModels.filter((model) => model === "standard" || unlocked).map((model) => (
+            <button key={model} className="build" disabled={busy || !canBuild ||
+              !!(order && (order.stateId !== port.id || order.model !== model || order.remaining >= maxWarshipOrder))}
+              onClick={() => send({ type: "setWarshipOrder", countryId: playerId, stateId: port.id, operation: "add", model })}>
+              增订{model === "armored" ? "装甲舰" : "普通军舰"}（{warshipMaterials[model]} 船材）
+            </button>
+          ))}
           {order && <>
             <button className="build" disabled={busy || !canBuild || order.stateId === port.id}
               onClick={() => send({ type: "setWarshipOrder", countryId: playerId, stateId: port.id, operation: "move" })}>转移订单</button>
@@ -456,6 +461,8 @@ export function DiplomacyPanel({ scenario, game, playerId: id, report, busy, sen
                       {m.equipment.ammunition.demand} · 军服 {m.equipment.uniforms.delivered}/
                       {m.equipment.uniforms.demand} · 前线补给 {Math.round((m.supplyRatio ?? m.readiness) * 100)}% ·
                       战备 {Math.round(m.readiness * 100)}% · 士气 {game.nations[x].morale.toFixed(0)}%
+                      {m.equipment.fuel && m.equipment.fuel.demand > 0 && ` · 石油 ${m.equipment.fuel.delivered}/${m.equipment.fuel.demand}`}
+                      {m.equipment.spares && m.equipment.spares.demand > 0 && ` · 橡胶 ${m.equipment.spares.delivered}/${m.equipment.spares.demand}`}
                       {losses && ` · 累计阵亡 ${losses.dead} · 伤病 ${losses.injured}`}
                     </p>
                   );

@@ -36,6 +36,8 @@ export const researchCategory = {
   参谋组织: "军事",
   连发装备: "军事",
   现代火炮: "军事",
+  装甲舰艇: "军事",
+  机械化组织: "军事",
 } as const;
 const categories = ["生产", "军事", "社会"] as const;
 const prerequisite: Partial<Record<Tech, Tech>> = {
@@ -57,18 +59,24 @@ const prerequisite: Partial<Record<Tech, Tech>> = {
   参谋组织: "常备军组织",
   连发装备: "后膛装备",
   现代火炮: "后膛装备",
+  装甲舰艇: "规模化钢铁",
+  机械化组织: "连发装备",
 };
-const landTechnologyEras: Partial<Record<Tech, 0 | 1 | 2>> = {
+const militaryTechnologyEras: Partial<Record<Tech, 0 | 1 | 2 | 3>> = {
   常备军组织: 0, 线列训练: 0, 后膛装备: 1, 参谋组织: 1, 连发装备: 2, 现代火炮: 2,
+  装甲舰艇: 2, 机械化组织: 3,
 };
+const eraCosts = [4000, 10000, 22000, 45000];
+const eraYears = [1820, 1850, 1880, 1910];
 export function availableTech(n: Nation, t: Tech) {
   const prior = prerequisite[t];
-  return n.knowledge[t] < 100 && (!prior || n.knowledge[prior] === 100);
+  return n.knowledge[t] < 100 && (!prior || n.knowledge[prior] === 100) &&
+    (t !== "机械化组织" || n.knowledge["内燃机"] === 100);
 }
 export function researchCost(tech: Tech, year: number) {
-  const era = landTechnologyEras[tech];
+  const era = militaryTechnologyEras[tech];
   if (era !== undefined)
-    return Math.round([4000, 10000, 22000][era] * (1 + 0.02 * Math.max(0, [1820, 1850, 1880][era] - year)));
+    return Math.round(eraCosts[era] * (1 + 0.02 * Math.max(0, eraYears[era] - year)));
   const advanced = prerequisite[tech] !== undefined;
   const late = tech === "规模化钢铁" || tech === "电气化" || tech === "公共卫生" || tech === "劳工保障" || tech === "大众政治";
   const modern = tech === "内燃机" || tech === "社会保障";
@@ -102,6 +110,8 @@ export const techEffect: Record<Tech, string> = {
   参谋组织: "每级将领指挥上限由 300 提至 400 人",
   连发装备: "解锁步兵与骑兵的连发装备",
   现代火炮: "解锁炮兵的现代火炮",
+  装甲舰艇: "解锁使用更多船材建造和维护的装甲舰",
+  机械化组织: "需要内燃机与连发装备，解锁使用石油和橡胶的机械化步兵",
 };
 export const lawEffect: Record<Law, string> = {
   工资税改革: "沿用 14% 工资税与 5% 经营所得税",

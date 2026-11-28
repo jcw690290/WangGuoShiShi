@@ -11,8 +11,8 @@ export type NavalMission = z.infer<typeof navalMissionSchema>;
 export type NavalMissionCommand = { type: "setNavalMission"; countryId: string; mission: NavalMission | null };
 
 export function fleetPower(state: GameState, countryId: string) {
-  const { warships, condition } = state.nations[countryId].navy;
-  return warships * condition / 100;
+  const { warships, armored, condition } = state.nations[countryId].navy;
+  return (warships + 0.6 * armored) * condition / 100;
 }
 
 function coalitions(dispute: BorderDispute) {

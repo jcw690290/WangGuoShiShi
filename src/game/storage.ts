@@ -229,8 +229,9 @@ const military = z.object({
   grainDrawn: uint,
   grainTransport: uint,
   seaCargoUsed: uint.optional(),
-  procurement: z.object({ grain: uint, cloth: uint, arms: uint.optional(), ammo: uint.optional() }).optional(),
-  equipment: z.object({ weapons: issue, ammunition: issue, uniforms: issue }),
+  procurement: z.object({ grain: uint, cloth: uint, arms: uint.optional(), ammo: uint.optional(),
+    oil: uint.optional(), rubber: uint.optional() }).optional(),
+  equipment: z.object({ weapons: issue, ammunition: issue, uniforms: issue, fuel: issue.optional(), spares: issue.optional() }),
   readiness: fraction,
   supplyRatio: fraction.optional(),
 }).refine((force) =>
@@ -574,6 +575,7 @@ export function parseSave(scenario: Scenario, save: unknown): GameState {
     }
     for (const order of [n.fleet.order, n.navy.order])
       if (order && (state.ownerByStateId[order.stateId] !== id || !scenario.states[order.stateId]?.coastal)) invalid();
+    if ((n.navy.armored > 0 || n.navy.order?.model === "armored") && n.knowledge["装甲舰艇"] !== 100) invalid();
     const motorizationPort = n.fleet.motorizationPort;
     if (n.fleet.motorized > n.convoys || (motorizationPort !== null &&
         (state.ownerByStateId[motorizationPort] !== id || !scenario.states[motorizationPort]?.coastal))) invalid();

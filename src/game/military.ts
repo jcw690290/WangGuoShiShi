@@ -17,7 +17,7 @@ export const battalionDetails = {
   artillery: { name: "炮兵", attack: 20, defense: 5, peace: [10, 10, 10], field: [35, 70, 20] },
   cavalry: { name: "骑兵", attack: 12, defense: 8, peace: [5, 5, 15], field: [20, 40, 30] },
 } as const;
-export const battalionEquipment = ["standard", "line", "breech", "repeating", "modernArtillery"] as const;
+export const battalionEquipment = ["standard", "line", "breech", "repeating", "modernArtillery", "mechanized"] as const;
 export type BattalionEquipment = (typeof battalionEquipment)[number];
 export const equipmentDetails = {
   standard: { name: "基础装备", technology: null, kinds: battalionKinds, attack: 1, defense: 1,
@@ -30,9 +30,11 @@ export const equipmentDetails = {
     arms: 1.4, ammo: 1.6, refit: [28, 36] },
   modernArtillery: { name: "现代火炮", technology: "现代火炮", kinds: ["artillery"], attack: 1.35, defense: 1.2,
     arms: 1.5, ammo: 1.6, refit: [40, 60] },
+  mechanized: { name: "机械化步兵", technology: "机械化组织", kinds: ["infantry"], attack: 1.55, defense: 1.5,
+    arms: 1.55, ammo: 1.75, refit: [45, 48, 20, 16] },
 } as const satisfies Record<BattalionEquipment, {
   name: string; technology: Tech | null; kinds: readonly BattalionKind[]; attack: number; defense: number;
-  arms: number; ammo: number; refit: readonly [number, number];
+  arms: number; ammo: number; refit: readonly [number, number, number?, number?];
 }>;
 
 export const equipmentFits = (kind: BattalionKind, equipment: BattalionEquipment) =>
@@ -116,26 +118,32 @@ export function battalionsAt(state: GameState, stateId: string, personnel = garr
 export function equipmentNeeds(roster: readonly Battalion[], conscripts: number, field: boolean) {
   const posture = field ? "field" : "peace";
   const totals = battalionDetails.infantry[posture].map((quantity) => quantity * conscripts);
+  let mechanized = 0;
   for (const battalion of roster) {
     const [arms, ammo, uniforms] = battalionDetails[battalion.kind][posture];
     const equipment = equipmentDetails[battalion.equipment];
     totals[0] += arms * equipment.arms * battalion.personnel;
     totals[1] += ammo * equipment.ammo * battalion.personnel;
     totals[2] += uniforms * battalion.personnel;
+    if (battalion.equipment === "mechanized") mechanized += battalion.personnel;
   }
   return {
     weapons: Math.ceil(totals[0] / battalionSize),
     ammunition: Math.ceil(totals[1] / battalionSize),
     uniforms: Math.ceil(totals[2] / battalionSize),
+    fuel: Math.ceil(mechanized * (field ? 25 : 5) / battalionSize),
+    spares: Math.ceil(mechanized * (field ? 12 : 3) / battalionSize),
   };
 }
 
 export function refitOrder(unit: Battalion) {
-  const gear = equipmentDetails[unit.pendingEquipment!];
+  const [weapons, ammunition, fuel = 0, spares = 0] = equipmentDetails[unit.pendingEquipment!].refit;
   return {
-    weapons: Math.ceil(gear.refit[0] * unit.personnel / battalionSize),
-    ammunition: Math.ceil(gear.refit[1] * unit.personnel / battalionSize),
+    weapons: Math.ceil(weapons * unit.personnel / battalionSize),
+    ammunition: Math.ceil(ammunition * unit.personnel / battalionSize),
     uniforms: 0,
+    fuel: Math.ceil(fuel * unit.personnel / battalionSize),
+    spares: Math.ceil(spares * unit.personnel / battalionSize),
   };
 }
 
@@ -211,11 +219,12 @@ export function chooseBattalionOrder(state: GameState, report: EconomyReport, co
 
 export function chooseEquipmentOrder(state: GameState, report: EconomyReport, countryId: string): BattalionEquipmentCommand | undefined {
   if (state.elapsedDays % battalionTrainingDays !== 0 || state.borderDispute?.phase === "war") return;
-  const { weapons, ammunition } = report.countries[countryId].military.equipment;
+  const { military: { equipment: { weapons, ammunition } }, market } = report.countries[countryId];
   if (weapons.demand === 0 || weapons.delivered < weapons.demand || ammunition.delivered < ammunition.demand) return;
   const available = [...battalionEquipment].reverse().filter((gear) => {
     const { technology } = equipmentDetails[gear];
-    return technology !== null && state.nations[countryId].knowledge[technology] === 100;
+    return technology !== null && state.nations[countryId].knowledge[technology] === 100 &&
+      (gear !== "mechanized" || (market.oil.supply > 0 && market.rubber.supply > 0));
   });
   if (available.length === 0) return;
   for (const [stateId, owner] of Object.entries(state.ownerByStateId)) {

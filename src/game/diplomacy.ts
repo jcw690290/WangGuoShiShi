@@ -674,8 +674,9 @@ export function advanceFront(scenario: Scenario, state: GameState, report: Econo
       const regulars = roster.reduce((sum, unit) => sum + unit.trained, 0);
       const effective = roster.reduce((sum, unit) =>
         sum + unit.trained * battalionDetails[unit.kind][role] * equipmentDetails[unit.equipment][role] / 10, conscripts);
-      const cavalry = roster.reduce((sum, unit) => sum + (unit.kind === "cavalry" ? unit.trained : 0), 0);
-      return { siteId, regulars, conscripts, effective, cavalry };
+      const mobile = roster.reduce((sum, unit) =>
+        sum + (unit.kind === "cavalry" || unit.equipment === "mechanized" ? unit.trained : 0), 0);
+      return { siteId, regulars, conscripts, effective, mobile };
     });
     const soldiers = origins.reduce((sum, x) => sum + x.regulars + x.conscripts, 0);
     const effective = origins.reduce((sum, x) => sum + x.effective, 0);
@@ -689,7 +690,7 @@ export function advanceFront(scenario: Scenario, state: GameState, report: Econo
     const random = 0.9 + randomFraction(id) * 0.2;
     const power = soldiers === 0 ? 0 :
       available * effective / soldiers * military.readiness * (nation.morale / 100) * landing * logistics * random;
-    const mobility = soldiers === 0 ? 0 : origins.reduce((sum, x) => sum + x.cavalry, 0) / soldiers;
+    const mobility = soldiers === 0 ? 0 : origins.reduce((sum, x) => sum + x.mobile, 0) / soldiers;
     return { id, origins, soldiers, available, power, mobility, supply: military.supplyRatio! };
   };
   const left = [d.claimantId, ...d.allies],
