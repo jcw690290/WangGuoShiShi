@@ -380,7 +380,7 @@ export function DiplomacyPanel({ scenario, game, playerId: id, report, busy, sen
                     外交要求
                     <select value={goal} onChange={(e) => setGoal(e.target.value as Goal)}>
                       {goals.map((g) => (
-                        <option key={g} value={g}>
+                        <option key={g} value={g} disabled={!canDemandGoal(game, id, game.ownerByStateId[target.id], g, target.id)}>
                           {goalNames[g]}
                         </option>
                       ))}
@@ -390,7 +390,7 @@ export function DiplomacyPanel({ scenario, game, playerId: id, report, busy, sen
                     ? btn(
                         "提出外交要求",
                         { type: "demandBorder", countryId: id, targetStateId: target.id, goal },
-                        !!n.overlord || !canDemandGoal(game, id, game.ownerByStateId[target.id], goal),
+                        !!n.overlord || !canDemandGoal(game, id, game.ownerByStateId[target.id], goal, target.id),
                       )
                     : btn("声明沿海利益", {
                         type: "declareInterest",

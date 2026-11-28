@@ -20,8 +20,10 @@ import { battalionDetails, battalionTrainingDays, battalionsAt, commandCapacity,
 import { applyMilitaryLoss, warLossesSchema } from "./military-health.ts";
 import { fleetPower, navalMissionSchema, navalMissionTargets, planNavalOperations } from "./naval-operations.ts";
 import type { NavalMissionCommand } from "./naval-operations.ts";
+import { recognizeTerritorialClaim, reconcileTerritorialClaims, territorialClaim, territorialClaimError } from "./territory.ts";
+import type { TerritorialClaimCommand } from "./territory.ts";
 
-export const goals = ["cession", "reparations", "puppet", "vassal", "protectorate", "annex"] as const;
+export const goals = ["cession", "reparations", "puppet", "vassal", "protectorate", "annex", "recognition"] as const;
 export type Goal = (typeof goals)[number];
 export const goalNames = {
   cession: "割让争端州",
@@ -30,14 +32,23 @@ export const goalNames = {
   vassal: "成为封臣",
   protectorate: "成为保护国",
   annex: "吞并附属国",
+  recognition: "承认领土宣称",
 };
 export function subjectGoal(g: Goal): g is "puppet" | "vassal" | "protectorate" {
   return g === "puppet" || g === "vassal" || g === "protectorate";
 }
-export function canDemandGoal(state: GameState, claimantId: string, defenderId: string, goal: Goal) {
+function unrecognizedClaim(state: GameState, claimantId: string, defenderId: string, targetStateId: string) {
+  const claim = territorialClaim(state, claimantId, targetStateId);
+  return claim !== undefined && !claim.recognizedBy.includes(defenderId);
+}
+
+const transfersLand = (goal: Goal) => goal === "cession" || goal === "annex";
+
+export function canDemandGoal(state: GameState, claimantId: string, defenderId: string, goal: Goal, targetStateId: string) {
   return (
     !treatyBetween(state, claimantId, defenderId, "defensive") &&
     (goal !== "annex" || state.nations[defenderId].overlord === claimantId) &&
+    (goal !== "recognition" || unrecognizedClaim(state, claimantId, defenderId, targetStateId)) &&
     (!subjectGoal(goal) || !state.nations[claimantId].marketLeader)
   );
 }
@@ -46,8 +57,17 @@ export function canAddGoal(state: GameState, dispute: BorderDispute, goal: Goal)
   return (
     !dispute.goals.includes(goal) &&
     (!subjectGoal(goal) || !dispute.goals.some(subjectGoal)) &&
-    canDemandGoal(state, dispute.claimantId, dispute.defenderId, goal)
+    (goal !== "recognition" || !dispute.goals.some(transfersLand)) &&
+    (!transfersLand(goal) || !dispute.goals.includes("recognition")) &&
+    canDemandGoal(state, dispute.claimantId, dispute.defenderId, goal, dispute.targetStateId)
   );
+}
+
+function demandInfamy(state: GameState, claimantId: string, defenderId: string, targetStateId: string, goal: Goal) {
+  if (goal === "annex") return 3;
+  if (goal === "recognition") return 4;
+  if (goal === "cession" && territorialClaim(state, claimantId, targetStateId)?.recognizedBy.includes(defenderId)) return 6;
+  return 12;
 }
 
 export const peaceGoalsSchema = z.array(z.enum(goals)).max(goals.length)
@@ -257,6 +277,8 @@ function treaty(state: GameState, d: BorderDispute, victory: boolean, withdrawal
       countryEconomies[b] = { ...countryEconomies[b], treasury: countryEconomies[b].treasury - amount };
       countryEconomies[a] = { ...countryEconomies[a], treasury: countryEconomies[a].treasury + amount };
     }
+    if (terms.includes("recognition"))
+      diplomaticState = adjustForeignRelation(recognizeTerritorialClaim(diplomaticState, a, b, d.targetStateId), b, a, 4, 5);
     const subjectType = terms.find(subjectGoal);
     if (subjectType && Object.values(ownerByStateId).includes(b)) {
       for (const [id, n] of Object.entries(nations))
@@ -286,7 +308,7 @@ function treaty(state: GameState, d: BorderDispute, victory: boolean, withdrawal
     !live.has(senior) || !live.has(partner) ||
     nations[senior].overlord === partner || nations[partner].overlord === senior,
   );
-  return reconcileTreaties({
+  return reconcileTerritorialClaims(reconcileTreaties({
     ...relations,
     ownerByStateId,
     countryEconomies,
@@ -299,12 +321,15 @@ function treaty(state: GameState, d: BorderDispute, victory: boolean, withdrawal
       since: state.elapsedDays,
       outcome: victory ? "victory" : withdrawal ? "withdrawal" : "statusQuo",
     },
-  });
+  }));
 }
 
 export function peaceTermsError(state: GameState, dispute: BorderDispute, terms: Goal[], commercial: boolean) {
   if (!peaceGoalsSchema.safeParse(terms).success || terms.some((goal) => !dispute.goals.includes(goal)))
     return "只能选择当前争端中互不重复的条款";
+  if (terms.includes("recognition") && (terms.some(transfersLand) ||
+      !unrecognizedClaim(state, dispute.claimantId, dispute.defenderId, dispute.targetStateId)))
+    return "承认条款需要尚未获对方承认且将保留的宣称";
   if (commercial && (terms.includes("annex") || (terms.includes("cession") &&
       Object.values(state.ownerByStateId).filter((owner) => owner === dispute.defenderId).length === 1)))
     return "双边通商协定需要双方在和约后保有领土";
@@ -334,7 +359,7 @@ export function warWillingness(state: GameState, d: BorderDispute, countryId: st
 
 function acceptsPeace(state: GameState, d: BorderDispute, offer: PeaceOffer, countryId: string) {
   if (peaceTermsError(state, d, offer.goals, offer.commercial)) return false;
-  const costs: Record<Goal, number> = { cession: 28, reparations: 12, puppet: 42, vassal: 36, protectorate: 28, annex: 100 };
+  const costs: Record<Goal, number> = { cession: 28, reparations: 12, puppet: 42, vassal: 36, protectorate: 28, annex: 100, recognition: 8 };
   const concessions = offer.goals.reduce((sum, goal) => sum + costs[goal], 0);
   const willingness = warWillingness(state, d, countryId);
   if (countryId === d.defenderId) return concessions <= 95 - willingness;
@@ -394,7 +419,7 @@ export function applyBorderCommand(scenario: Scenario, state: GameState, cmd: Bo
       (d && d.phase !== "resolved") ||
       !interested(scenario, state, id, target) ||
       n.overlord ||
-      !canDemandGoal(state, id, defender, cmd.goal)
+      !canDemandGoal(state, id, defender, cmd.goal, target)
     )
       throw new GameRuleError("无法提出这项外交要求");
     const defenders = new Set(Object.keys(state.nations).filter(
@@ -413,7 +438,7 @@ export function applyBorderCommand(scenario: Scenario, state: GameState, cmd: Bo
     const repeated = n.lastThreatDay !== undefined && state.elapsedDays - n.lastThreatDay < 180;
     return {
       ...adjustForeignRelation(change({
-        infamy: n.infamy + (cmd.goal === "annex" ? 3 : 12),
+        infamy: n.infamy + demandInfamy(state, id, defender, target, cmd.goal),
         lastThreatDay: state.elapsedDays,
         prestige: n.prestige - (repeated ? 8 : 0),
       }), id, defender, repeated ? -17 : -12, repeated ? -10 : -5),
@@ -470,7 +495,7 @@ export function applyBorderCommand(scenario: Scenario, state: GameState, cmd: Bo
     if (cmd.type === "addGoal") {
       if (!canAddGoal(state, d, cmd.goal)) throw new GameRuleError("无效目标");
       return {
-        ...change({ infamy: n.infamy + (cmd.goal === "annex" ? 3 : 12) }),
+        ...change({ infamy: n.infamy + demandInfamy(state, id, d.defenderId, d.targetStateId, cmd.goal) }),
         borderDispute: { ...d, maneuvers: d.maneuvers - 1, goals: [...d.goals, cmd.goal] },
       };
     }
@@ -788,7 +813,7 @@ export function aiDiplomacy(
   scenario: Scenario,
   state: GameState,
   humanCountries: ReadonlySet<string | null> = new Set([state.playerCountryId]),
-): BorderCommand[] {
+): (BorderCommand | TerritorialClaimCommand)[] {
   const d = state.borderDispute;
   if (!d || d.phase === "resolved") {
     // Limit AI plays to one at a time, with at least four opening weeks for the player.
@@ -809,8 +834,13 @@ export function aiDiplomacy(
           state.nations[owner].overlord !== id &&
           !diplomaticTie(state, id, owner) &&
           !treatyBetween(state, id, owner, "defensive")
-        )
-          return [{ type: "demandBorder", countryId: id, targetStateId: site.id, goal: "reparations" }];
+        ) {
+          const claim = { type: "declareTerritorialClaim", countryId: id, stateId: site.id } as const;
+          if ((state.rng + offset) % 8 === 0 && !state.territorialClaims?.some((entry) => entry.claimantId === id) &&
+              !territorialClaimError(scenario, state, claim)) return [claim];
+          const goal = unrecognizedClaim(state, id, owner, site.id) ? "recognition" : "reparations";
+          return [{ type: "demandBorder", countryId: id, targetStateId: site.id, goal }];
+        }
       }
     }
     return [];

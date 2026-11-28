@@ -11,7 +11,8 @@ import { advancePolitics, applyPolitics, availableTech, ownedSocieties, politics
 import type { PoliticsCommand } from "./politics.ts";
 import { initSociety, techs, hash, literacyOf } from "./society.ts";
 import type { Law, Nation, SiteSocial } from "./society.ts";
-import { applyClaim } from "./territory.ts";
+import { applyClaim, applyTerritorialClaim } from "./territory.ts";
+import type { TerritorialClaim, TerritorialClaimCommand } from "./territory.ts";
 import { settlePopulationMonth } from "./demographics.ts";
 import type { PopulationMonth } from "./demographics.ts";
 import { finalizeCampaign, startCampaign } from "./campaign.ts";
@@ -71,6 +72,7 @@ export interface GameState {
   treatyOffers?: TreatyOffer[];
   aidOffers?: AidOffer[];
   foreignObligations?: ForeignObligation[];
+  territorialClaims?: TerritorialClaim[];
   tradeRoutes?: TradeRoute[];
   occupation?: Occupation;
 }
@@ -82,6 +84,7 @@ export type GameCommand =
   | { type: "continueSandbox" }
   | { type: "settleCampaignVictory" }
   | { type: "claimState"; stateId: string }
+  | TerritorialClaimCommand
   | { type: "queueConstruction"; countryId: string; stateId: string; good: Building; privateBuild?: boolean }
   | { type: "cancelConstruction"; countryId: string; index: number; stateId: string; good: Building; privateBuild?: boolean }
   | { type: "setConvoyOrder"; countryId: string; stateId: string; operation: "add" | "move" | "cancel" }
@@ -427,6 +430,9 @@ function applyCommand(
     }
     case "claimState":
       return applyClaim(scenario, state, cmd.stateId);
+    case "declareTerritorialClaim":
+    case "renounceTerritorialClaim":
+      return applyTerritorialClaim(scenario, state, cmd);
     case "setIndustrySubsidy": {
       const { countryId, stateId, limit } = cmd;
       if (state.ownerByStateId[stateId] !== countryId) throw new GameRuleError("只能补贴本国州的产业");

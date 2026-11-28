@@ -22,6 +22,7 @@ import { industryOwnershipSchema, ownershipAmountsSchema, ownershipKinds, owners
 import { aidOfferSchema, foreignObligationSchema, foreignPairKey, foreignRelationSchema, foreignTreatySchema, treatyOfferSchema } from "./foreign-relations.ts";
 import { barracksCapacity, battalionSize, battalionTrainingDays, equipmentDetails } from "./military.ts";
 import { injuredPersonnel, replacementTrainingDays } from "./military-health.ts";
+import { territorialClaim, territorialClaimSchema } from "./territory.ts";
 import { buildingCapacity, militaryProcurementCost, projects, unusedPrepaidConstruction } from "./economy.ts";
 import { constructionMaintenanceSchema, constructionReportSchema, constructionStockSchema, constructionSpending, constructionWage } from "./construction.ts";
 import { nationSchema, siteSocialSchema, projectTypes } from "./society.ts";
@@ -367,6 +368,7 @@ export function parseSave(scenario: Scenario, save: unknown): GameState {
     treatyOffers: z.array(treatyOfferSchema).optional(),
     aidOffers: z.array(aidOfferSchema).optional(),
     foreignObligations: z.array(foreignObligationSchema).optional(),
+    territorialClaims: z.array(territorialClaimSchema).optional(),
     tradeRoutes: z.array(tradeRouteSchema.extend({ from: sites, to: sites, exporter: countries, importer: countries })).optional(),
     occupation: z.object({ stateId: sites, controllerId: countries }).optional(),
     lastEconomy: z
@@ -515,6 +517,14 @@ export function parseSave(scenario: Scenario, save: unknown): GameState {
     const key = foreignPairKey(offer.from, offer.to);
     if (aidKeys.has(key) || !liveCountries.has(offer.from) || !liveCountries.has(offer.to) || offer.offeredDay > state.elapsedDays) invalid();
     aidKeys.add(key);
+  }
+  const claimKeys = new Set<string>();
+  for (const claim of state.territorialClaims ?? []) {
+    const key = JSON.stringify([claim.claimantId, claim.stateId]);
+    if (claimKeys.has(key) || !Object.hasOwn(scenario.states, claim.stateId) ||
+        !liveCountries.has(claim.claimantId) || state.ownerByStateId[claim.stateId] === claim.claimantId ||
+        claim.recognizedBy.some((id) => !liveCountries.has(id)) || claim.declaredDay > state.elapsedDays) invalid();
+    claimKeys.add(key);
   }
   if (data.version !== saveVersion && migrateCommercialProduction(state) && campaign?.outcome?.baseline && campaign.ending === null) {
     const fresh = openingMetrics(createGame(scenario, 1820, state.settings.difficulty), state.playerCountryId!);
@@ -688,6 +698,11 @@ export function parseSave(scenario: Scenario, save: unknown): GameState {
     )
       invalid();
     const executed = d.agreedPeace?.goals ?? d.goals;
+    if (d.goals.includes("recognition")) {
+      if (d.goals.includes("cession") || d.goals.includes("annex")) invalid();
+      const claim = territorialClaim(state, d.claimantId, d.targetStateId);
+      if (d.phase !== "resolved" && (!claim || claim.recognizedBy.includes(d.defenderId))) invalid();
+    }
     const objectives = [d.targetStateId, ...scenario.states[d.targetStateId].neighbors];
     for (const [id, order] of Object.entries(d.frontOrders ?? {})) {
       if (!parties.includes(id) || (d.phase !== "war" && d.phase !== "resolved") ||
