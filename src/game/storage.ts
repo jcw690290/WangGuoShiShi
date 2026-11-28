@@ -224,6 +224,7 @@ const market = z.object({
 })
   .refine((good) => good.traded === undefined || good.traded <= Math.min(good.supply, good.demand));
 const industry = z.object({ employed: uint, output: uint, wages: uint, sold: uint.optional(), bought: uint.optional(),
+  unsold: uint.positive().optional(), unfilled: uint.positive().optional(),
   buyers: z.object({ households: uint, construction: uint, industry: uint, publicServices: uint }).optional(),
   method: z.enum(productionTiers).optional(),
   electric: z.literal(true).optional() })

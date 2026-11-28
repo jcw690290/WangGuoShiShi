@@ -175,6 +175,8 @@ interface IndustryReport {
   wages: number;
   sold?: number;
   bought?: number;
+  unsold?: number;
+  unfilled?: number;
   buyers?: { households: number; construction: number; industry: number; publicServices: number };
   method?: ProductionTier;
   electric?: true;
@@ -1116,6 +1118,10 @@ function projectSettlement(state: GameState, war?: WarPlan, closingTick?: number
         const sold = localTrade + poolSold + (transfer?.sent[g] ?? 0);
         production.sold = sold;
         production.bought = localTrade + poolBought + (transfer?.received[g] ?? 0);
+        const unsold = supplies[id][g] - sold - (g === "opium" ? illicitSale?.attempted ?? 0 : 0);
+        const unfilled = demands[id][g] - production.bought;
+        if (unsold > 0) production.unsold = unsold;
+        if (unfilled > 0) production.unfilled = unfilled;
         let revenue = localTrade * localPrice + poolSold * m.price + (transfer?.producerPayment[g] ?? 0);
         if (sold > 0 && subsistence && harvestGood(g)) {
           const ruralSold = Math.floor(sold * (subsistence.produced[g] - subsistence.retained[g]) / supplies[id][g]);
