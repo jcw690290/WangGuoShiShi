@@ -1,3 +1,4 @@
+import { occupationAt } from "./conflict-state.ts";
 import { z } from "zod";
 import type { GameState } from "./engine.ts";
 import { GameRuleError } from "./rules.ts";
@@ -89,7 +90,7 @@ export type LocalUnrestCommand = { type: "negotiateLocalUnrest"; countryId: stri
 export function negotiateLocalUnrest(state: GameState, command: LocalUnrestCommand): GameState {
   const { countryId, stateId } = command;
   if (state.ownerByStateId[stateId] !== countryId) throw new GameRuleError("只能与本国辖区谈判");
-  if (state.occupation?.stateId === stateId) throw new GameRuleError("军事占领期间无法作出中央减税承诺");
+  if (!!occupationAt(state, stateId)) throw new GameRuleError("军事占领期间无法作出中央减税承诺");
   const site = state.societies[stateId];
   const stability = site.stability;
   if (!stability?.incident || stability.incident.negotiated) throw new GameRuleError("此州没有可协商的地方事件");
@@ -102,7 +103,7 @@ export function negotiateLocalUnrest(state: GameState, command: LocalUnrestComma
 export function chooseLocalNegotiation(state: GameState, countryId: string): LocalUnrestCommand | undefined {
   if (authorityBudget(state, countryId).available < localNegotiationAuthority) return;
   const stateId = Object.keys(state.ownerByStateId).find((id) => {
-    if (state.ownerByStateId[id] !== countryId || state.occupation?.stateId === id) return false;
+    if (state.ownerByStateId[id] !== countryId || !!occupationAt(state, id)) return false;
     const stability = state.societies[id].stability;
     return !!stability?.incident && !stability.incident.negotiated && stability.unrest >= 55;
   });

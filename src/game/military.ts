@@ -1,3 +1,4 @@
+import { occupationAt } from "./conflict-state.ts";
 import { z } from "zod";
 import type { GameState } from "./engine.ts";
 import type { EconomyReport } from "./economy.ts";
@@ -160,7 +161,7 @@ export function refitOrder(unit: Battalion) {
 }
 
 export function battalionOrderError(state: GameState, cmd: BattalionCommand) {
-  if (state.ownerByStateId[cmd.stateId] !== cmd.countryId || state.occupation?.stateId === cmd.stateId)
+  if (state.ownerByStateId[cmd.stateId] !== cmd.countryId || !!occupationAt(state, cmd.stateId))
     return "只能在本国控制的州改编";
   const battalion = battalionsAt(state, cmd.stateId)[cmd.slot];
   if (!battalion) return "这个营当前没有兵员";
@@ -182,7 +183,7 @@ export function applyBattalionOrder(state: GameState, cmd: BattalionCommand): Ga
 }
 
 export function equipmentOrderError(state: GameState, cmd: BattalionEquipmentCommand) {
-  if (state.ownerByStateId[cmd.stateId] !== cmd.countryId || state.occupation?.stateId === cmd.stateId)
+  if (state.ownerByStateId[cmd.stateId] !== cmd.countryId || !!occupationAt(state, cmd.stateId))
     return "只能在本国控制的州换装";
   if (cmd.equipment === null)
     return state.societies[cmd.stateId].battalionOrders?.some((order) => order.slot === cmd.slot && order.pendingEquipment) ?

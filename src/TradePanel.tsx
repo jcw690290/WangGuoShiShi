@@ -1,3 +1,4 @@
+import { occupationAt } from "./game/conflict-state.ts";
 import { useState } from "react";
 import type { FormEvent } from "react";
 import { count, silver } from "./format.ts";
@@ -56,7 +57,7 @@ export function TradePanel({ scenario, game, stateId, playerId, busy, send }: Pr
   const sources = mode === "land" ? landSources :
     Object.keys(game.ownerByStateId).filter((id) => scenario.states[id].coastal && eligible(id));
   const source = sources.includes(choice) ? choice : sources[0];
-  const restriction = source && (game.occupation?.stateId === source || game.occupation?.stateId === stateId)
+  const restriction = source && (!!occupationAt(game, source) || !!occupationAt(game, stateId))
     ? "occupied" : source ? foreignTradeStatus(game, game.ownerByStateId[source], playerId, good) : undefined;
   if (!routes.length && !landSources.length && !port) return null;
   function openRoute(event: FormEvent<HTMLFormElement>) {

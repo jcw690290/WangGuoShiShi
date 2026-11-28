@@ -1,3 +1,4 @@
+import { currentDisputes, occupationAt } from "./conflict-state.ts";
 import { z } from "zod";
 import type { Scenario } from "../scenario/scenario.ts";
 import { culturalAffinityOf, cultureShares } from "./culture.ts";
@@ -91,8 +92,8 @@ export function routeTransport(scenario: Scenario, from: string, to: string, mod
 }
 
 export function foreignTradeStatus(state: GameState, exporter: string, importer: string, good?: TradeRoute["good"]) {
-  const dispute = state.borderDispute;
-  if (dispute?.phase === "war") {
+  for (const dispute of currentDisputes(state)) {
+    if (dispute.phase !== "war") continue;
     const fighters = participants(dispute);
     if (fighters.includes(exporter) && fighters.includes(importer) && attacking(dispute, exporter) !== attacking(dispute, importer))
       return "war";
@@ -106,7 +107,7 @@ export function tradeRouteBlock(state: GameState, route: TradeRoute) {
   const { from, to, exporter, importer } = route;
   if (route.paused) return "paused";
   if (state.ownerByStateId[from] !== exporter || state.ownerByStateId[to] !== importer) return "sovereignty";
-  if (state.occupation?.stateId === from || state.occupation?.stateId === to) return "occupied";
+  if (!!occupationAt(state, from) || !!occupationAt(state, to)) return "occupied";
   if (marketOf(state, exporter) === marketOf(state, importer)) return "commonMarket";
   return foreignTradeStatus(state, exporter, importer, route.good);
 }
@@ -115,7 +116,7 @@ export function illicitOpiumEligible(state: GameState, route: TradeRoute) {
   const { from, to, exporter, importer } = route;
   return route.good === "opium" && !route.paused &&
     state.ownerByStateId[from] === exporter && state.ownerByStateId[to] === importer &&
-    state.occupation?.stateId !== from && state.occupation?.stateId !== to &&
+    !occupationAt(state, from) && !occupationAt(state, to) &&
     marketOf(state, exporter) !== marketOf(state, importer) && !foreignTradeStatus(state, exporter, importer) &&
     opiumCommerceAllowed(state.nations[exporter].laws) && opiumLaw(state.nations[importer].laws) !== "鸦片许可经营";
 }
@@ -133,7 +134,7 @@ export function applyTradeCommand(scenario: Scenario, state: GameState, cmd: Tra
       throw new GameRuleError(mode === "sea" ? "请选择本国沿海进口州与沿海外国出口州" : "请选择本国进口州与接壤的出口州");
     if (marketOf(state, exporter) === marketOf(state, importer))
       throw new GameRuleError("贸易连接不同关税市场");
-    if (state.occupation?.stateId === from || state.occupation?.stateId === to)
+    if (!!occupationAt(state, from) || !!occupationAt(state, to))
       throw new GameRuleError(tradeStatuses.occupied);
     const restriction = foreignTradeStatus(state, exporter, importer, good);
     if (restriction) throw new GameRuleError(tradeStatuses[restriction]);
@@ -228,7 +229,7 @@ export function chooseAITradeRoutes(scenario: Scenario, state: GameState, report
     function consider(from: string, to: string, good: Good, mode: TradeMode, demand: number, bestProfit: number) {
       const exporter = state.ownerByStateId[from];
       if (!exporter || marketOf(state, exporter) === market || foreignTradeStatus(state, exporter, importer, good) ||
-          state.occupation?.stateId === from || state.occupation?.stateId === to) return;
+          !!occupationAt(state, from) || !!occupationAt(state, to)) return;
       const source = report.states[from], destination = report.states[to];
       const supply = source.industries[good].unsold ?? 0;
       const sourceKey = JSON.stringify([from, good]);
@@ -266,7 +267,7 @@ export function chooseAITradeRoutes(scenario: Scenario, state: GameState, report
     }
 
     for (const to of owned) {
-      if (state.ownerByStateId[to] !== importer || state.occupation?.stateId === to) continue;
+      if (state.ownerByStateId[to] !== importer || !!occupationAt(state, to)) continue;
       const destination = report.states[to], site = scenario.states[to];
       for (const good of tradableGoods) {
         const demand = destination.industries[good].unfilled ?? 0;

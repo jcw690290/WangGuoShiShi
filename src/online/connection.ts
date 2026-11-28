@@ -259,6 +259,8 @@ export class RoomConnection {
   private async step(room: Room, game: GameState) {
     const humans = new Set(room.members.map((member) => member.country));
     const next = advanceDay(this.scenario, game, humans);
+    const foreignCheckpoint = next.foreignTheater?.dispute !== game.foreignTheater?.dispute ||
+      next.foreignTheater?.occupation !== game.foreignTheater?.occupation;
     if (next === game) {
       await this.setSpeed(0);
       return;
@@ -269,11 +271,12 @@ export class RoomConnection {
     const update = checkpoint
       ? { snapshot: await encodeSnapshot(this.scenario, next) }
       : { day: { elapsedDays: next.elapsedDays, borderDispute: next.borderDispute } };
+    const wireUpdate = foreignCheckpoint && !checkpoint ? { snapshot: await encodeSnapshot(this.scenario, next) } : update;
     if (this.closed || document.hidden) return;
     const pause = isScenarioFinished(this.scenario, next);
-    if (await this.call("commit", { lease: this.lease, version: room.version, ...update, pause })) {
+    if (await this.call("commit", { lease: this.lease, version: room.version, ...wireUpdate, pause })) {
       this.game = next;
-      if (checkpoint) this.checkpoint = room.version + 1;
+      if (checkpoint || foreignCheckpoint) this.checkpoint = room.version + 1;
       this.emit();
     }
   }

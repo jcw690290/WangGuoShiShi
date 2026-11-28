@@ -1,4 +1,5 @@
 import { openDB } from "idb";
+import { attachForeignTheater, currentDisputes, foreignTheaterView, separateTheaters } from "./conflict-state.ts";
 import type { DBSchema, IDBPDatabase } from "idb";
 import { z } from "zod";
 import { disputeSchema, participants } from "./diplomacy.ts";
@@ -423,6 +424,8 @@ export function parseSave(baseScenario: Scenario, save: unknown): GameState {
     constitutionalCrises: z.record(activeCountry, constitutionalCrisisSchema).optional(),
     civilWar: civilWarSchema.optional(),
     lastCivilWar: civilWarResultSchema.extend({ countryId: registeredCountries }).optional(),
+    foreignTheater: z.object({ dispute: disputeSchema,
+      occupation: z.object({ stateId: sites, controllerId: countries }).optional() }).optional(),
     tradeRoutes: z.array(tradeRouteSchema.extend({ from: sites, to: sites, exporter: countries, importer: countries })).optional(),
     occupation: z.object({ stateId: sites, controllerId: countries }).optional(),
     lastEconomy: z
@@ -789,16 +792,19 @@ export function parseSave(baseScenario: Scenario, save: unknown): GameState {
       )
         invalid();
   }
-  const d = state.borderDispute;
+  const primary = state.borderDispute;
   if (state.lastCivilWar && state.lastCivilWar.endedDay > state.elapsedDays) invalid();
   if (civilWar) {
     const rebel = oppositionId(civilWar.countryId);
+    const d = primary;
     if (!d || d.phase !== "war" || d.claimantId !== rebel || d.defenderId !== civilWar.countryId ||
         d.goals.length !== 1 || d.goals[0] !== "regime" || d.allies.length || d.defenders.length || d.peaceOffer ||
         d.outcome !== null || d.progress <= 0 || d.progress >= 100 ||
         !liveCountries.has(rebel) || !liveCountries.has(civilWar.countryId)) invalid();
-  } else if (d?.goals.includes("regime")) invalid();
-  if (d) {
+  } else if (primary?.goals.includes("regime") || state.foreignTheater) invalid();
+  if (state.foreignTheater && (state.foreignTheater.dispute.goals.includes("regime") ||
+      !separateTheaters(state, state.foreignTheater.dispute))) invalid();
+  for (const d of currentDisputes(state)) {
     const parties = participants(d);
     if (
       !scenario.states[d.targetStateId] ||
@@ -875,5 +881,10 @@ export function parseSave(baseScenario: Scenario, save: unknown): GameState {
   }
   const controlled = syncOccupation(scenario, state);
   if (state.occupation && controlled !== state) invalid();
+  if (controlled.foreignTheater) {
+    const external = foreignTheaterView(controlled), synced = syncOccupation(scenario, external);
+    if (external.occupation && synced !== external) invalid();
+    if (synced !== external) return attachForeignTheater(controlled, synced);
+  }
   return controlled;
 }

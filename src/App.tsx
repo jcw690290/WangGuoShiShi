@@ -126,19 +126,21 @@ export function App({ scenario: baseScenario, geometry, initialSaves, initialSav
   const countryNames = useMemo(() => Object.fromEntries(Object.entries(scenario.countries)
     .map(([id, country]) => [id, countryDisplayName(country, game.nations[id])])), [scenario.countries, game.nations]);
   const occupation = game.occupation;
-  const actualController = occupation?.stateId === site ? occupation.controllerId : null;
-  const mapOwners = useMemo(() => mapLayer === "controller" && occupation
-    ? { ...game.ownerByStateId, [occupation.stateId]: occupation.controllerId }
-    : game.ownerByStateId, [mapLayer, game.ownerByStateId, occupation]);
+  const foreignOccupation = game.foreignTheater?.occupation;
+  const actualController = site ? occupationAt(game, site)?.controllerId ?? null : null;
+  const mapOwners = useMemo(() => mapLayer === "controller" && (occupation || foreignOccupation)
+    ? { ...game.ownerByStateId, ...(occupation ? { [occupation.stateId]: occupation.controllerId } : {}),
+      ...(foreignOccupation ? { [foreignOccupation.stateId]: foreignOccupation.controllerId } : {}) }
+    : game.ownerByStateId, [mapLayer, game.ownerByStateId, occupation, foreignOccupation]);
   const supplyDay = mapLayer === "supply" ? game.elapsedDays : null;
   const layerCells = useMemo(() => player ? mapLayerCells(scenario, game, mapLayer) : undefined,
     [player, scenario, mapLayer, game.societies, game.stateEconomies, game.ownerByStateId, game.lastEconomy,
-      game.borderDispute, game.nations, game.settings, occupation, supplyDay]);
+      game.borderDispute, game.foreignTheater, game.nations, game.settings, occupation, supplyDay]);
   const layerLegend = mapLayerLegends[mapLayer];
   const report = useMemo(
     () => governmentOpen ? game.lastEconomy ?? projectEconomy(game, planWar(scenario, game), scenario) : null,
     [governmentOpen, game.lastEconomy, game.ownerByStateId, game.countryEconomies, game.stateEconomies,
-      game.nations, game.societies, game.borderDispute, scenario],
+      game.nations, game.societies, game.borderDispute, game.foreignTheater, scenario],
   );
   const matches = useMemo(
     () =>
@@ -711,3 +713,4 @@ export function App({ scenario: baseScenario, geometry, initialSaves, initialSav
     </>
   );
 }
+import { occupationAt } from "./game/conflict-state.ts";

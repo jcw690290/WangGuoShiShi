@@ -1,3 +1,4 @@
+import { occupationAt } from "./game/conflict-state.ts";
 import { useMemo } from "react";
 import { facilityNames, facilityTypes, livingStandardOf, socialTags } from "./game/society.ts";
 import { civicPolicy, civicStanding, nationalIdentity } from "./game/civic-policy.ts";
@@ -88,7 +89,7 @@ function StateIndustry({
   const motorizationHere = nation.fleet.motorizationPort === stateId;
   const movesOrder = order !== null && order.stateId !== stateId;
   const rule = localGovernanceRule(society, nation.laws);
-  const occupied = game.occupation?.stateId === stateId;
+  const occupied = !!occupationAt(game, stateId);
   const integrationActive = governance.integration !== null;
   const stability = society.stability;
   const incident = stability?.incident;

@@ -1,3 +1,4 @@
+import { occupationAt } from "./conflict-state.ts";
 import { culturalAffinityOf } from "./culture.ts";
 import type { GameState } from "./engine.ts";
 import type { Scenario } from "../scenario/scenario.ts";
@@ -35,7 +36,7 @@ export function settleMigration(scenario: Scenario, state: GameState, frontline:
     const workforce = report.workforce ?? workForce(population, site.laborParticipation);
     const employment = Math.min(1, jobs / Math.max(1, workforce));
     const incomePerPerson = Math.min(2, income / (population * baseOrdinaryWage));
-    const hazard = state.occupation?.stateId === id ? 3 : frontline.has(id) ? 1.5 : 0;
+    const hazard = !!occupationAt(state, id) ? 3 : frontline.has(id) ? 1.5 : 0;
     const score = 3 * employment + 3 * incomePerPerson + livingStandardOf(site.pops) / 6 -
       (site.stability?.unrest ?? 0) / 30 - hazard;
     prospects.set(id, { score, access: report.access });
@@ -54,7 +55,7 @@ export function settleMigration(scenario: Scenario, state: GameState, frontline:
         attacking(war, sender) !== attacking(war, receiver)) return 0;
     const access = Math.min(prospects.get(from)!.access, prospects.get(to)!.access);
     if (origin.neighbors.includes(to)) return access;
-    if (!origin.coastal || !destination.coastal || state.occupation?.stateId === from) return 0;
+    if (!origin.coastal || !destination.coastal || !!occupationAt(state, from)) return 0;
     const distance = seaVoyageCargoCost(origin.label, destination.label);
     if (distance > 2) return 0;
     const cargo = Math.min(
@@ -68,7 +69,7 @@ export function settleMigration(scenario: Scenario, state: GameState, frontline:
   for (const [from, owner] of entries) {
     const origin = stateEconomies[from];
     const targets = markets.get(marketOf(state, owner))!.flatMap((to) => {
-      if (from === to || state.occupation?.stateId === to) return [];
+      if (from === to || !!occupationAt(state, to)) return [];
       const passage = transit(from, to);
       return passage > 0 ? [{ to, passage, country: ownerByStateId[to] }] : [];
     });

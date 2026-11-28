@@ -103,9 +103,11 @@ export function influenceBudget(state: GameState, countryId: string) {
 
 function opposingParties(state: GameState, a: string, b: string) {
   const dispute = state.borderDispute;
-  if (!dispute || dispute.phase === "resolved") return false;
-  const attackers = [dispute.claimantId, ...dispute.allies], defenders = [dispute.defenderId, ...dispute.defenders];
-  return (attackers.includes(a) && defenders.includes(b)) || (attackers.includes(b) && defenders.includes(a));
+  return [dispute, state.foreignTheater?.dispute].some((active) => {
+    if (!active || active.phase === "resolved") return false;
+    const attackers = [active.claimantId, ...active.allies], defenders = [active.defenderId, ...active.defenders];
+    return (attackers.includes(a) && defenders.includes(b)) || (attackers.includes(b) && defenders.includes(a));
+  });
 }
 
 export function foreignCommandError(state: GameState, cmd: ForeignCommand) {

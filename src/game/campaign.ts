@@ -111,8 +111,8 @@ export function finalizeCampaign(
 
   const previous = campaign.outcome;
   const baseline = previous?.baseline ?? (day === 0 ? openingMetrics(state, id) : undefined);
-  const dispute = state.borderDispute;
-  const attackedToday = dispute?.phase === "war" && dispute.claimantId === id && dispute.since === day;
+  const attackedToday = currentDisputes(state).some((dispute) =>
+    dispute.phase === "war" && dispute.claimantId === id && dispute.since === day);
   const aggressionFreeSince = attackedToday ? day : previous?.aggressionFreeSince ?? day;
   const quiet = calendarMonthsPassed(date, day - aggressionFreeSince, 240);
   const observe = !previous || changed || due || settleEarly || quiet !== (previous.metrics.AGGRESSION_FREE_20 === 1);
@@ -181,3 +181,4 @@ export function completeGuideStep(state: GameState, step: number): GameState {
     guideWeek: step === 3 ? Math.floor(state.elapsedDays / 7) : null,
   } };
 }
+import { currentDisputes } from "./conflict-state.ts";

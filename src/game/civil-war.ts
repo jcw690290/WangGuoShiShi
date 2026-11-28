@@ -3,6 +3,7 @@ import type { Scenario } from "../scenario/scenario.ts";
 import { constitutionalLaws, constitutionLawCategory } from "./constitution.ts";
 import { constitutionalCrisisWarning, constitutionalSupportByState, compromiseDays } from "./constitutional-crises.ts";
 import type { BorderDispute } from "./diplomacy.ts";
+import { conflictParties } from "./conflict-state.ts";
 import type { CountryEconomy } from "./economy.ts";
 import type { GameState } from "./engine.ts";
 import type { FiscalAccount } from "./fiscal.ts";
@@ -149,8 +150,11 @@ function startCivilWar(scenario: Scenario, state: GameState, id: string, demand:
   };
   const constitutionalCrises = { ...state.constitutionalCrises };
   delete constitutionalCrises[id];
+  const { occupation, ...world } = state;
+  const foreign = state.borderDispute?.phase === "resolved" ? null : state.borderDispute;
   return {
-    ...state, ownerByStateId, constitutionalCrises, borderDispute, lastEconomy: null,
+    ...world, ownerByStateId, constitutionalCrises, borderDispute, lastEconomy: null,
+    ...(foreign ? { foreignTheater: { dispute: foreign, ...(occupation ? { occupation } : {}) } } : {}),
     nations: { ...state.nations, [id]: government.assigned, [rebel]: opposition.assigned },
     countryEconomies: { ...state.countryEconomies, [id]: government.budget, [rebel]: opposition.budget },
     civilWar: { countryId: id, demand, side: null },
@@ -167,8 +171,10 @@ export function advanceCivilWar(scenario: Scenario, state: GameState): GameState
       return endCivilWar(state, battle.progress > 50 ? "opposition" : "government");
     return state;
   }
-  if (state.borderDispute && state.borderDispute.phase !== "resolved") return state;
   for (const id of Object.keys(state.constitutionalCrises ?? {})) {
+    const foreign = state.borderDispute;
+    if (foreign && foreign.phase !== "resolved" &&
+        (conflictParties(foreign).includes(id) || state.ownerByStateId[foreign.targetStateId] === id)) continue;
     const warning = constitutionalCrisisWarning(state, id);
     if (!warning || state.elapsedDays - warning.since < civilWarEscalationDays) continue;
     const changed = startCivilWar(scenario, state, id, warning.demand);
@@ -237,8 +243,10 @@ export function endCivilWar(state: GameState, winner: CivilSide): GameState {
   }
   const constitutionalCrises = { ...state.constitutionalCrises, [id]: { compromiseUntil: state.elapsedDays + compromiseDays } };
   delete constitutionalCrises[rebel];
+  const { civilWar: _ended, occupation: _released, foreignTheater, ...world } = state;
   return {
-    ...state, ownerByStateId: owned, nations, countryEconomies, civilWar: undefined, borderDispute: null, occupation: undefined,
+    ...world, ownerByStateId: owned, nations, countryEconomies, borderDispute: foreignTheater?.dispute ?? null,
+    ...(foreignTheater?.occupation ? { occupation: foreignTheater.occupation } : {}),
     constitutionalCrises, lastCivilWar: { countryId: id, demand, winner, endedDay: state.elapsedDays }, lastEconomy: null,
     tradeRoutes: state.tradeRoutes?.filter((route) => route.exporter !== rebel && route.importer !== rebel),
     diplomaticTies: state.diplomaticTies?.filter((row) => row.senior !== rebel && row.partner !== rebel),

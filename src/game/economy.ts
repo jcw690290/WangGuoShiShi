@@ -1,3 +1,4 @@
+import { occupationAt } from "./conflict-state.ts";
 import type { Scenario } from "../scenario/scenario.ts";
 import type { GameState } from "./engine.ts";
 import { elapsedTicks, TICKS_PER_WEEK } from "./time.ts";
@@ -448,12 +449,12 @@ function planArmamentOrders(state: GameState, holdings: Record<string, string[]>
       const duty = draftDutyTicks(route, closingTick);
       assign(owner, front, equipmentNeeds(deployed, Math.round(fieldReserves * duty / TICKS_PER_WEEK), true));
       assign(owner, rear, equipmentNeeds(rear.flatMap((id) => rosters[id]), 0, false));
-      assign(owner, ids.filter((id) => id !== state.occupation?.stateId),
+      assign(owner, ids.filter((id) => !occupationAt(state, id)),
         equipmentNeeds([], Math.round(homeReserves * duty / TICKS_PER_WEEK), false));
     } else {
       assign(owner, ids, equipmentNeeds(ids.flatMap((id) => rosters[id]), 0, false));
     }
-    const suppliers = ids.filter((id) => id !== state.occupation?.stateId);
+    const suppliers = ids.filter((id) => !occupationAt(state, id));
     for (const id of suppliers)
       for (const unit of rosters[id]) {
         if (unit.pendingEquipment) assign(owner, suppliers, refitOrder(unit));
@@ -504,13 +505,13 @@ function issueSupplies(
 function fleetPlans(state: GameState, holdings: Record<string, string[]>, scenario?: Scenario) {
   return Object.fromEntries(Object.entries(holdings).map(([owner, ids]) => {
     const { fleet, convoys, navy } = state.nations[owner];
-    const ports = ids.filter((id) => state.occupation?.stateId !== id && (scenario
+    const ports = ids.filter((id) => !occupationAt(state, id) && (scenario
       ? scenario.states[id].coastal : state.stateEconomies[id].buildings.shipGoods > 0 || state.societies[id].port > 0));
     const order = fleet.order;
-    const scheduledPort = order && ids.includes(order.stateId) && state.occupation?.stateId !== order.stateId ? order.stateId :
-      fleet.motorizationPort && ids.includes(fleet.motorizationPort) && state.occupation?.stateId !== fleet.motorizationPort
+    const scheduledPort = order && ids.includes(order.stateId) && !occupationAt(state, order.stateId) ? order.stateId :
+      fleet.motorizationPort && ids.includes(fleet.motorizationPort) && !occupationAt(state, fleet.motorizationPort)
         ? fleet.motorizationPort : null;
-    const navalPort = navy.order && ids.includes(navy.order.stateId) && state.occupation?.stateId !== navy.order.stateId
+    const navalPort = navy.order && ids.includes(navy.order.stateId) && !occupationAt(state, navy.order.stateId)
       ? navy.order.stateId : null;
     const navyFirst = navalPort !== null && Math.floor(state.elapsedDays / 7) % 2 === 1;
     const port = (navyFirst ? navalPort : scheduledPort ?? navalPort) ??
@@ -636,7 +637,7 @@ function projectSettlement(state: GameState, war?: WarPlan, closingTick?: number
     markets[id] = market;
     marketSites[id] = [];
     holdings[id] = [];
-    const canWork = (project: Project) => project.stateId !== state.occupation?.stateId &&
+    const canWork = (project: Project) => !occupationAt(state, project.stateId) &&
       (project.good !== "opium" || opiumCommerceAllowed(nation.laws));
     const government = constructionDuty(state.countryEconomies[id].queue, closingTick, canWork, remainingProjectPoints);
     const investment = constructionDuty(nation.privateQueue, closingTick, canWork, remainingProjectPoints);
@@ -720,7 +721,7 @@ function projectSettlement(state: GameState, war?: WarPlan, closingTick?: number
       const upkeep = equipmentNeeds(rosters[id], 0, route?.recruitmentStates.has(id) === true);
       demand.oil += upkeep.fuel;
       demand.rubber += upkeep.spares;
-      if (state.occupation?.stateId === id) continue;
+      if (!!occupationAt(state, id)) continue;
       for (const unit of rosters[id]) {
         if (!unit.pendingEquipment) continue;
         const refit = refitOrder(unit);
@@ -761,7 +762,7 @@ function projectSettlement(state: GameState, war?: WarPlan, closingTick?: number
     const constructionPay = publicSalary(constructionWage, nation.publicPay);
     const teachingPay = publicSalary(universityWage, nation.publicPay);
     const administrationPay = publicSalary(administrationWage, nation.publicPay);
-    const offices = state.occupation?.stateId === id ? 0 : site.bureaucracy;
+    const offices = !!occupationAt(state, id) ? 0 : site.bureaucracy;
     const operations = byInstitution((kind) => institutionOperation(local.population, site[kind],
       institutionLawLimit(nation.laws, kind), site.institutionDuty?.[kind], closingTick));
     const institutionLevels = institutions.reduce((sum, kind) => sum + operations[kind].equivalentLevel, 0);
@@ -770,7 +771,7 @@ function projectSettlement(state: GameState, war?: WarPlan, closingTick?: number
     officePlans.set(id, office);
     cashToCommit[owner] -= office.reserved;
     const integration = site.governance?.integration;
-    const administrationShare = integration && !front && state.occupation?.stateId !== id
+    const administrationShare = integration && !front && !occupationAt(state, id)
       ? (closingTick === undefined ? 1 : integrationWeekShare(integration.startedAtTick, closingTick)) : 0;
     const administrators = administrationShare > 0
       ? Math.min(unassignedAfterUniversity - office.staff,
@@ -786,7 +787,7 @@ function projectSettlement(state: GameState, war?: WarPlan, closingTick?: number
       cashToCommit[owner] -= cost - localReserved;
       return localReserved;
     }
-    const institutionCapacity = state.occupation?.stateId === id ? 0 : unassignedAfterUniversity - office.staff - administrators;
+    const institutionCapacity = !!occupationAt(state, id) ? 0 : unassignedAfterUniversity - office.staff - administrators;
     const services = byInstitution((kind) => {
       const plan = planInstitution(kind, operations[kind], institutionCapacity - institutionStaff,
         cashToCommit[owner] + localCash, ceilings, nation.publicPay);
@@ -804,7 +805,7 @@ function projectSettlement(state: GameState, war?: WarPlan, closingTick?: number
     opiumPlans.set(id, { ...opium, localReserved: reserveService(opium.medicalReserve) });
     let workers = labour - universityStaff - administrators - office.staff - institutionStaff,
       conscripts = 0;
-    const jobs = state.occupation?.stateId === id ? 0 : Math.min(workers, site.construction * constructionJobs);
+    const jobs = !!occupationAt(state, id) ? 0 : Math.min(workers, site.construction * constructionJobs);
     const need = constructionNeeds[owner];
     const duty = constructionSchedules[owner];
     const availableCrew = (ticks: number) => Math.floor(jobs * ticks / TICKS_PER_WEEK);
@@ -1035,12 +1036,12 @@ function projectSettlement(state: GameState, war?: WarPlan, closingTick?: number
       if (rearRegulars > 0)
         issueSupplies(m, contract, supplies, rear, rearRegulars, equipmentNeeds(rear.flatMap((id) => rosters[id]), 0, false), Infinity, 1);
       if (homeReserves > 0)
-        issueSupplies(m, contract, supplies, ids.filter((id) => id !== state.occupation?.stateId),
+        issueSupplies(m, contract, supplies, ids.filter((id) => !occupationAt(state, id)),
           homeReserves, equipmentNeeds([], homeReserves, false), Infinity, 1);
     } else {
       m.readiness = issueSupplies(m, contract, supplies, ids, m.regulars, equipmentNeeds(ids.flatMap((id) => rosters[id]), 0, false), Infinity, 1);
     }
-    const suppliers = ids.filter((id) => id !== state.occupation?.stateId);
+    const suppliers = ids.filter((id) => !occupationAt(state, id));
     for (const id of suppliers) {
       if (!rosters[id].some((unit) => unit.pendingEquipment)) continue;
       const readyDay = state.elapsedDays + trainingDays(state.nations[owner]);
@@ -1232,7 +1233,7 @@ function projectSettlement(state: GameState, war?: WarPlan, closingTick?: number
       });
       const officeCost = fillsByUse.paper.publicCost + fillsByUse.services.publicCost;
       s.office = deliverOffice(office, fillsByUse.paper.publicGoods, fillsByUse.services.publicGoods, officeCost);
-      const collection = id === state.occupation?.stateId ? 0 : effects.collection * (0.75 + 0.25 * s.office.coverage);
+      const collection = !!occupationAt(state, id) ? 0 : effects.collection * (0.75 + 0.25 * s.office.coverage);
       c.upkeep += officeCost;
       c.officeUpkeep! += s.office.wages + officeCost;
       let publicSpending = 0;
@@ -1292,7 +1293,7 @@ function projectSettlement(state: GameState, war?: WarPlan, closingTick?: number
         const capital = Math.min(available, targetCapital);
         const surplus = available - capital;
         const subsidyLimit = state.countryEconomies[owner].industrySubsidies?.[id];
-        if (subsidyLimit && state.occupation?.stateId !== id)
+        if (subsidyLimit && !occupationAt(state, id))
           s.industrySubsidy = { limit: subsidyLimit, shortfall: targetCapital - capital, paid: 0 };
         if (surplus > 0) {
           const totalPower = s.power?.delivered ?? 0;
@@ -1477,7 +1478,7 @@ export function constructionError(
   if (state.playerCountryId === null) return "请先选择国家";
   if (state.ownerByStateId[stateId] !== countryId || !Object.hasOwn(state.stateEconomies, stateId))
     return "只能在本国州内建设";
-  if (state.occupation?.stateId === stateId) return "该州处于军事占领中";
+  if (!!occupationAt(state, stateId)) return "该州处于军事占领中";
   const country = state.countryEconomies[countryId],
     nation = state.nations[countryId];
   if (good === "railway" && nation.knowledge["铁路"] !== 100) return "需要掌握铁路技术";
@@ -1572,7 +1573,7 @@ export function chooseRailway(scenario: Scenario, state: GameState, countryId: s
   const candidates = owned.flatMap((id) => {
     if (state.societies[id].railway > 0 || constructionError(scenario, state, countryId, id, "railway")) return [];
     const neighbors = scenario.states[id].neighbors.filter((neighbor) =>
-      state.ownerByStateId[neighbor] === countryId && state.occupation?.stateId !== neighbor);
+      state.ownerByStateId[neighbor] === countryId && !occupationAt(state, neighbor));
     if (neighbors.length === 0) return [];
     const connected = neighbors.some((neighbor) => state.societies[neighbor].railway > 0);
     const access = report.states[id].access;
@@ -1871,7 +1872,7 @@ export function settleEconomy(state: GameState, war?: WarPlan, fractionOfYear = 
       standardTarget: livingStandardTarget(s.consumptionIndex!, s.foodFulfillment!),
       taxBurden: Math.min(1, taxBurden[id]),
       training: s.universityStaff! / universityJobs + (s.education?.coverage ?? 0),
-      warPressure: state.occupation?.stateId === id ? 0.22 : war?.routes[owner]?.recruitmentStates.has(id) ? 0.09 : 0,
+      warPressure: !!occupationAt(state, id) ? 0.22 : war?.routes[owner]?.recruitmentStates.has(id) ? 0.09 : 0,
       relief,
     }, tuning);
     if (site.institutionDuty) delete societies[id].institutionDuty;
