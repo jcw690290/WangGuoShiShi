@@ -39,6 +39,7 @@ import { diplomaticTieSchema } from "./diplomatic-ties.ts";
 import { routeTransport, tradeDeliverySchema, tradeRouteKey, tradeRouteSchema } from "./trade.ts";
 import { fleetReportSchema, fleetSpending, maximumConvoyCapacity } from "./fleet.ts";
 import { navyReportSchema } from "./navy.ts";
+import { opiumReportSchema } from "./opium.ts";
 import { achievementKey, achievementRecordSchema } from "./achievements.ts";
 import type { AchievementRecord } from "./achievements.ts";
 const storeName = "saves";
@@ -285,6 +286,7 @@ const siteReport = z.object({
   householdConsumption: goodsNumbers.optional(),
   householdBasicPurchases: basicPurchasesSchema.optional(),
   householdBasicOrders: goodsNumbers.optional(),
+  opium: opiumReportSchema.optional(),
   householdSubstituteOrders: substituteOrdersSchema.optional(),
   subsistence: subsistenceReportSchema.optional(),
   householdExtras: extrasReportSchema.optional(),

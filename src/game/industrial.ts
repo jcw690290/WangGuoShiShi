@@ -31,13 +31,14 @@ export const inputs = {
   electricity: { coal: 40, tools: 2, steel: 2 },
   oil: { steel: 2, tools: 2, coal: 5 },
   rubber: { tools: 2 },
+  opium: { tools: 1 },
 } satisfies Record<Good, Readonly<Partial<ByIndustrialGood<number>>>>;
 const units = z.int().nonnegative();
 export const materialSchema = z.object({
   wood: units, iron: units, coal: units, tools: units, paper: units.default(0), services: units.default(0),
   food: units.default(0), fiber: units.default(0), dailyGoods: units.default(0), luxury: units.default(0),
   steel: units.default(0), arms: units.default(0), ammo: units.default(0), shipGoods: units.default(0), electricity: units.default(0),
-  oil: units.default(0), rubber: units.default(0),
+  oil: units.default(0), rubber: units.default(0), opium: units.default(0),
 });
 export const industrialAccountSchema = z.object({ capital: units, stocks: materialSchema });
 export type IndustrialAccount = z.infer<typeof industrialAccountSchema>;
@@ -56,7 +57,7 @@ const skilledPositions = {
   wood: [0, 0], iron: [0, 0], coal: [0, 0], tools: [20, 180], paper: [20, 180], services: [50, 150],
   food: [0, 0], fiber: [0, 0], dailyGoods: [10, 180], luxury: [20, 180],
   steel: [20, 180], arms: [30, 180], ammo: [20, 180], shipGoods: [50, 180], electricity: [50, 180],
-  oil: [30, 180], rubber: [0, 0],
+  oil: [30, 180], rubber: [0, 0], opium: [0, 0],
 } satisfies Record<Good, [number, number]>;
 type Method = {
   jobs: number; output: number; recipe: Partial<ByIndustrialGood<number>>;

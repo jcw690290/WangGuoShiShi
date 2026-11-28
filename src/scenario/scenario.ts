@@ -152,6 +152,8 @@ const textileExportDistricts = new Set(["Norrland", "Flanders", "Lancashire", "G
 // Resource capacity is a scenario balance assumption. Production has to be built.
 const oilDistricts = new Set(["Pennsylvania", "Texas", "Fars", "Khuzestan", "Elizavetpol", "East_Borneo", "South_Sumatra"]);
 const rubberDistricts = new Set(["Para", "Amazonas", "Ceylon", "Malaya", "West_Java", "North_Borneo", "South_Sumatra", "Congo"]);
+// Provisional market setup for the game's 1820 commodity balance.
+const opiumDistricts = new Set(["Bihar", "Assam", "Punjab", "Yunnan", "Sichuan", "Burma"]);
 export const atlas = z.record(z.string(), siteSchema).parse(
   Object.fromEntries(Object.entries(rawWorld).map(([id, state]) => {
     // The available 1820 map has terrain and population but no mineral survey.
@@ -176,7 +178,7 @@ export const atlas = z.record(z.string(), siteSchema).parse(
       ...state, name: (stateNames as Record<string, string>)[id],
       capacity: { ...convertCommercialLevels(state.capacity), wood, iron, coal, tools, paper, services, food, fiber,
         dailyGoods, luxury, steel: 3, arms: 3, ammo: 3, shipGoods: state.coastal ? 3 : 0, electricity: 4,
-        oil: oilDistricts.has(id) ? 6 : 0, rubber: rubberDistricts.has(id) ? 6 : 0 },
+        oil: oilDistricts.has(id) ? 6 : 0, rubber: rubberDistricts.has(id) ? 6 : 0, opium: opiumDistricts.has(id) ? 4 : 0 },
       buildings: {
         ...regionalBuildings,
         wood: owned ? Math.min(wood, Math.max(1, Math.ceil(state.population / 24_000))) : 0,
@@ -194,6 +196,7 @@ export const atlas = z.record(z.string(), siteSchema).parse(
         electricity: 0,
         oil: 0,
         rubber: 0,
+        opium: owned && (id === "Bihar" || id === "Yunnan") ? 1 : 0,
         arms: owned ? 1 : 0,
         ammo: owned ? 1 : 0,
       },

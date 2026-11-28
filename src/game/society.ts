@@ -19,6 +19,7 @@ import { economicLaws, isEconomicLaw, ownershipSchema } from "./ownership.ts";
 import { barracksTrainingSchema, battalionOrdersSchema } from "./military.ts";
 import { militaryHealthSchema } from "./military-health.ts";
 import { initialNavy, navySchema } from "./navy.ts";
+import { opiumBurdenSchema } from "./opium.ts";
 
 export const occupations = ["农民", "劳工", "工程师", "军官", "教士", "店主", "资本家", "贵族"] as const;
 export type Occupation = (typeof occupations)[number];
@@ -68,6 +69,7 @@ export const siteSocialSchema = z.object({
   culturalAffinity: z.record(z.string(), percent).optional(),
   governance: localGovernanceSchema.optional(),
   stability: stabilitySchema.optional(),
+  opiumBurden: opiumBurdenSchema.optional(),
   infrastructure: z.int().positive(),
   railway: z.int().nonnegative().default(0),
   port: z.int().nonnegative().default(0),

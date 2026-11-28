@@ -20,11 +20,11 @@ export const emptyStability = (): LocalStability => ({ unrest: 0, incident: null
 
 export function advanceUnrest(
   previous: LocalStability, date: Date, day: number,
-  facts: { radicals: number; living: number; excluded: number; food: number; war: number },
+  facts: { radicals: number; living: number; excluded: number; food: number; war: number; extraHardship?: number },
   policing = 0,
 ): LocalStability {
   const pressure: Record<Cause, number> = {
-    hardship: (1 - facts.food) * 45 + Math.max(0, 9 - facts.living) * 3,
+    hardship: (1 - facts.food) * 45 + Math.max(0, 9 - facts.living) * 3 + (facts.extraHardship ?? 0),
     exclusion: facts.excluded * 55,
     war: facts.war,
     politics: Math.max(0, facts.radicals - 45) * 0.40,

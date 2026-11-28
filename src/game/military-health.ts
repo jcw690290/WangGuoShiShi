@@ -3,6 +3,7 @@ import type { GameState } from "./engine.ts";
 import type { EconomyReport } from "./economy.ts";
 import { workForce } from "./labor.ts";
 import type { SiteSocial } from "./society.ts";
+import { opiumEffects } from "./opium.ts";
 
 export const replacementTrainingDays = 12 * 7;
 const recoveryWeeks = 8;
@@ -35,7 +36,8 @@ export function activeReplacements(site: SiteSocial, day: number) {
 
 export function fitWorkforce(site: SiteSocial, population: number, day: number) {
   const vacancies = activeReplacements(site, day).reduce((sum, group) => sum + group.regulars + group.conscripts, 0);
-  return Math.max(0, workForce(population + vacancies, site.laborParticipation) - vacancies - injuredPersonnel(site).people);
+  return Math.max(0, Math.floor(workForce(population + vacancies, site.laborParticipation) * opiumEffects(site.opiumBurden).workforce) -
+    vacancies - injuredPersonnel(site).people);
 }
 
 export function recoverMilitaryInjuries(state: GameState, report: EconomyReport): GameState {
