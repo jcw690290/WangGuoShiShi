@@ -28,7 +28,8 @@ import type { IndustrialAccount, IndustrialReport, IndustrySubsidyReport } from 
 import { deliverOffice, officeNeed, officeStaffCapacity, planOffice } from "./administration.ts";
 import type { OfficeReport } from "./administration.ts";
 import { byInstitution, byInstitutionGood, deliverInstitution, deliverInstitutionOrders,
-  deliverWelfareRelief, institutionGoods, institutionLawLimit, institutions, isInstitutionGood, planInstitution, planWelfareRelief } from "./institutions.ts";
+  deliverWelfareRelief, institutionGoods, institutionLawLimit, institutionOperation, institutions, isInstitutionGood,
+  planInstitution, planWelfareRelief } from "./institutions.ts";
 import type { Institution, InstitutionReport, WelfareRelief } from "./institutions.ts";
 import { harvestGood, isCrop, rentRateOf, reservedCropland, subsistenceHarvest } from "./subsistence.ts";
 import type { SubsistenceReport } from "./subsistence.ts";
@@ -723,7 +724,10 @@ function projectSettlement(state: GameState, war?: WarPlan, closingTick?: number
     const teachingPay = publicSalary(universityWage, nation.publicPay);
     const administrationPay = publicSalary(administrationWage, nation.publicPay);
     const offices = state.occupation?.stateId === id ? 0 : site.bureaucracy;
-    const office = planOffice(officeNeed(local.population, site, state.settings.difficulty, nation.laws),
+    const operations = byInstitution((kind) => institutionOperation(local.population, site[kind],
+      institutionLawLimit(nation.laws, kind), site.institutionDuty?.[kind], closingTick));
+    const institutionLevels = institutions.reduce((sum, kind) => sum + operations[kind].equivalentLevel, 0);
+    const office = planOffice(officeNeed(local.population, site, state.settings.difficulty, nation.laws, institutionLevels),
       offices, unassignedAfterUniversity, cashToCommit[owner], site.administrativeArchive === 1, administrationPay);
     officePlans.set(id, office);
     cashToCommit[owner] -= office.reserved;
@@ -746,14 +750,13 @@ function projectSettlement(state: GameState, war?: WarPlan, closingTick?: number
     }
     const institutionCapacity = state.occupation?.stateId === id ? 0 : unassignedAfterUniversity - office.staff - administrators;
     const services = byInstitution((kind) => {
-      const level = Math.min(site[kind], institutionLawLimit(nation.laws, kind));
-      const plan = planInstitution(kind, local.population, level, institutionCapacity - institutionStaff,
+      const plan = planInstitution(kind, operations[kind], institutionCapacity - institutionStaff,
         cashToCommit[owner] + localCash, ceilings, nation.publicPay);
       institutionStaff += plan.staff;
       return { ...plan, localReserved: reserveService(plan.reserved) };
     });
     institutionPlans.set(id, services);
-    if (site.welfare > 0) {
+    if (operations.welfare.equivalentLevel > 0) {
       const relief = planWelfareRelief(site.pops, services.welfare, cashToCommit[owner] + localCash);
       welfareReliefPlans.set(id, { ...relief, localReserved: reserveService(relief.reserved) });
     }
@@ -1172,7 +1175,7 @@ function projectSettlement(state: GameState, war?: WarPlan, closingTick?: number
       }
       for (const kind of institutions) {
         const plan = services[kind];
-        if (plan.level === 0) continue;
+        if (plan.equivalentLevel === 0) continue;
         const spending = institutionGoods.reduce((sum, good) => sum + fillsByUse[good].institutions[kind].paid, 0);
         const delivered = byInstitutionGood((good) => fillsByUse[good].institutions[kind].received);
         s[kind] = deliverInstitution(plan, delivered, spending, s.office.coverage);
@@ -1707,6 +1710,7 @@ export function settleEconomy(state: GameState, war?: WarPlan, fractionOfYear = 
       warPressure: state.occupation?.stateId === id ? 0.22 : war?.routes[owner]?.recruitmentStates.has(id) ? 0.09 : 0,
       relief,
     }, tuning);
+    if (site.institutionDuty) delete societies[id].institutionDuty;
     if (site.opiumBurden !== undefined || (habit && habit.consumed > 0))
       societies[id] = { ...societies[id], opiumBurden: advanceOpiumBurden(site.opiumBurden ?? 0, habit?.consumed ?? 0,
         local.population, s.opium?.recoverySupport ?? 0) };

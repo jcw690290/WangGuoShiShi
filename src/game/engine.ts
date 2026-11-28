@@ -22,7 +22,7 @@ import type { Occupation } from "./occupation.ts";
 import type { DiplomaticTie } from "./diplomatic-ties.ts";
 import { applyGovernanceCommand, chooseIntegration } from "./governance.ts";
 import type { GovernanceCommand } from "./governance.ts";
-import { DAY_MS, elapsedTicks, TICKS_PER_DAY } from "./time.ts";
+import { DAY_MS, elapsedTicks, TICKS_PER_DAY, TICKS_PER_WEEK } from "./time.ts";
 import { applyTradeCommand } from "./trade.ts";
 import type { TradeCommand, TradeRoute } from "./trade.ts";
 import { advanceAchievements } from "./achievements.ts";
@@ -31,7 +31,7 @@ import type { LocalUnrestCommand } from "./unrest.ts";
 import { industries, isGood } from "./industry.ts";
 import { effectiveConvoyCapacity, maxConvoyOrder, shipGoodsPerConvoy } from "./fleet.ts";
 import { institutionCommands, institutionLawKinds, institutionLawLimit, institutionLawOptions, institutionLevelError,
-  institutionLevelSchema, institutionNames, institutionStaffNeed, institutions } from "./institutions.ts";
+  institutionLevelSchema, institutionNames, institutionStaffNeed, institutions, recordInstitutionDuty } from "./institutions.ts";
 import type { Institution } from "./institutions.ts";
 import { laborStatus } from "./labor.ts";
 import { exciseGoodsSchema, taxBands, taxBandSchema, taxPolicy } from "./taxation.ts";
@@ -663,7 +663,13 @@ function applyCommand(
         const error = institutionLevelError(kind, level, nation.laws, nation.knowledge);
         if (error) throw new GameRuleError(error);
       }
-      return { ...state, societies: { ...state.societies, [stateId]: { ...site, [kind]: level } } };
+      const tick = elapsedTicks(state);
+      const updated = { ...site, [kind]: level };
+      if (tick % TICKS_PER_WEEK !== 0) updated.institutionDuty = {
+        ...site.institutionDuty,
+        [kind]: recordInstitutionDuty(site.institutionDuty?.[kind], site[kind], tick),
+      };
+      return { ...state, societies: { ...state.societies, [stateId]: updated } };
     }
     case "setGovernment":
     case "proposeLaw":

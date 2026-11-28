@@ -29,9 +29,9 @@ export const officeReportSchema = z.object({
 }).refine((report) => report.paper <= report.paperDemand && report.services <= report.serviceDemand);
 export type OfficeReport = z.infer<typeof officeReportSchema>;
 
-export function officeNeed(population: number, site: SiteSocial, difficulty: Difficulty, laws: readonly Law[]) {
+export function officeNeed(population: number, site: SiteSocial, difficulty: Difficulty, laws: readonly Law[],
+  institutionLevels = institutions.reduce((total, kind) => total + Math.min(site[kind], institutionLawLimit(laws, kind)), 0)) {
   const { integrated } = governanceOf(site);
-  const institutionLevels = institutions.reduce((total, kind) => total + Math.min(site[kind], institutionLawLimit(laws, kind)), 0);
   return population / 10_000 * (1 + 0.15 * institutionLevels + (integrated ? 0 : 0.30)) *
     localGovernanceRule(site, laws).administrationCost * administrationDemandMultiplier(difficulty);
 }
