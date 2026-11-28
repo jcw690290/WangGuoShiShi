@@ -11,6 +11,7 @@ import { initialIndustrialAccount, industrialAccountSchema, industrialReportSche
 import { officeReportSchema } from "./administration.ts";
 import { byInstitution, institutionLawDetails, institutionLawKinds, institutionLawOptions,
   institutionReportSchema, validInstitutionDuty, welfareReliefSchema } from "./institutions.ts";
+import { completedServiceWeeks } from "./population-services.ts";
 import { basicPurchasesSchema, extrasReportSchema, openingBasicBudget, substituteOrdersSchema } from "./households.ts";
 import { reservedCropland, subsistenceReportSchema } from "./subsistence.ts";
 import { migrateCommercialProduction } from "./commercialMigration.ts";
@@ -736,6 +737,11 @@ export function parseSave(baseScenario: Scenario, save: unknown): GameState {
     if (governance?.integration && governance.integration.startedAtTick > elapsedTicks(state)) invalid();
     const duty = state.societies[id].institutionDuty;
     if (duty && Object.values(duty).some((interval) => !validInstitutionDuty(interval, elapsedTicks(state)))) invalid();
+    if (site.populationServices) {
+      const weeks = completedServiceWeeks(state.elapsedDays, state.lastPopulation?.day ?? 0);
+      if (Object.values(site.populationServices).some((coverage) => coverage > weeks) ||
+          site.populationServices.treatment > site.populationServices.healthcare) invalid();
+    }
     if (stability && (Object.values(stability.lastIncident).some((day) => day > state.elapsedDays) ||
         (stability.lastResolved && Object.entries(stability.lastResolved).some(([cause, day]) =>
           day > state.elapsedDays || !(cause in stability.lastIncident))) ||

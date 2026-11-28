@@ -5,7 +5,8 @@ import { publicSalary } from "./public-pay.ts";
 import type { PublicPayBand } from "./public-pay.ts";
 import { TICKS_PER_WEEK } from "./time.ts";
 
-export const institutionLevelSchema = z.int().min(0).max(3);
+export const maxInstitutionLevel = 3;
+export const institutionLevelSchema = z.int().min(0).max(maxInstitutionLevel);
 export const institutions = ["healthcare", "policing", "welfare", "education"] as const;
 export type Institution = typeof institutions[number];
 export const institutionNames = { healthcare: "医疗机构", policing: "警务机构", welfare: "福利机构", education: "学校" };
@@ -105,7 +106,7 @@ export function institutionOperation(population: number, level: number, limit: n
 const materialSchema = z.object({ paper: count, tools: count, services: count });
 const institutionReport = z.object({
   level: institutionLevelSchema, needed: count, staff: count, wages: count, spending: count,
-  equivalentLevel: z.number().min(0).max(3).optional(),
+  equivalentLevel: z.number().min(0).max(maxInstitutionLevel).optional(),
   wageRate: count.positive().optional(),
   orders: materialSchema, delivered: materialSchema, coverage: z.number().min(0).max(1),
 });
@@ -140,7 +141,7 @@ export function deliverInstitution(plan: ReturnType<typeof planInstitution>, del
 ): InstitutionReport {
   const { level, equivalentLevel, needed, staff, orders, wages, wageRate } = plan;
   const supplied = staff > 0 ? Math.min(...institutionGoods.map((good) => delivered[good] / orders[good])) : 0;
-  const coverage = needed > 0 ? equivalentLevel / 3 * staff / needed * supplied * (0.75 + 0.25 * administration) : 0;
+  const coverage = needed > 0 ? equivalentLevel / maxInstitutionLevel * staff / needed * supplied * (0.75 + 0.25 * administration) : 0;
   return { level, needed, staff, orders, delivered, coverage, wages, spending,
     ...(equivalentLevel === level ? {} : { equivalentLevel }),
     ...(wageRate === undefined ? {} : { wageRate }) };
@@ -166,7 +167,7 @@ export function planWelfareRelief(pops: readonly Pop[], plan: ReturnType<typeof 
     if (occupation === "农民" || occupation === "劳工") eligible[occupation] += people;
   }
   const total = eligible.农民 + eligible.劳工;
-  const served = plan.needed > 0 ? plan.equivalentLevel / 3 * plan.staff / plan.needed : 0;
+  const served = plan.needed > 0 ? plan.equivalentLevel / maxInstitutionLevel * plan.staff / plan.needed : 0;
   const reserved = Math.min(cash, Math.floor(total * weeklyReliefPerPerson * served));
   return { eligible, total, reserved };
 }

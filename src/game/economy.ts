@@ -62,6 +62,7 @@ import type { ProductionTier } from "./production-methods.ts";
 import { industrialWage, productionHiringLimit } from "./private-labor.ts";
 import type { IndustryLabor } from "./private-labor.ts";
 import { militarySalary, officerSalary, publicSalary } from "./public-pay.ts";
+import { accumulatePopulationServices } from "./population-services.ts";
 
 export { marketOf } from "./market.ts";
 
@@ -1772,6 +1773,10 @@ export function settleEconomy(state: GameState, war?: WarPlan, fractionOfYear = 
       relief,
     }, tuning);
     if (site.institutionDuty) delete societies[id].institutionDuty;
+    if (state.elapsedDays > 0) {
+      const services = accumulatePopulationServices(site.populationServices, s, local.population);
+      if (services) societies[id].populationServices = services;
+    }
     if (site.opiumBurden !== undefined || (habit && habit.consumed > 0))
       societies[id] = { ...societies[id], opiumBurden: advanceOpiumBurden(site.opiumBurden ?? 0, habit?.consumed ?? 0,
         local.population, s.opium?.recoverySupport ?? 0) };

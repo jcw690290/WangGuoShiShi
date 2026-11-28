@@ -24,6 +24,7 @@ import { isOpiumLaw, opiumBurdenSchema, opiumLaws } from "./opium.ts";
 import { isMilitaryServiceLaw, militaryServiceLaws } from "./military-service.ts";
 import { productionProjects, productionTiers } from "./production-methods.ts";
 import { officersInService, publicPayBandSchema } from "./public-pay.ts";
+import { populationServicesSchema } from "./population-services.ts";
 
 const startingOccupations = ["农民", "劳工", "工程师", "军官", "教士", "店主", "资本家", "贵族"] as const;
 export const occupations = [...startingOccupations, "文职", "军人"] as const;
@@ -171,6 +172,7 @@ export const siteSocialSchema = z.object({
   welfare: institutionLevelSchema.default(0),
   education: institutionLevelSchema.default(0),
   institutionDuty: institutionDutySchema.optional(),
+  populationServices: populationServicesSchema.optional(),
   laborParticipation: z.number().min(0.30).max(0.60).default(0.40),
   construction: z.int().positive(),
   barracks: z.int().nonnegative(),
