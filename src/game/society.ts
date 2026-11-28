@@ -239,6 +239,7 @@ export const nationSchema = z.object({
   tradePartners: tradePartnersSchema.default(() => []),
   reform: z.enum(laws).nullable(),
   reformProgress: z.number().nonnegative(),
+  reformConsultation: z.object({ law: z.enum(laws), endsDay: z.int().positive() }).optional(),
   research: z.enum(techs).nullable(),
   knowledge: knowledgeSchema,
   diffusion: knowledgeSchema,
@@ -456,6 +457,10 @@ export function approval(nation: Nation, g: Group) {
 }
 export const reformWork = 2;
 export const baselineReformWeeks = 26;
+export const reformConsultationDays = 28;
+export function reformStage(work: number): "organization" | "debate" | "implementation" {
+  return work < reformWork / 3 ? "organization" : work < 2 * reformWork / 3 ? "debate" : "implementation";
+}
 export function governmentLegitimacy(nation: Nation, power: Record<Group, number>) {
   const government = nation.government;
   const conflict =
@@ -473,14 +478,21 @@ export function governmentLegitimacy(nation: Nation, power: Record<Group, number
     0.45 * institutionalSupport + 0.35 * governmentPower + 0.20 * mandate - 0.30 * conflict,
   )));
 }
-export function reformConditions(nation: Nation, power: Record<Group, number>, law: Law, resistance = 0) {
+export function reformConditions(nation: Nation, power: Record<Group, number>, law: Law, unrest = 0, elapsedDay = 0) {
   const government = nation.government;
   const legitimacy = governmentLegitimacy(nation, power);
   const support = Math.min(100, supporters[law].reduce((n, g) => n + power[g], 0) * civicPolicy(nation.laws).organization);
   const backed = government.some((g) => supporters[law].includes(g)) || support >= 25;
-  const pace = Math.max(0.25, 1 + (legitimacy - 50) / 50 + (support - 50) / 50 - resistance / 100);
+  const stage = reformStage(nation.reform === law ? nation.reformProgress : 0);
+  const consultation = nation.reformConsultation?.law === law ? nation.reformConsultation : undefined;
+  const hearing = consultation ? Math.max(0, consultation.endsDay - elapsedDay) : 0;
+  const negotiated = consultation !== undefined && hearing === 0;
+  const resistance = Math.max(0, Math.min(100, unrest + Math.max(0, 55 - support) * 0.65) - (negotiated ? 25 : 0));
+  const disputed = stage === "debate" && resistance >= 35;
+  const pace = Math.max(0.25, 1 + (legitimacy - 50) / 50 + (support - 50) / 50 - resistance / 100 - (disputed ? 0.20 : 0));
   const weeks = Math.max(8, Math.min(104, Math.round(baselineReformWeeks / pace)));
-  return { legitimacy, support, backed, weeks, resistance, speed: backed && legitimacy >= 25 ? reformWork / weeks : 0 };
+  return { legitimacy, support, backed, weeks, resistance, disputed, stage, hearing, negotiated,
+    speed: backed && legitimacy >= 25 && hearing === 0 ? reformWork / weeks : 0 };
 }
 export function evolvePops(
   site: SiteSocial,

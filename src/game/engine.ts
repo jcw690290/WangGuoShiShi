@@ -405,6 +405,10 @@ export function advanceTick(
           countryId: id,
           tech: pending[(result.rng + hash(id)) % pending.length],
         });
+      if (n.reform && result.elapsedDays % 28 === 0) {
+        const compromise = { type: "compromiseReform", countryId: id } as const;
+        if (!politicsError(result, compromise)) result = applyCommand(scenario, result, compromise);
+      }
       if (!n.reform) {
         const proposal = result.elapsedDays % 28 === 0
           ? chooseMilitaryServiceLaw(result, settled.lastEconomy, id) ?? chooseOpiumLaw(result, id) ?? chooseLaborLaw(result, id) ??
@@ -645,6 +649,8 @@ function applyCommand(
     }
     case "setGovernment":
     case "proposeLaw":
+    case "compromiseReform":
+    case "withdrawReform":
     case "startResearch":
       return applyPolitics(state, cmd);
     case "offerConstitutionalCompromise":

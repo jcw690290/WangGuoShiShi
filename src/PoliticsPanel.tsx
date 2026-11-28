@@ -31,6 +31,7 @@ import { isMilitaryServiceLaw, militaryServiceLaw, militaryServiceLaws } from ".
 const otherLaws = laws.filter((law) => !institutionLawDetails(law) && !laborLawCategory(law) &&
   !(taxLaws as readonly Law[]).includes(law) && !isTradeLaw(law) && !civicLawCategory(law) &&
   !constitutionLawCategory(law) && !isGovernanceLaw(law) && !isEconomicLaw(law) && !isMilitaryServiceLaw(law));
+const reformStageNames = { organization: "组织支持", debate: "争论修正", implementation: "实施" };
 interface Props {
   scenario: Scenario;
   game: GameState;
@@ -47,9 +48,8 @@ export function PoliticsPanel({ scenario, game, playerId: id, year, busy, send }
   const attitudes = politicalAttitudes(people);
   const [selected, setLaw] = useState<Law>("工资税改革");
   const law = n.reform ?? selected,
-    conditions = reformConditions(n, power, law, attitudes.radicals);
+    conditions = reformConditions(n, power, law, attitudes.radicals, game.elapsedDays);
   const progress = n.reformProgress / reformWork;
-  const stage = progress < 1 / 3 ? "组织支持" : progress < 2 / 3 ? "争论修正" : "实施";
   const literacy = literacyOf(people);
   const worldReport = game.lastEconomy;
   const universityStaff = worldReport ? Object.entries(worldReport.states).reduce((sum, [siteId, snapshot]) =>
@@ -58,6 +58,8 @@ export function PoliticsPanel({ scenario, game, playerId: id, year, busy, send }
   const { innovation, cap } = researchCapacity(universityStaff, literacy);
   const proposal = { type: "proposeLaw", countryId: id, law } as const;
   const reason = politicsError(game, proposal);
+  const compromise = { type: "compromiseReform", countryId: id } as const;
+  const compromiseError = n.reform && politicsError(game, compromise);
   const effectiveLaws = n.laws.filter((law) => !civicLawCategory(law) && !constitutionLawCategory(law) && !isGovernanceLaw(law) &&
     !isEconomicLaw(law) && !isMilitaryServiceLaw(law));
   const authority = authorityBudget(game, id);
@@ -173,13 +175,25 @@ export function PoliticsPanel({ scenario, game, playerId: id, year, busy, send }
             </select>
             <p>{lawEffect[law]}</p>
             <p>
-              运动支持 {conditions.support.toFixed(1)}% · 激进人口 {conditions.resistance.toFixed(1)}%
+              运动支持 {conditions.support.toFixed(1)}% · 立法阻力 {conditions.resistance.toFixed(1)} / 100
               {" · "}{conditions.speed > 0 ? `按当前条件需约 ${Math.ceil((reformWork - n.reformProgress) / conditions.speed)} 周` : "审议暂停"}
             </p>
             {n.reform ? (
-              <p role="status">
-                {n.reform} · {stage} · {Math.floor(progress * 100)}%
-              </p>
+              <>
+                <p role="status">
+                  {n.reform} · {reformStageNames[conditions.stage]} · {Math.floor(progress * 100)}%
+                  {conditions.disputed && !conditions.hearing && " · 争论拖慢进度"}
+                  {conditions.hearing > 0 && ` · 协商还剩 ${conditions.hearing} 天`}
+                  {conditions.negotiated && " · 协商已降低阻力"}
+                </p>
+                <div className="diplomacy-actions">
+                  {conditions.disputed && !n.reformConsultation &&
+                    <button type="button" disabled={busy || !!compromiseError} title={compromiseError || undefined}
+                      onClick={() => send(compromise)}>延长审议并协商</button>}
+                  <button type="button" disabled={busy}
+                    onClick={() => send({ type: "withdrawReform", countryId: id })}>撤回议案</button>
+                </div>
+              </>
             ) : (
               <>
                 <button className="build" disabled={busy || !!reason} onClick={() => send(proposal)}>

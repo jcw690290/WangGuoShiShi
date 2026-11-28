@@ -87,6 +87,7 @@ export function applyConstitutionalCompromise(state: GameState, countryId: strin
     countryEconomies: { ...state.countryEconomies, [countryId]: { ...economy, treasury: economy.treasury - compromiseCost } },
     nations: { ...state.nations, [countryId]: {
       ...nation, reform: demand, reformProgress: nation.reform === demand ? nation.reformProgress : 0,
+      reformConsultation: nation.reform === demand ? nation.reformConsultation : undefined,
     } },
   };
 }

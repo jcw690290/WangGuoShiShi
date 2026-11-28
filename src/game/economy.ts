@@ -4,7 +4,7 @@ import { elapsedTicks } from "./time.ts";
 import type { WarPlan } from "./diplomacy.ts";
 import { byGood, byIndustrialGood, commercialLevels, goods, industries, isGood, isIndustrialGood, isLocalGood, legacyCommercialCost } from "./industry.ts";
 import type { ByGood, Good, IndustrialGood } from "./industry.ts";
-import { evolvePops, facilityTypes, approval, tributeRate } from "./society.ts";
+import { evolvePops, facilityTypes, approval, governmentLegitimacy, influence, tributeRate } from "./society.ts";
 import type { Nation, SiteSocial } from "./society.ts";
 import { getEconomicRules } from "./politics.ts";
 import { ruleTuning } from "./settings.ts";
@@ -1565,6 +1565,7 @@ export function settleEconomy(state: GameState, war?: WarPlan, fractionOfYear = 
     nations[id] = { ...nations[id], ...fleetClosing[id], morale,
       investment: nations[id].investment - constructionSpending(construction.private) + c.investment };
   }
+  const integrationEfficiency = new Map<string, number>();
   for (const [id, s] of Object.entries(production.states)) {
     const owner = state.ownerByStateId[id];
     s.universityStaff! *= campusFunding[owner];
@@ -1607,9 +1608,17 @@ export function settleEconomy(state: GameState, war?: WarPlan, fractionOfYear = 
     const governance = site.governance;
     if (governance?.integration) {
       const { integrationCost } = localGovernanceRule(site, nations[owner].laws);
+      let efficiency = integrationEfficiency.get(owner);
+      if (efficiency === undefined) {
+        const locals = Object.entries(state.ownerByStateId)
+          .filter(([, country]) => country === owner).map(([id]) => state.societies[id]);
+        const legitimacy = governmentLegitimacy(nations[owner], influence(locals, owner, nations[owner]));
+        efficiency = Math.min(1, 0.8 + legitimacy / 250);
+        integrationEfficiency.set(owner, efficiency);
+      }
       societies[id] = { ...site, governance: advanceIntegration(
         governance, s.administrationStaff!, integrationStaffNeeded(stateEconomies[id].population, state.settings.difficulty, integrationCost),
-        s.access * (1 - (site.stability?.unrest ?? 0) / 250) * (0.75 + 0.25 * s.office!.coverage), fractionOfYear,
+        s.access * (1 - (site.stability?.unrest ?? 0) / 250) * (0.75 + 0.25 * s.office!.coverage), fractionOfYear, efficiency,
       ) };
     }
     societies[id] = evolvePops(societies[id], owner, nations[owner], {

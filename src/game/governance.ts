@@ -112,10 +112,11 @@ export function integrationWeekShare(startedAtTick: number, closingTick: number)
 
 export function advanceIntegration(
   current: LocalGovernance, paidStaff: number, requiredStaff: number, access: number, fractionOfYear: number,
+  politicalEfficiency = 1,
 ): LocalGovernance {
   const { integration } = current;
   if (integration === null || paidStaff === 0) return current;
-  const pace = Math.min(1, paidStaff / requiredStaff) * (0.75 + 0.5 * access);
+  const pace = Math.min(1, paidStaff / requiredStaff) * (0.75 + 0.5 * access) * politicalEfficiency;
   const months = integration.months + 12 * fractionOfYear * pace;
   return months >= integrationDuration
     ? { ...current, integration: null, integrated: true }

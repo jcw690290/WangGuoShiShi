@@ -115,6 +115,7 @@ function startCivilWar(scenario: Scenario, state: GameState, id: string, demand:
       government: reformSide ? supporters[demand].filter((group) => !nation.government.includes(group)) : nation.government,
       reform: nation.reform === demand ? null : nation.reform,
       reformProgress: nation.reform === demand ? 0 : nation.reformProgress,
+      reformConsultation: nation.reform === demand ? undefined : nation.reformConsultation,
       ...(reformSide && {
         interests: [], tradePartners: [], overlord: null, marketLeader: null, subjectType: null, prestige: 0, infamy: 0,
       }),
@@ -205,6 +206,7 @@ export function endCivilWar(state: GameState, winner: CivilSide): GameState {
     knowledge, research: policy.research && knowledge[policy.research] < 100 ? policy.research : null,
     laws: oppositionWon ? [...policy.laws.filter((law) => constitutionLawCategory(law) !== category), demand] : policy.laws,
     reform: oppositionWon ? null : policy.reform, reformProgress: oppositionWon ? 0 : policy.reformProgress,
+    reformConsultation: oppositionWon ? undefined : policy.reformConsultation,
     interests: government.interests, marketLeader: government.marketLeader, tradePartners: government.tradePartners,
     overlord: government.overlord, subjectType: government.subjectType, prestige: government.prestige, infamy: government.infamy,
     privateQueue: [...government.privateQueue, ...opposition.privateQueue], investment: government.investment + opposition.investment,
