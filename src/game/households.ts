@@ -2,6 +2,8 @@ import { z } from "zod";
 import { industries } from "./industry.ts";
 import type { ByGood, Good } from "./industry.ts";
 import type { Pop } from "./society.ts";
+import { emptyHouseholdIncome } from "./taxation.ts";
+import type { HouseholdIncome } from "./taxation.ts";
 
 export const startingLivingStandard = 10;
 
@@ -96,11 +98,11 @@ export function extrasOrders(people: number, budget: number, surcharge: (good: E
   });
 }
 
-type IncomeOccupation = "农民" | "劳工" | "工程师" | "资本家" | "贵族";
+type IncomeOccupation = keyof HouseholdIncome;
 export function allocateHouseholdIncome(
-  pops: readonly Pop[], basicCost: number, income: Record<IncomeOccupation, number>, ruralEssentials: number,
+  pops: readonly Pop[], basicCost: number, income: HouseholdIncome, ruralEssentials: number,
 ) {
-  const people: Record<IncomeOccupation, number> = { 农民: 0, 劳工: 0, 工程师: 0, 资本家: 0, 贵族: 0 };
+  const people = emptyHouseholdIncome();
   for (const { occupation, people: size } of pops) if (Object.hasOwn(people, occupation))
     people[occupation as IncomeOccupation] += size;
   let basic = 0, discretionary = 0;

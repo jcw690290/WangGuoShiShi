@@ -123,11 +123,15 @@ export function productionMethod(good: ProductiveBuilding, tier: ProductionTier)
 
 export const electricityUse = (method: Method, workers: number) => Math.ceil(workers * method.power / method.jobs);
 
+export const serviceClerks = (employed: number) => Math.ceil(employed * skilledPositions.services[0] / 100);
+export const serviceClerkWage = skilledPositions.services[1];
+
 export function industrialPayroll(good: ProductiveBuilding, employed: number, method = industryMethod(good), ordinaryWage = baseOrdinaryWage) {
   const [perHundred, wage] = method.skill;
   const skilled = Math.ceil(employed * perHundred / 100);
-  const skilledWages = skilled * wage;
-  return { skilled, skilledWages, total: (employed - skilled) * ordinaryWage + skilledWages };
+  const clerks = good === "services" ? serviceClerks(employed) : 0;
+  const skilledWages = (skilled - clerks) * wage;
+  return { skilled, skilledWages, total: (employed - skilled) * ordinaryWage + skilledWages + clerks * serviceClerkWage };
 }
 
 export function trainedLabourCapacity(good: ProductiveBuilding, trained: number, method = industryMethod(good)) {

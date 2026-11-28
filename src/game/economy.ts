@@ -5,7 +5,7 @@ import type { WarPlan } from "./diplomacy.ts";
 import { byGood, byIndustrialGood, byProductiveBuilding, commercialLevels, goods, industries, isGood, isIndustrialGood,
   isLocalGood, isProductiveBuilding, legacyCommercialCost, outputGood, productiveBuildings, productiveDefinitions } from "./industry.ts";
 import type { ByGood, ByProductiveBuilding, Good, IndustrialGood, ProductiveBuilding } from "./industry.ts";
-import { evolvePops, facilityNames, projectTypes, approval, governmentLegitimacy, influence, tributeRate } from "./society.ts";
+import { assignClerkHouseholds, evolvePops, facilityNames, projectTypes, approval, governmentLegitimacy, influence, tributeRate } from "./society.ts";
 import type { Nation, SiteSocial } from "./society.ts";
 import { getEconomicRules } from "./politics.ts";
 import { ruleTuning } from "./settings.ts";
@@ -23,7 +23,7 @@ import type { TradeDelivery } from "./trade.ts";
 import { unrestEffects } from "./unrest.ts";
 import { affordableIndustryWorkers, electricityUse, electricIndustries, electricRetrofits, emptyIndustrialAccount,
   fundedRestock, initialIndustrialAccount, industrialPayroll, industrialRetrofits, industryMethodAt, isIndustrialRetrofit, materialWorkers, operateIndustry,
-  productionTierAt,
+  productionTierAt, serviceClerks, serviceClerkWage,
   trainedLabourCapacity, workingCapitalPerLevel, workingCapitalTarget } from "./industrial.ts";
 import type { IndustrialAccount, IndustrialReport, IndustrySubsidyReport } from "./industrial.ts";
 import { deliverOffice, officeNeed, officeStaffCapacity, planOffice } from "./administration.ts";
@@ -293,11 +293,13 @@ const fulfillment = (bought: number, demand: number) => demand ? bought / demand
 
 function privateHouseholdIncome(site: SiteReport, earnings: OwnershipAmounts): HouseholdIncome {
   const specialist = site.industrial?.skilledWages ?? 0;
+  const clerical = serviceClerks(site.industries.services.employed) * serviceClerkWage;
   const wages = goods.reduce((sum, good) => sum + site.industries[good].wages, site.freightWages ?? 0);
   return {
     农民: site.subsistence?.householdIncome ?? 0,
-    劳工: wages - specialist + site.construction!.private.wages + earnings.COOP,
+    劳工: wages - specialist - clerical + site.construction!.private.wages + earnings.COOP,
     工程师: specialist,
+    文职: clerical,
     资本家: earnings.PRIVATE,
     贵族: earnings.LAND + (site.subsistence?.landRent ?? 0),
   };
@@ -358,7 +360,7 @@ export function militaryProcurementCost(spending: MilitarySupply["procurement"])
 
 function availableEngineers(site: SiteSocial, owner: string, nation: GameState["nations"][string]) {
   const policy = civicPolicy(nation.laws);
-  return site.pops.filter((p) => p.occupation === "工程师")
+  return site.pops.filter((p) => p.occupation === "工程师" || p.occupation === "文职")
     .reduce((sum, p) => sum + p.people * (0.65 + 0.35 * civicStanding(p, owner, site, policy)), 0);
 }
 
@@ -572,7 +574,7 @@ export function projectEconomy(state: GameState, war?: WarPlan, scenario?: Scena
 function projectSettlement(state: GameState, war?: WarPlan, closingTick?: number, scenario?: Scenario) {
   const report: EconomyReport = { states: {}, countries: {} };
   const taxPolicies = Object.fromEntries(Object.entries(state.nations).map(([id, nation]) => [id, taxPolicy(nation)]));
-  const privateIncomes: Record<string, HouseholdIncome> = {};
+  const netHouseholdIncome: Record<string, HouseholdIncome> = {};
   const taxBurden: Record<string, number> = {};
   const markets: Record<string, ByGood<Market>> = {};
   const holdings: Record<string, string[]> = {};
@@ -1345,6 +1347,7 @@ function projectSettlement(state: GameState, war?: WarPlan, closingTick?: number
       s.consumptionIndex = acquiredValue / (state.stateEconomies[id].population * basketBaseValue);
       c.investment += s.investment;
       const gross = privateHouseholdIncome(s, earnings);
+      gross.文职 += s.office.wages;
       const paidTax = settleIncomeTax(gross, policy, collection);
       const incomeTax = Object.values(paidTax).reduce((sum, value) => sum + value, 0);
       const householdGross = Object.values(gross).reduce((sum, value) => sum + value, 0);
@@ -1356,12 +1359,14 @@ function projectSettlement(state: GameState, war?: WarPlan, closingTick?: number
       if (centralTax < 100 || localTreasury > 0) s.localFiscal = {
         balance: localTreasury + retainedTax - publicSpending, retainedTax, publicSpending,
       };
-      privateIncomes[id] = {
+      netHouseholdIncome[id] = {
         农民: gross.农民 - paidTax.农民, 劳工: gross.劳工 - paidTax.劳工, 工程师: gross.工程师 - paidTax.工程师,
+        文职: gross.文职 - paidTax.文职,
         资本家: gross.资本家 - paidTax.资本家, 贵族: gross.贵族 - paidTax.贵族,
       };
       if (policy.system === "工资税改革") c.wageTaxGain += Math.floor(Math.max(0,
-        paidTax.劳工 + paidTax.工程师 - Math.floor((gross.劳工 + gross.工程师) * 0.1 * collection * policy.multiplier)) * centralTax / 100);
+        paidTax.劳工 + paidTax.工程师 + paidTax.文职 -
+        Math.floor((gross.劳工 + gross.工程师 + gross.文职) * 0.1 * collection * policy.multiplier)) * centralTax / 100);
       capacity += s.construction.public.points + s.construction.private.points;
     }
     c.capacity = Math.floor(capacity * 100) / 100;
@@ -1392,7 +1397,7 @@ function projectSettlement(state: GameState, war?: WarPlan, closingTick?: number
     };
     return [owner, { ...closing, navy: naval.navy }];
   }));
-  return { report, referenceQuotes, localQuotes, industrialClosing, constructionClosing, fleetClosing, privateIncomes, taxBurden, completedRefits };
+  return { report, referenceQuotes, localQuotes, industrialClosing, constructionClosing, fleetClosing, netHouseholdIncome, taxBurden, completedRefits };
 }
 export function buildingCapacity(site: Scenario["states"][string], local: StateEconomy, good: ProductiveBuilding) {
   if (good === "cashCrops") return Math.floor((local.cropland ?? 0) / productiveDefinitions.cashCrops.jobs);
@@ -1605,7 +1610,7 @@ export function settleEconomy(state: GameState, war?: WarPlan, fractionOfYear = 
     nations = { ...state.nations };
   // A project completed from this week's deliveries starts operating next week.
   const { report: production, referenceQuotes, localQuotes, industrialClosing, constructionClosing, fleetClosing,
-    privateIncomes, taxBurden, completedRefits } = projectSettlement(
+    netHouseholdIncome, taxBurden, completedRefits } = projectSettlement(
     state, war, closingTick, scenario,
   );
   const budgets = weeklyBudgets(nations, production);
@@ -1677,12 +1682,15 @@ export function settleEconomy(state: GameState, war?: WarPlan, fractionOfYear = 
     const owner = state.ownerByStateId[id];
     s.universityStaff! *= campusFunding[owner];
     s.administrationStaff! *= administrationFunding[owner];
-    const site = societies[id];
-    const earned = privateIncomes[id];
+    const privateClerks = serviceClerks(s.industries.services.employed);
+    const site = assignClerkHouseholds(societies[id], s.office!.staff + privateClerks);
+    societies[id] = site;
+    const earned = netHouseholdIncome[id];
     const band = nations[owner].publicPay;
     const publicSpecialistWages = s.universityStaff! * publicSalary(universityWage, band) +
       s.administrationStaff! * publicSalary(administrationWage, band) +
-      s.office!.wages + institutions.reduce((sum, kind) => sum + (s[kind]?.wages ?? 0), 0);
+      institutions.reduce((sum, kind) => sum + (s[kind]?.wages ?? 0), 0);
+    const clericalWages = earned.文职;
     const construction = s.construction!;
     const standby = s.constructionMaintenance!;
     const publicConstructionWages = construction.public.wages + standby.wages;
@@ -1703,6 +1711,7 @@ export function settleEconomy(state: GameState, war?: WarPlan, fractionOfYear = 
       农民: earned.农民 + (relief?.农民 ?? 0),
       劳工: earned.劳工 + armyWages + publicConstructionWages + (relief?.劳工 ?? 0),
       工程师: earned.工程师 + publicSpecialistWages,
+      文职: clericalWages,
     }, retainedValue);
     const basic = s.householdBasicPurchases!;
     const habit = s.opium?.nonMedical;
@@ -1741,9 +1750,10 @@ export function settleEconomy(state: GameState, war?: WarPlan, fractionOfYear = 
       grainPrice: s.localPrices.grain,
       laborWages: earned.劳工 + armyWages + publicConstructionWages,
       specialistWages: earned.工程师 + publicSpecialistWages,
+      clerkWages: clericalWages,
       ruralResources: retainedValue + earned.农民,
       capitalistIncome: earned.资本家, landownerIncome: earned.贵族,
-      businessJobs: jobs,
+      businessJobs: jobs - privateClerks,
       standardTarget: livingStandardTarget(s.consumptionIndex!, s.foodFulfillment!),
       taxBurden: Math.min(1, taxBurden[id]),
       warPressure: state.occupation?.stateId === id ? 0.22 : war?.routes[owner]?.recruitmentStates.has(id) ? 0.09 : 0,
