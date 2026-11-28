@@ -18,6 +18,8 @@ import { CLAIM_COST, claimError, settlementAt, settlementContested, territorialC
 import { StateMap } from "./map/StateMap.tsx";
 import { capitals } from "./map/capitals.ts";
 import { countryColor } from "./map/cartography.ts";
+import { mapLayerCells, mapLayerLegends, mapLayerNames } from "./map/layers.ts";
+import type { MapLayer } from "./map/layers.ts";
 import type { StateGeometry } from "./map/geometry.ts";
 import { RoomDialog, useOnlineRoom } from "./online/RoomDialog.tsx";
 import type { Speed } from "./online/protocol.ts";
@@ -46,7 +48,7 @@ export function App({ scenario: baseScenario, geometry, initialSaves, initialSav
     [selected, setSelected] = useState<string | null>(null);
   const [screen, setScreen] = useState<"menu" | "new" | "tutorial" | "play">("menu");
   const [galleryOpen, setGalleryOpen] = useState(false);
-  const [mapLayer, setMapLayer] = useState<"owner" | "controller">("owner");
+  const [mapLayer, setMapLayer] = useState<MapLayer>("owner");
   const [governmentOpen, setGovernmentOpen] = useState(false);
   const [endYear, setEndYear] = useState(String(defaultEndYear));
   const [busy, setBusy] = useState(false),
@@ -122,6 +124,11 @@ export function App({ scenario: baseScenario, geometry, initialSaves, initialSav
   const mapOwners = useMemo(() => mapLayer === "controller" && occupation
     ? { ...game.ownerByStateId, [occupation.stateId]: occupation.controllerId }
     : game.ownerByStateId, [mapLayer, game.ownerByStateId, occupation]);
+  const supplyDay = mapLayer === "supply" ? game.elapsedDays : null;
+  const layerCells = useMemo(() => player ? mapLayerCells(scenario, game, mapLayer) : undefined,
+    [player, scenario, mapLayer, game.societies, game.stateEconomies, game.ownerByStateId, game.lastEconomy,
+      game.borderDispute, game.nations, game.settings, occupation, supplyDay]);
+  const layerLegend = mapLayerLegends[mapLayer];
   const report = useMemo(
     () => governmentOpen ? game.lastEconomy ?? projectEconomy(game, planWar(scenario, game), scenario) : null,
     [governmentOpen, game.lastEconomy, game.ownerByStateId, game.countryEconomies, game.stateEconomies,
@@ -396,12 +403,24 @@ export function App({ scenario: baseScenario, geometry, initialSaves, initialSav
         </div>
       </header>
       <main className="map-workspace">
-        <StateMap scenario={scenario} geometry={geometry} game={connection || player ? game : opening}
+        <StateMap scenario={baseScenario} geometry={geometry} game={connection || player ? game : opening}
           owners={connection || player ? mapOwners : opening.ownerByStateId}
+          cells={layerCells}
           selectedId={player ? selected : null} preview={picker ? choice : null} onSelect={setSelected} />
-        {player && <div className="map-layers" role="group" aria-label="地图图层">
-          <button className="menu-button" aria-pressed={mapLayer === "owner"} onClick={() => setMapLayer("owner")}>正式归属</button>
-          <button className="menu-button" aria-pressed={mapLayer === "controller"} onClick={() => setMapLayer("controller")}>实际控制</button>
+        {player && <div className="map-layers">
+          <label className="sr-only" htmlFor="map-layer">地图图层</label>
+          <select id="map-layer" value={mapLayer} onChange={(event) => setMapLayer(event.target.value as MapLayer)}>
+            {Object.entries(mapLayerNames).map(([id, name]) => <option key={id} value={id}>{name}</option>)}
+          </select>
+          {layerLegend && <details key={mapLayer} className="map-legend">
+            <summary>图例</summary>
+            <div className="map-legend-panel">
+              {mapLayer === "culture" && <p>按人口最多的文化着色，有对应国家的文化沿用该国颜色。</p>}
+              <ul>{layerLegend.map(({ color, text }) => <li key={text}>
+                <i aria-hidden="true" className="swatch" style={{ background: color }} />{text}
+              </li>)}</ul>
+            </div>
+          </details>}
         </div>}
         {!connection && screen === "menu" && <StartMenu saveCount={saves?.length ?? null} busy={busy}
           hasCurrent={soloGame.playerCountryId !== null} newGame={launch} resume={() => void slot("recent")}
@@ -435,8 +454,10 @@ export function App({ scenario: baseScenario, geometry, initialSaves, initialSav
         {player && (!connection || onlinePlaying) && selected && <button className="site-chip" onClick={() => {
           if (owner === player) markGuide(2);
           openGovernment(0);
-        }}>{atlas[selected].name} · {owner ? countryNames[owner] : "无主领土"}
-          {actualController && `（${countryNames[actualController]}控制）`} ›</button>}
+        }}>{atlas[selected].name} · {owner ? countryNames[owner] : unownedLabels[selectedTerritory!]}
+          {actualController && `（${countryNames[actualController]}控制）`} ›
+          {layerCells && <small>{layerCells[selected].text}</small>}
+        </button>}
         {!connection && screen === "play" && game.campaign?.tutorialEnabled
           && !finished && <TutorialGuide campaign={game.campaign} skip={() => setGame((state) => ({
             ...state, campaign: { ...state.campaign!, guideSkipped: true },

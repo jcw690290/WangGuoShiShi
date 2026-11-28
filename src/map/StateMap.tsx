@@ -2,9 +2,11 @@ import { Application, Container, Graphics, Text } from "pixi.js";
 import { useEffect, useRef, useState } from "react";
 import type { GameState } from "../game/engine.ts";
 import { countryDisplayName } from "../game/constitution.ts";
+import { scenarioWithCivilWar } from "../game/civil-war.ts";
 import { atlas } from "../scenario/scenario.ts";
 import type { Scenario } from "../scenario/scenario.ts";
 import type { StateGeometry } from "./geometry.ts";
+import type { MapLayerCell } from "./layers.ts";
 import {
   countryLabels,
   mapEdges,
@@ -34,6 +36,7 @@ interface Props {
   geometry: StateGeometry;
   game: GameState;
   owners: GameState["ownerByStateId"];
+  cells?: Record<string, MapLayerCell>;
   selectedId: string | null;
   preview: string | null;
   onSelect: (id: string) => void;
@@ -41,7 +44,7 @@ interface Props {
 
 async function mountMap(
   host: HTMLDivElement,
-  scenario: Scenario,
+  baseScenario: Scenario,
   geometry: StateGeometry,
   onSelect: Props["onSelect"],
 ) {
@@ -91,7 +94,7 @@ async function mountMap(
     map.addChild(text);
     return { text, box, height };
   });
-  const capitalMarkers = Object.keys(scenario.countries).map((id) => {
+  const capitalMarkers = Object.keys(baseScenario.countries).map((id) => {
     const { x, y } = capitals[id];
     const marker = new Graphics()
       .circle(0, 0, 7).fill("#56351f").stroke({ color: "#fff4cd", width: 1.5 })
@@ -233,20 +236,26 @@ async function mountMap(
   app.renderer.resize(host.clientWidth, host.clientHeight);
   observer.observe(host);
   let previousOwners: GameState["ownerByStateId"] | null = null,
+    previousCells: Props["cells"] = undefined,
     previousOccupation: string | null = null,
     previousNations: GameState["nations"] | null = null;
   return {
-    draw(game: GameState, owners: GameState["ownerByStateId"], selectedId: string | null, preview: string | null) {
+    draw(game: GameState, owners: GameState["ownerByStateId"], cells: Props["cells"], selectedId: string | null, preview: string | null) {
+      const scenario = scenarioWithCivilWar(baseScenario, game.civilWar);
       const occupation = game.occupation?.stateId ?? null;
-      if (previousNations !== game.nations) {
+      let namesChanged = false;
+      if (previousNations !== game.nations && previousOwners === owners) {
         for (const { text, owner } of nationTexts) {
           const name = countryDisplayName(scenario.countries[owner], game.nations[owner]);
-          if (text.text !== name) text.text = name;
+          if (text.text !== name) {
+            text.text = name;
+            namesChanged = true;
+          }
         }
-        previousNations = game.nations;
       }
+      previousNations = game.nations;
       if (
-        previousOwners === owners &&
+        previousOwners === owners && previousCells === cells && !namesChanged &&
         focus === selectedId && preview === previewCountry &&
         previousOccupation === occupation
       )
@@ -260,24 +269,23 @@ async function mountMap(
         }
       }
       previewCountry = preview;
-      if (previousOwners !== owners) {
+      if (previousOwners !== owners || previousCells !== cells) {
         for (const [id, shape] of shapes) {
           const owner = owners[id];
+          const color = cells ? cells[id].color : owner ? countryColor(scenario.countries[owner]) : UNCLAIMED_COLOR;
           shape.clear();
           for (const [shell, ...holes] of geometry[id]) {
             shape
               .poly(shell.flat())
-              .fill(
-                owner
-                  ? countryColor(scenario.countries[owner])
-                  : UNCLAIMED_COLOR,
-              );
+              .fill(color);
             for (const hole of holes) shape.poly(hole.flat()).cut();
             shape
               .poly(shell.flat())
               .stroke({ color: "#65563a", width: 0.22, alpha: 0.45 });
           }
         }
+      }
+      if (previousOwners !== owners) {
         borders.clear();
         for (const { a, b, states } of edges)
           if (
@@ -339,6 +347,7 @@ async function mountMap(
         }
       focus = selectedId;
       previousOwners = owners;
+      previousCells = cells;
       previousOccupation = occupation;
       place();
     },
@@ -364,18 +373,19 @@ export function StateMap({
   geometry,
   game,
   owners,
+  cells,
   selectedId,
   preview,
   onSelect,
 }: Props) {
   const host = useRef<HTMLDivElement>(null);
   const map = useRef<Awaited<ReturnType<typeof mountMap>>>(null);
-  const frame = useRef({ game, owners, selectedId, preview });
+  const frame = useRef({ game, owners, cells, selectedId, preview });
   const [error, setError] = useState<string>();
   useEffect(() => {
-    frame.current = { game, owners, selectedId, preview };
-    map.current?.draw(game, owners, selectedId, preview);
-  }, [game, owners, selectedId, preview]);
+    frame.current = { game, owners, cells, selectedId, preview };
+    map.current?.draw(game, owners, cells, selectedId, preview);
+  }, [game, owners, cells, selectedId, preview]);
   useEffect(() => {
     let disposed = false;
     void mountMap(host.current!, scenario, geometry, onSelect).then(
@@ -385,7 +395,8 @@ export function StateMap({
           return;
         }
         map.current = instance;
-        instance.draw(frame.current.game, frame.current.owners, frame.current.selectedId, frame.current.preview);
+        const { game, owners, cells, selectedId, preview } = frame.current;
+        instance.draw(game, owners, cells, selectedId, preview);
       },
       (error: unknown) => {
         if (!disposed)

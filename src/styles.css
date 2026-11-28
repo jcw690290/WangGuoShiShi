@@ -686,7 +686,15 @@ input:not([type="checkbox"]) {
 }
 .country-picker footer { display: grid; gap: 8px; padding: 12px; border-top: 1px solid var(--line); }
 .country-picker small { color: var(--muted); }
-.site-chip { position: absolute; bottom: 16px; left: 16px; }
+.site-chip {
+  position: absolute;
+  bottom: max(12px, env(safe-area-inset-bottom));
+  right: max(12px, env(safe-area-inset-right));
+  max-width: min(50%, 24rem);
+  min-height: 44px;
+  text-align: left;
+}
+.site-chip small { display: block; margin-top: 2px; color: var(--muted); }
 .government {
   padding: 0; width: min(960px,96vw); max-height: 88dvh; border: 1px solid var(--line);
   border-radius: 18px; color: var(--ink); background: #eee9dc; overflow: hidden;
@@ -804,9 +812,37 @@ input:not([type="checkbox"]) {
 .ending-gallery dd { margin: 4px 0 12px; }
 .ending-records { padding-inline-start: 20px; }
 .ending-records p { margin: 4px 0; }
-.map-layers { position: absolute; left: 12px; bottom: 12px; display: flex; gap: 4px; }
-.map-layers button { min-height: 44px; }
-.map-layers button[aria-pressed="true"] { background: #e2bf83; color: #332519; }
+.map-layers {
+  position: absolute;
+  left: max(12px, env(safe-area-inset-left));
+  bottom: max(12px, env(safe-area-inset-bottom));
+  display: flex;
+  align-items: end;
+  gap: 4px;
+}
+.map-layers select, .map-legend > summary {
+  min-height: 44px;
+  padding: 8px;
+  color: var(--ink);
+  background: var(--paper);
+  border: 1px solid var(--line);
+  border-radius: 7px;
+}
+.map-legend > summary { cursor: pointer; line-height: 26px; }
+.map-legend-panel {
+  position: absolute;
+  left: 0;
+  bottom: calc(100% + 5px);
+  box-sizing: border-box;
+  width: min(16rem, 88vw);
+  padding: 8px 12px;
+  border: 1px solid var(--line);
+  border-radius: 8px;
+  background: var(--paper);
+}
+.map-legend-panel p { margin: 0 0 6px; }
+.map-legend-panel ul { list-style: none; padding: 0; margin: 0; }
+.map-legend-panel li { display: flex; align-items: center; gap: 8px; }
 .developer-dialog form, .developer-dialog form > div, .difficulty-control { display: grid; gap: 8px; }
 .developer-dialog form + form { margin-top: 16px; }
 .developer-dialog label, .difficulty-control label { display: flex; align-items: center; justify-content: space-between; gap: 8px; }
@@ -815,6 +851,8 @@ input:not([type="checkbox"]) {
 .difficulty-control { margin-bottom: 12px; }
 .country-picker footer { flex-direction: column; align-items: stretch; gap: 6px; }
 @media (max-width: 580px) {
+  .site-chip { max-width: calc(100% - 11rem); }
+  .map-layers select, .map-legend > summary, .site-chip { min-height: 48px; }
   .header-menus { grid-column: 2; grid-row: 1; }
   .online-time-controls { flex-wrap: wrap; }
   .online-time-controls .online-status { display: inline; }
