@@ -178,6 +178,14 @@ function StateIndustry({
             <dd>军人 {silver(snapshot.militaryWages.enlisted)} · 军官 {silver(snapshot.militaryWages.officers)}</dd>
           </div>
         )}
+        {snapshot.clergyPayroll && <div>
+          <dt>教士工资</dt>
+          <dd>{count(snapshot.clergyPayroll.staff)} 个岗位 · {silver(snapshot.clergyPayroll.wages)}</dd>
+        </div>}
+        {snapshot.smallOwnerIncome !== undefined && <div>
+          <dt>小业主税后分红</dt>
+          <dd>{silver(snapshot.smallOwnerIncome)}</dd>
+        </div>}
       </dl>
       <ul className="industry-list">
         {productiveBuildings.map((good) => {

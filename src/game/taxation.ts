@@ -13,15 +13,17 @@ export const exciseGoodsSchema = z.array(z.enum(exciseGoods)).max(exciseGoods.le
   .refine((goods) => new Set(goods).size === goods.length);
 
 const incomeRates = {
-  传统土地身份税: { 农民: 8, 劳工: 8, 工程师: 10, 文职: 10, 资本家: 10, 贵族: 18 },
-  比例所得税: { 农民: 15, 劳工: 15, 工程师: 15, 文职: 15, 资本家: 15, 贵族: 15 },
-  累进所得税: { 农民: 10, 劳工: 10, 工程师: 18, 文职: 18, 资本家: 28, 贵族: 28 },
-  消费税制: { 农民: 5, 劳工: 5, 工程师: 5, 文职: 5, 资本家: 5, 贵族: 5 },
-  工资税改革: { 农民: 5, 劳工: 14, 工程师: 14, 文职: 14, 资本家: 5, 贵族: 5 },
+  传统土地身份税: { 农民: 8, 劳工: 8, 工程师: 10, 文职: 10, 教士: 10, 店主: 10, 资本家: 10, 贵族: 18 },
+  比例所得税: { 农民: 15, 劳工: 15, 工程师: 15, 文职: 15, 教士: 15, 店主: 15, 资本家: 15, 贵族: 15 },
+  累进所得税: { 农民: 10, 劳工: 10, 工程师: 18, 文职: 18, 教士: 18, 店主: 18, 资本家: 28, 贵族: 28 },
+  消费税制: { 农民: 5, 劳工: 5, 工程师: 5, 文职: 5, 教士: 5, 店主: 5, 资本家: 5, 贵族: 5 },
+  工资税改革: { 农民: 5, 劳工: 14, 工程师: 14, 文职: 14, 教士: 14, 店主: 5, 资本家: 5, 贵族: 5 },
 } as const;
 export type TaxSystem = keyof typeof incomeRates;
 export type HouseholdIncome = Record<keyof typeof incomeRates.传统土地身份税, number>;
-export const emptyHouseholdIncome = (): HouseholdIncome => ({ 农民: 0, 劳工: 0, 工程师: 0, 文职: 0, 资本家: 0, 贵族: 0 });
+export const emptyHouseholdIncome = (): HouseholdIncome => ({
+  农民: 0, 劳工: 0, 工程师: 0, 文职: 0, 教士: 0, 店主: 0, 资本家: 0, 贵族: 0,
+});
 const systems = [...taxLaws, "工资税改革"] as const;
 export function taxPolicy(nation: Nation) {
   const system = systems.find((law) => nation.laws.includes(law)) ?? "传统土地身份税";
